@@ -3,6 +3,7 @@ package osm
 import (
 	"math"
 	"strconv"
+	"strings"
 
 	"github.com/chapmanjacobd/poisearch/internal/config"
 )
@@ -11,28 +12,31 @@ type Classification struct {
 	Class      string
 	Subtype    string
 	Importance float64
+	OntLevel   int // Ontological level (0-6), -1 if not applicable
 }
 
-func Classify(tags map[string]string, weights *config.ImportanceWeights) *Classification {
-	// Priority order for identifying the "primary" purpose of an OSM object.
-	priorityKeys := []string{
+// ClassifyMulti returns all applicable classifications for a set of OSM tags.
+// A single POI can have multiple classifications (e.g., a building that is both
+// a historic castle and a tourism museum).
+func ClassifyMulti(tags map[string]string, weights *config.ImportanceWeights, ont *PlaceTypeOntology) []*Classification {
+	// All keys that can contribute to classification
+	classifiableKeys := []string{
 		"place", "amenity", "shop", "tourism", "leisure",
 		"historic", "natural", "railway", "aeroway", "highway",
 		"boundary", "landuse",
 	}
 
-	var class, subtype string
-	var importance float64
+	var results []*Classification
 
-	for _, k := range priorityKeys {
+	for _, k := range classifiableKeys {
 		v, ok := tags[k]
 		if !ok || v == "" || v == "yes" || v == "no" {
 			continue
 		}
 
-		class = k
-		subtype = v
-		importance = weights.Default
+		class := k
+		subtype := v
+		importance := weights.Default
 
 		// Map OSM keys to our simplified classes
 		switch k {
@@ -48,8 +52,8 @@ func Classify(tags map[string]string, weights *config.ImportanceWeights) *Classi
 				importance = w
 				foundWeight = true
 			} else {
-				// We usually only index places if they are in our whitelist (cities, towns, etc.)
-				return nil
+				// Skip places not in our whitelist
+				continue
 			}
 		case "amenity":
 			if w, ok := weights.Amenity[v]; ok {
@@ -117,12 +121,77 @@ func Classify(tags map[string]string, weights *config.ImportanceWeights) *Classi
 			importance += weights.Wiki
 		}
 
-		return &Classification{
+		// Ontology boost: boost based on ontological level
+		ontLevel := -1
+		if ont != nil {
+			ontLevel = ont.GetMinLevelForOSM(k, v)
+			if ontLevel >= 0 {
+				importance *= ont.BoostByOntology(ontLevel)
+			}
+		}
+
+		results = append(results, &Classification{
 			Class:      class,
 			Subtype:    subtype,
 			Importance: importance,
-		}
+			OntLevel:   ontLevel,
+		})
 	}
 
-	return nil
+	return results
+}
+
+// Classify returns the first (highest priority) classification for a set of OSM tags.
+// Kept for backward compatibility. Use ClassifyMulti for multi-class support.
+func Classify(tags map[string]string, weights *config.ImportanceWeights) *Classification {
+	return ClassifyWithOntology(tags, weights, nil)
+}
+
+// ClassifyWithOntology returns the highest-importance classification with ontology support.
+func ClassifyWithOntology(tags map[string]string, weights *config.ImportanceWeights, ont *PlaceTypeOntology) *Classification {
+	results := ClassifyMulti(tags, weights, ont)
+	if len(results) == 0 {
+		return nil
+	}
+	// Return the classification with highest importance
+	best := results[0]
+	for _, r := range results[1:] {
+		if r.Importance > best.Importance {
+			best = r
+		}
+	}
+	return best
+}
+
+// ParseClasses parses a comma-separated class filter string into a slice.
+// Supports wildcard syntax: "shop=*" returns class "shop" with any subtype.
+func ParseClasses(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
+// ParseSubtypes parses a comma-separated subtype filter string into a slice.
+func ParseSubtypes(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }

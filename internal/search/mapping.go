@@ -42,6 +42,10 @@ func BuildIndexMapping(conf *config.Config) mapping.IndexMapping {
 	docMapping.AddFieldMappingsAt("class", keywordMapping)
 	docMapping.AddFieldMappingsAt("subtype", keywordMapping)
 
+	// Multi-class fields (stored as comma-separated for filtering)
+	docMapping.AddFieldMappingsAt("classes", keywordMapping)
+	docMapping.AddFieldMappingsAt("subtypes", keywordMapping)
+
 	// Importance
 	numMapping := bleve.NewNumericFieldMapping()
 	numMapping.IncludeInAll = false

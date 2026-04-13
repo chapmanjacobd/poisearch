@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -9,78 +10,234 @@ import (
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/chapmanjacobd/poisearch/internal/config"
+	"github.com/chapmanjacobd/poisearch/internal/osm"
 	"github.com/chapmanjacobd/poisearch/internal/search"
 )
 
 func RegisterHandlers(mux *http.ServeMux, index bleve.Index, conf *config.Config) {
+	RegisterHandlersWithPBF(mux, index, conf, "")
+}
+
+func RegisterHandlersWithPBF(mux *http.ServeMux, index bleve.Index, conf *config.Config, pbfPath string) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
 
 	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query().Get("q")
-		latStr := r.URL.Query().Get("lat")
-		lonStr := r.URL.Query().Get("lon")
-		radius := r.URL.Query().Get("radius")
-		limitStr := r.URL.Query().Get("limit")
-		langsStr := r.URL.Query().Get("langs")
-		fuzzy := r.URL.Query().Get("fuzzy") == "1" || r.URL.Query().Get("fuzzy") == "true"
-		prefix := r.URL.Query().Get("prefix") == "1" || r.URL.Query().Get("prefix") == "true"
-		class := r.URL.Query().Get("class")
-		subtype := r.URL.Query().Get("subtype")
-
-		var lat, lon *float64
-		if latStr != "" {
-			l, err := strconv.ParseFloat(latStr, 64)
-			if err == nil {
-				lat = &l
-			}
-		}
-		if lonStr != "" {
-			l, err := strconv.ParseFloat(lonStr, 64)
-			if err == nil {
-				lon = &l
-			}
-		}
-
-		limit := 10
-		if limitStr != "" {
-			l, err := strconv.Atoi(limitStr)
-			if err == nil {
-				limit = l
-			}
-		}
-
-		var langs []string
-		if langsStr != "" {
-			langs = strings.Split(langsStr, ",")
-		} else {
-			langs = conf.Languages
-		}
-
-		params := search.SearchParams{
-			Query:   q,
-			Lat:     lat,
-			Lon:     lon,
-			Radius:  radius,
-			Limit:   limit,
-			Langs:   langs,
-			GeoMode: conf.GeometryMode,
-			Fuzzy:   fuzzy,
-			Prefix:  prefix,
-			Class:   class,
-			Subtype: subtype,
-		}
-
-		res, err := search.Search(index, params)
-		if err != nil {
-			slog.Error("search failed", "error", err, "query", q)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		// If PBF path is configured and ?mode=pbf is set, use direct PBF search
+		if pbfPath != "" && r.URL.Query().Get("mode") == "pbf" {
+			handlePBFSearch(w, r, pbfPath, conf)
 			return
 		}
+		handleIndexSearch(w, r, index, conf)
+	})
+}
 
+func handlePBFSearch(w http.ResponseWriter, r *http.Request, pbfPath string, conf *config.Config) {
+	q := r.URL.Query().Get("q")
+	latStr := r.URL.Query().Get("lat")
+	lonStr := r.URL.Query().Get("lon")
+	radius := r.URL.Query().Get("radius")
+	limitStr := r.URL.Query().Get("limit")
+	class := r.URL.Query().Get("class")
+	subtype := r.URL.Query().Get("subtype")
+	format := r.URL.Query().Get("format")
+
+	var lat, lon *float64
+	if latStr != "" {
+		l, err := strconv.ParseFloat(latStr, 64)
+		if err == nil {
+			lat = &l
+		}
+	}
+	if lonStr != "" {
+		l, err := strconv.ParseFloat(lonStr, 64)
+		if err == nil {
+			lon = &l
+		}
+	}
+
+	limit := 10
+	if limitStr != "" {
+		l, err := strconv.Atoi(limitStr)
+		if err == nil {
+			limit = l
+		}
+	}
+
+	params := search.SearchParams{
+		Query:   q,
+		Lat:     lat,
+		Lon:     lon,
+		Radius:  radius,
+		Limit:   limit,
+		Langs:   conf.Languages,
+		GeoMode: conf.GeometryMode,
+		Class:   class,
+		Subtype: subtype,
+	}
+
+	res, err := osm.PBFSearch(pbfPath, params, conf)
+	if err != nil {
+		slog.Error("PBF search failed", "error", err, "query", q)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if format == "text" || strings.Contains(r.Header.Get("Accept"), "text/plain") {
+		writeTextResponse(w, res, conf.Languages)
+	} else {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(res)
-	})
+	}
+}
+
+func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index, conf *config.Config) {
+	q := r.URL.Query().Get("q")
+	latStr := r.URL.Query().Get("lat")
+	lonStr := r.URL.Query().Get("lon")
+	radius := r.URL.Query().Get("radius")
+	limitStr := r.URL.Query().Get("limit")
+	langsStr := r.URL.Query().Get("langs")
+	fuzzy := r.URL.Query().Get("fuzzy") == "1" || r.URL.Query().Get("fuzzy") == "true"
+	prefix := r.URL.Query().Get("prefix") == "1" || r.URL.Query().Get("prefix") == "true"
+	class := r.URL.Query().Get("class")
+	subtype := r.URL.Query().Get("subtype")
+	classes := r.URL.Query().Get("classes")    // comma-separated multi-class
+	subtypes := r.URL.Query().Get("subtypes") // comma-separated multi-subtype
+	format := r.URL.Query().Get("format")      // "json" (default) or "text"
+
+	var lat, lon *float64
+	if latStr != "" {
+		l, err := strconv.ParseFloat(latStr, 64)
+		if err == nil {
+			lat = &l
+		}
+	}
+	if lonStr != "" {
+		l, err := strconv.ParseFloat(lonStr, 64)
+		if err == nil {
+			lon = &l
+		}
+	}
+
+	limit := 10
+	if limitStr != "" {
+		l, err := strconv.Atoi(limitStr)
+		if err == nil {
+			limit = l
+		}
+	}
+
+	var langs []string
+	if langsStr != "" {
+		langs = strings.Split(langsStr, ",")
+	} else {
+		langs = conf.Languages
+	}
+
+	// Parse multi-value filters
+	var classList []string
+	if classes != "" {
+		classList = strings.Split(classes, ",")
+	}
+	var subtypeList []string
+	if subtypes != "" {
+		subtypeList = strings.Split(subtypes, ",")
+	}
+
+	params := search.SearchParams{
+		Query:    q,
+		Lat:      lat,
+		Lon:      lon,
+		Radius:   radius,
+		Limit:    limit,
+		Langs:    langs,
+		GeoMode:  conf.GeometryMode,
+		Fuzzy:    fuzzy,
+		Prefix:   prefix,
+		Class:    class,
+		Subtype:  subtype,
+		Classes:  classList,
+		Subtypes: subtypeList,
+	}
+
+	res, err := search.Search(index, params)
+	if err != nil {
+		slog.Error("search failed", "error", err, "query", q)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Support text/plain output format (UNIX-pipe-friendly)
+	if format == "text" || strings.Contains(r.Header.Get("Accept"), "text/plain") {
+		writeTextResponse(w, res, langs)
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(res)
+	}
+}
+
+// writeTextResponse writes search results in a simple key-value format
+// suitable for piping through UNIX tools like grep, awk, etc.
+func writeTextResponse(w http.ResponseWriter, res *bleve.SearchResult, langs []string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+
+	for i, hit := range res.Hits {
+		if i > 0 {
+			fmt.Fprintln(w) // Blank line between entities
+		}
+
+		// Basic info
+		fmt.Fprintf(w, "id: %s\n", hit.ID)
+		fmt.Fprintf(w, "score: %.6f\n", hit.Score)
+
+		// Extract fields
+		if name, ok := hit.Fields["name"].(string); ok && name != "" {
+			fmt.Fprintf(w, "name: %s\n", name)
+		}
+		if class, ok := hit.Fields["class"].(string); ok && class != "" {
+			fmt.Fprintf(w, "class: %s\n", class)
+		}
+		if subtype, ok := hit.Fields["subtype"].(string); ok && subtype != "" {
+			fmt.Fprintf(w, "subtype: %s\n", subtype)
+		}
+		if classes, ok := hit.Fields["classes"].(string); ok && classes != "" {
+			fmt.Fprintf(w, "classes: %s\n", classes)
+		}
+		if subtypes, ok := hit.Fields["subtypes"].(string); ok && subtypes != "" {
+			fmt.Fprintf(w, "subtypes: %s\n", subtypes)
+		}
+		if importance, ok := hit.Fields["importance"].(float64); ok {
+			fmt.Fprintf(w, "importance: %.6f\n", importance)
+		}
+
+		// Alternate names
+		for _, altKey := range []string{"alt_name", "old_name", "short_name"} {
+			if val, ok := hit.Fields[altKey].(string); ok && val != "" {
+				fmt.Fprintf(w, "%s: %s\n", altKey, val)
+			}
+		}
+
+		// Localized names
+		for _, lang := range langs {
+			if val, ok := hit.Fields["name:"+lang].(string); ok && val != "" {
+				fmt.Fprintf(w, "name:%s: %s\n", lang, val)
+			}
+		}
+
+		// Geometry (simplified)
+		if geom, ok := hit.Fields["geometry"].(map[string]interface{}); ok {
+			if lat, ok := geom["lat"].(float64); ok {
+				fmt.Fprintf(w, "lat: %.5f\n", lat)
+			}
+			if lon, ok := geom["lon"].(float64); ok {
+				fmt.Fprintf(w, "lon: %.5f\n", lon)
+			}
+		}
+	}
+
+	// Summary
+	fmt.Fprintf(w, "\n---\ntotal: %d\nreturned: %d\n", res.Total, len(res.Hits))
 }

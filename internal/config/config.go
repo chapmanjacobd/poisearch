@@ -2,6 +2,9 @@ package config
 
 type Config struct {
 	IndexPath             string             `toml:"index_path"`
+	PBFPath               string             `toml:"pbf_path"`             // Optional: path to PBF for direct (no-index) search
+	WikidataImportance    string             `toml:"wikidata_importance"`  // Optional: path to wikimedia_importance.tsv.gz
+	OntologyPath          string             `toml:"ontology_path"`        // Optional: path to custom place type ontology CSV
 	Languages             []string           `toml:"languages"`
 	Importance            ImportanceWeights  `toml:"importance"`
 	GeometryMode          string             `toml:"geometry_mode"`           // "geopoint", "geoshape-bbox", "geoshape-simplified", "geoshape-full", "no-geo"

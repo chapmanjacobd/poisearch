@@ -27,7 +27,7 @@ func TestClassify(t *testing.T) {
 			expected: &Classification{
 				Class:      "place",
 				Subtype:    "city",
-				Importance: 5.0 + 2.76, // 5 + ln(1000001)/5 ≈ 5 + 13.8/5 ≈ 5 + 2.76
+				Importance: 5.0 + 69.077558, // 5 + ln(1000001) * 5 ≈ 5 + 13.8155 * 5 ≈ 5 + 69.0776
 			},
 		},
 		{

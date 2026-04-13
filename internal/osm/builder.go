@@ -24,6 +24,31 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 	scanner := osmpbf.New(context.Background(), f, 4)
 	defer scanner.Close()
 
+	// Load Wikidata importance lookup if configured
+	var wdLookup *WikidataLookup
+	if conf.WikidataImportance != "" {
+		wdLookup, err = LoadWikidataImportance(conf.WikidataImportance)
+		if err != nil {
+			slog.Warn("failed to load wikidata importance file, continuing without it", "error", err)
+		} else {
+			slog.Info("loaded wikidata importance scores", "count", wdLookup.Size())
+		}
+	}
+
+	// Load place type ontology if configured
+	var ont *PlaceTypeOntology
+	if conf.OntologyPath != "" {
+		ont, err = LoadOntologyFromCSV(conf.OntologyPath)
+		if err != nil {
+			slog.Warn("failed to load ontology file, continuing without it", "error", err)
+		} else {
+			slog.Info("loaded place type ontology", "entries", len(ont.levels))
+		}
+	} else {
+		// Use default built-in ontology
+		ont = DefaultOntology()
+	}
+
 	geosCtx := geos.NewContext()
 	count := 0
 	batch := index.NewBatch()
@@ -82,8 +107,8 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 			}
 		}
 
-		classification := Classify(tags, &conf.Importance)
-		if classification == nil {
+		classifications := ClassifyMulti(tags, &conf.Importance, ont)
+		if len(classifications) == 0 {
 			continue
 		}
 
@@ -97,23 +122,50 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 			}
 		}
 
+		// Use the highest-importance classification as primary
+		best := classifications[0]
+		for _, c := range classifications[1:] {
+			if c.Importance > best.Importance {
+				best = c
+			}
+		}
+
+		// Apply Wikidata importance boost if available
+		if wdLookup != nil && tags["wikidata"] != "" {
+			wdImportance := wdLookup.GetImportance(tags["wikidata"])
+			if wdImportance > 0 {
+				// Boost importance significantly for Wikidata-matched POIs
+				// Scale: wikidata importance (0-1) is added to the base importance
+				best.Importance += wdImportance * 10.0
+			}
+		}
+
 		feature := &search.Feature{
 			ID:         fmt.Sprintf("%s/%d", obj.ObjectID().Type(), id),
 			Name:       tags["name"],
 			Names:      make(map[string]string),
-			Importance: classification.Importance,
+			Importance: best.Importance,
 			Geometry:   geom,
+			Class:      best.Class,
+			Subtype:    best.Subtype,
 		}
 
 		if !conf.DisableImportance {
-			feature.Importance = classification.Importance
+			feature.Importance = best.Importance
 		} else {
 			feature.Importance = 0
 		}
 
 		if !conf.DisableClassSubtype {
-			feature.Class = classification.Class
-			feature.Subtype = classification.Subtype
+			// Collect all classes and subtypes for multi-class support
+			classes := make([]string, len(classifications))
+			subtypes := make([]string, len(classifications))
+			for i, c := range classifications {
+				classes[i] = c.Class
+				subtypes[i] = c.Subtype
+			}
+			feature.Classes = classes
+			feature.Subtypes = subtypes
 		}
 
 		if !conf.DisableAltNames {

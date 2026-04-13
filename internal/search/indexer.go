@@ -2,6 +2,7 @@ package search
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/mapping"
@@ -13,6 +14,8 @@ type Feature struct {
 	Names      map[string]string `json:"names"` // name:en, name:zh, etc.
 	Class      string            `json:"class"`
 	Subtype    string            `json:"subtype"`
+	Classes    []string          `json:"classes,omitempty"`  // multi-class support
+	Subtypes   []string          `json:"subtypes,omitempty"` // multi-class support
 	Importance float64           `json:"importance"`
 	Geometry   any               `json:"geometry"`
 }
@@ -46,6 +49,13 @@ func FeatureToMap(f *Feature) map[string]any {
 	}
 	for k, v := range f.Names {
 		m[k] = v
+	}
+	// Store multi-class fields for filtering
+	if len(f.Classes) > 0 {
+		m["classes"] = strings.Join(f.Classes, ",")
+	}
+	if len(f.Subtypes) > 0 {
+		m["subtypes"] = strings.Join(f.Subtypes, ",")
 	}
 	return m
 }

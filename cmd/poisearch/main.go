@@ -43,6 +43,7 @@ type Server struct {
 	index     bleve.Index
 	indexLock sync.RWMutex
 	conf      *config.Config
+	pbfPath   string
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -50,12 +51,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer s.indexLock.RUnlock()
 
 	mux := http.NewServeMux()
-	api.RegisterHandlers(mux, s.index, s.conf)
+	api.RegisterHandlersWithPBF(mux, s.index, s.conf, s.pbfPath)
 	mux.ServeHTTP(w, r)
 }
 
 func (s *ServeCmd) Run(conf *config.Config) error {
-	slog.Info("serving", "host", conf.Server.Host, "port", conf.Server.Port, "index", conf.IndexPath)
+	slog.Info("serving", "host", conf.Server.Host, "port", conf.Server.Port, "index", conf.IndexPath, "pbf", conf.PBFPath)
 
 	index, err := bleve.Open(conf.IndexPath)
 	if err != nil {
@@ -63,8 +64,9 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 	}
 
 	srv := &Server{
-		index: index,
-		conf:  conf,
+		index:   index,
+		conf:    conf,
+		pbfPath: conf.PBFPath,
 	}
 
 	addr := fmt.Sprintf("%s:%d", conf.Server.Host, conf.Server.Port)
