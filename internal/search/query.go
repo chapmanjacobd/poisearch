@@ -20,6 +20,26 @@ type SearchParams struct {
 	Limit   int
 	Langs   []string
 	GeoMode string
+
+	// Advanced features
+	Fuzzy   bool
+	Prefix  bool
+	Class   string
+	Subtype string
+}
+
+func addNameQuery(q string, fuzzy bool, prefix bool, field string) query.Query {
+	if prefix {
+		pq := bleve.NewPrefixQuery(q)
+		pq.SetField(field)
+		return pq
+	}
+	mq := bleve.NewMatchQuery(q)
+	mq.SetField(field)
+	if fuzzy {
+		mq.SetFuzziness(1)
+	}
+	return mq
 }
 
 func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error) {
@@ -28,16 +48,36 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	if params.Query != "" {
 		// Search across multiple name fields
 		nameQueries := []query.Query{
-			bleve.NewMatchQuery(params.Query),
+			addNameQuery(params.Query, params.Fuzzy, params.Prefix, "name"),
+			addNameQuery(params.Query, params.Fuzzy, params.Prefix, "alt_name"),
+			addNameQuery(params.Query, params.Fuzzy, params.Prefix, "old_name"),
+			addNameQuery(params.Query, params.Fuzzy, params.Prefix, "short_name"),
 		}
 		for _, lang := range params.Langs {
-			mq := bleve.NewMatchQuery(params.Query)
-			mq.SetField("name:" + lang)
-			nameQueries = append(nameQueries, mq)
+			nameQueries = append(nameQueries, addNameQuery(params.Query, params.Fuzzy, params.Prefix, "name:"+lang))
+			nameQueries = append(nameQueries, addNameQuery(params.Query, params.Fuzzy, params.Prefix, "alt_name:"+lang))
+			nameQueries = append(nameQueries, addNameQuery(params.Query, params.Fuzzy, params.Prefix, "old_name:"+lang))
+			nameQueries = append(nameQueries, addNameQuery(params.Query, params.Fuzzy, params.Prefix, "short_name:"+lang))
 		}
 		q = bleve.NewDisjunctionQuery(nameQueries...)
 	} else {
 		q = bleve.NewMatchAllQuery()
+	}
+
+	// Filter by class and subtype
+	if params.Class != "" || params.Subtype != "" {
+		conjunctions := []query.Query{q}
+		if params.Class != "" {
+			cq := bleve.NewTermQuery(params.Class)
+			cq.SetField("class")
+			conjunctions = append(conjunctions, cq)
+		}
+		if params.Subtype != "" {
+			sq := bleve.NewTermQuery(params.Subtype)
+			sq.SetField("subtype")
+			conjunctions = append(conjunctions, sq)
+		}
+		q = bleve.NewConjunctionQuery(conjunctions...)
 	}
 
 	if params.Lat != nil && params.Lon != nil && params.Radius != "" {
@@ -61,15 +101,12 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	} else if params.MinLat != nil && params.MaxLat != nil && params.MinLon != nil && params.MaxLon != nil {
 		var spatialQuery query.Query
 		if params.GeoMode == "geopoint" {
-			// bleve wants [top-left-lon, top-left-lat] and [bottom-right-lon, bottom-right-lat]
-			// We use MinLat/MaxLat MinLon/MaxLon for clarity.
 			// Top-left = [MinLon, MaxLat], Bottom-right = [MaxLon, MinLat]
 			sq := bleve.NewGeoBoundingBoxQuery(*params.MinLon, *params.MaxLat, *params.MaxLon, *params.MinLat)
 			sq.SetField("geometry")
 			spatialQuery = sq
 		} else if params.GeoMode != "" {
 			// For geoshape, use an envelope query (bbox)
-			// NewGeoShapeQuery expects [][][][]float64
 			envelope := [][][][]float64{
 				{
 					{{*params.MinLon, *params.MaxLat}, {*params.MaxLon, *params.MinLat}},
@@ -93,18 +130,14 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		searchRequest.Size = 10
 	}
 
-	// Sorting: Importance first, then score.
-	// If we have a location, we might want to sort by distance,
-	// but Bleve's GeoDistanceQuery doesn't automatically add a "distance" field for sorting easily
-	// without using a SortBy that includes a GeoDistanceSort.
-	// For now, stick to Importance + Score.
 	searchRequest.SortBy([]string{"-importance", "_score"})
 
 	// Fields to return
-	searchRequest.Fields = []string{"id", "name", "class", "subtype", "importance", "geometry"}
+	fields := []string{"id", "name", "alt_name", "old_name", "short_name", "class", "subtype", "importance", "geometry"}
 	for _, lang := range params.Langs {
-		searchRequest.Fields = append(searchRequest.Fields, "name:"+lang)
+		fields = append(fields, "name:"+lang, "alt_name:"+lang, "old_name:"+lang, "short_name:"+lang)
 	}
+	searchRequest.Fields = fields
 
 	return index.Search(searchRequest)
 }

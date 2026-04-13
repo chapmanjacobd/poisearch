@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +13,11 @@ import (
 )
 
 func RegisterHandlers(mux *http.ServeMux, index bleve.Index, conf *config.Config) {
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
 	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("q")
 		latStr := r.URL.Query().Get("lat")
@@ -19,6 +25,10 @@ func RegisterHandlers(mux *http.ServeMux, index bleve.Index, conf *config.Config
 		radius := r.URL.Query().Get("radius")
 		limitStr := r.URL.Query().Get("limit")
 		langsStr := r.URL.Query().Get("langs")
+		fuzzy := r.URL.Query().Get("fuzzy") == "1" || r.URL.Query().Get("fuzzy") == "true"
+		prefix := r.URL.Query().Get("prefix") == "1" || r.URL.Query().Get("prefix") == "true"
+		class := r.URL.Query().Get("class")
+		subtype := r.URL.Query().Get("subtype")
 
 		var lat, lon *float64
 		if latStr != "" {
@@ -57,10 +67,15 @@ func RegisterHandlers(mux *http.ServeMux, index bleve.Index, conf *config.Config
 			Limit:   limit,
 			Langs:   langs,
 			GeoMode: conf.GeometryMode,
+			Fuzzy:   fuzzy,
+			Prefix:  prefix,
+			Class:   class,
+			Subtype: subtype,
 		}
 
 		res, err := search.Search(index, params)
 		if err != nil {
+			slog.Error("search failed", "error", err, "query", q)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

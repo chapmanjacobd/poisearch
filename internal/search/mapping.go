@@ -14,9 +14,15 @@ func BuildIndexMapping(langs []string, geoMode string) mapping.IndexMapping {
 	nameFieldMapping := bleve.NewTextFieldMapping()
 	nameFieldMapping.Analyzer = "en" // Default analyzer
 	docMapping.AddFieldMappingsAt("name", nameFieldMapping)
+	docMapping.AddFieldMappingsAt("alt_name", nameFieldMapping)
+	docMapping.AddFieldMappingsAt("old_name", nameFieldMapping)
+	docMapping.AddFieldMappingsAt("short_name", nameFieldMapping)
 
 	for _, lang := range langs {
 		docMapping.AddFieldMappingsAt("name:"+lang, nameFieldMapping)
+		docMapping.AddFieldMappingsAt("alt_name:"+lang, nameFieldMapping)
+		docMapping.AddFieldMappingsAt("old_name:"+lang, nameFieldMapping)
+		docMapping.AddFieldMappingsAt("short_name:"+lang, nameFieldMapping)
 	}
 
 	// Class and Subtype

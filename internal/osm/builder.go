@@ -3,7 +3,7 @@ package osm
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
 	"github.com/blevesearch/bleve/v2"
@@ -59,6 +59,7 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 			continue
 		}
 
+		altNames := []string{"alt_name", "old_name", "short_name"}
 		feature := &search.Feature{
 			ID:         fmt.Sprintf("%s/%d", obj.ObjectID().Type(), id),
 			Name:       tags["name"],
@@ -69,15 +70,26 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 			Geometry:   geom,
 		}
 
+		for _, alt := range altNames {
+			if val, ok := tags[alt]; ok {
+				feature.Names[alt] = val
+			}
+		}
+
 		for _, lang := range conf.Languages {
 			if name, ok := tags["name:"+lang]; ok {
 				feature.Names["name:"+lang] = name
+			}
+			for _, alt := range altNames {
+				if val, ok := tags[alt+":"+lang]; ok {
+					feature.Names[alt+":"+lang] = val
+				}
 			}
 		}
 
 		err = batch.Index(feature.ID, search.FeatureToMap(feature))
 		if err != nil {
-			log.Printf("error indexing feature %s: %v", feature.ID, err)
+			slog.Error("error indexing feature", "id", feature.ID, "error", err)
 			continue
 		}
 
@@ -89,7 +101,7 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 			}
 			batch = index.NewBatch()
 			if count%10000 == 0 {
-				log.Printf("indexed %d features...", count)
+				slog.Info("indexed features", "count", count)
 			}
 		}
 	}
@@ -105,6 +117,6 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 		return err
 	}
 
-	log.Printf("Finished! Indexed %d features.", count)
+	slog.Info("Finished!", "indexed_features", count)
 	return nil
 }

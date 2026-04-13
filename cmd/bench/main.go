@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/blevesearch/bleve/v2"
@@ -11,6 +12,12 @@ import (
 	"github.com/chapmanjacobd/poisearch/internal/osm"
 	"github.com/chapmanjacobd/poisearch/internal/search"
 )
+
+type BenchmarkResult struct {
+	Label   string
+	Latency time.Duration
+	Results int
+}
 
 func main() {
 	pbf := "liechtenstein-latest.osm.pbf"
@@ -59,51 +66,60 @@ func runFullBench(pbf string, conf *config.Config) {
 		}
 		fmt.Printf("Build time: %v\n", time.Since(start))
 
-		// Benchmark Search
 		lat, lon := 47.14, 9.52 // Vaduz
 		radius := "500m"
-		
-		// BBox roughly equivalent to 500m
 		dLat := 0.0045
 		dLon := 0.0066
 		minLat, maxLat := lat-dLat, lat+dLat
 		minLon, maxLon := lon-dLon, lon+dLon
 
-		// 1. Radius Search
-		benchmark(index, "Radius", search.SearchParams{
-			Lat:     &lat,
-			Lon:     &lon,
-			Radius:  radius,
-			GeoMode: mode,
-			Limit:   50,
+		scenarios := []struct {
+			Label  string
+			Params search.SearchParams
+		}{
+			{"Basic Search", search.SearchParams{Query: "Vaduz", GeoMode: mode, Limit: 50}},
+			{"Radius Search", search.SearchParams{Lat: &lat, Lon: &lon, Radius: radius, GeoMode: mode, Limit: 50}},
+			{"BBox Search", search.SearchParams{MinLat: &minLat, MaxLat: &maxLat, MinLon: &minLon, MaxLon: &maxLon, GeoMode: mode, Limit: 50}},
+			{"Fuzzy Search", search.SearchParams{Query: "Vadu", Fuzzy: true, GeoMode: mode, Limit: 50}},
+			{"Prefix Search", search.SearchParams{Query: "Vad", Prefix: true, GeoMode: mode, Limit: 50}},
+			{"Class Filter", search.SearchParams{Query: "Vaduz", Class: "place", GeoMode: mode, Limit: 50}},
+			{"Subtype Filter", search.SearchParams{Query: "Vaduz", Subtype: "city", GeoMode: mode, Limit: 50}},
+			{"Combined (Fuzzy+Class)", search.SearchParams{Query: "Vadu", Fuzzy: true, Class: "place", GeoMode: mode, Limit: 50}},
+		}
+
+		var results []BenchmarkResult
+		for _, s := range scenarios {
+			res := benchmark(index, s.Label, s.Params)
+			results = append(results, res)
+		}
+
+		sort.Slice(results, func(i, j int) bool {
+			return results[i].Latency < results[j].Latency
 		})
 
-		// 2. BBox Search
-		benchmark(index, "BBox", search.SearchParams{
-			MinLat:  &minLat,
-			MaxLat:  &maxLat,
-			MinLon:  &minLon,
-			MaxLon:  &maxLon,
-			GeoMode: mode,
-			Limit:   50,
-		})
+		fmt.Println("\nPerformance Summary (Sorted by Latency):")
+		fmt.Printf("%-25s %-15s %-10s\n", "Scenario", "Avg Latency", "Results")
+		fmt.Println("------------------------------------------------------------")
+		for _, r := range results {
+			fmt.Printf("%-25s %-15v %-10d\n", r.Label, r.Latency, r.Results)
+		}
 
 		index.Close()
 	}
 }
 
-func benchmark(index bleve.Index, label string, params search.SearchParams) {
+func benchmark(index bleve.Index, label string, params search.SearchParams) BenchmarkResult {
 	start := time.Now()
 	iterations := 200
 	var count int
-	
+
 	for i := 0; i < iterations; i++ {
 		res, err := search.Search(index, params)
 		if err != nil {
-			log.Fatalf("Search failed: %v", err)
+			log.Fatalf("Search failed for %s: %v", label, err)
 		}
 		count = int(res.Total)
 	}
 	avg := time.Since(start) / time.Duration(iterations)
-	fmt.Printf("%s Search: Avg Latency: %v, Results: %d\n", label, avg, count)
+	return BenchmarkResult{Label: label, Latency: avg, Results: count}
 }
