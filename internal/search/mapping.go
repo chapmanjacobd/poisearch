@@ -46,7 +46,7 @@ func BuildIndexMapping(langs []string, geoMode string) mapping.IndexMapping {
 
 	// Geometry
 	if geoMode != "" && geoMode != "no-geo" {
-		if geoMode == "geopoint" {
+		if geoMode == "geopoint" || geoMode == "geopoint-centroid" {
 			geoMapping := bleve.NewGeoPointFieldMapping()
 			docMapping.AddFieldMappingsAt("geometry", geoMapping)
 		} else {

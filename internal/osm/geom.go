@@ -12,6 +12,7 @@ type GeometryMode string
 
 const (
 	ModeGeopoint         GeometryMode = "geopoint"
+	ModeGeopointCentroid GeometryMode = "geopoint-centroid"
 	ModeGeoshapeBBox     GeometryMode = "geoshape-bbox"
 	ModeGeoshapeSimplify GeometryMode = "geoshape-simplified"
 	ModeGeoshapeFull     GeometryMode = "geoshape-full"
@@ -47,7 +48,6 @@ func CreateGeometry(obj osm.Object, mode GeometryMode, tolerance float64, ctx *g
 			return nil, fmt.Errorf("relation without bounds")
 		}
 	default:
-		// Relations if needed, but for "lightweight" we might skip them or just use Centroid if pre-processed.
 		return nil, fmt.Errorf("unsupported object type")
 	}
 
@@ -55,11 +55,19 @@ func CreateGeometry(obj osm.Object, mode GeometryMode, tolerance float64, ctx *g
 		return nil, fmt.Errorf("could not create geometry")
 	}
 
-	if mode == ModeGeopoint {
-		pt, _, err := representativePoint(g, ctx)
-		if err != nil {
-			return nil, err
+	if mode == ModeGeopoint || mode == ModeGeopointCentroid {
+		var pt *geos.Geom
+		var err error
+		if mode == ModeGeopointCentroid {
+			pt = g.Centroid()
+		} else {
+			pt, _, err = representativePoint(g, ctx)
 		}
+
+		if err != nil || pt == nil {
+			return nil, fmt.Errorf("could not create geopoint: %v", err)
+		}
+
 		return map[string]any{
 			"lat": truncate(pt.Y()),
 			"lon": truncate(pt.X()),
@@ -78,8 +86,8 @@ func CreateGeometry(obj osm.Object, mode GeometryMode, tolerance float64, ctx *g
 	default:
 		// Default to Geopoint if none specified in config or invalid
 		pt, _, err := representativePoint(g, ctx)
-		if err != nil {
-			return nil, err
+		if err != nil || pt == nil {
+			return nil, fmt.Errorf("could not create default geopoint: %v", err)
 		}
 		return map[string]any{
 			"lat": truncate(pt.Y()),
@@ -100,9 +108,11 @@ func representativePoint(g *geos.Geom, ctx *geos.Context) (*geos.Geom, bool, err
 	switch g.TypeID() {
 	case geos.TypeIDPoint:
 		return g, true, nil
-	case geos.TypeIDLineString, geos.TypeIDMultiLineString:
-		pt := g.InterpolateNormalized(0.5)
-		return pt, false, nil
+	case geos.TypeIDLineString:
+		return g.InterpolateNormalized(0.5), false, nil
+	case geos.TypeIDMultiLineString:
+		pt, err := midpointOfLongestLine(g)
+		return pt, false, err
 	case geos.TypeIDPolygon, geos.TypeIDMultiPolygon:
 		centroid := g.Centroid()
 		if g.Intersects(centroid) {
@@ -112,6 +122,31 @@ func representativePoint(g *geos.Geom, ctx *geos.Context) (*geos.Geom, bool, err
 	default:
 		return g.PointOnSurface(), false, nil
 	}
+}
+
+func midpointOfLongestLine(multi *geos.Geom) (*geos.Geom, error) {
+	n := multi.NumGeometries()
+	if n == 0 {
+		return nil, fmt.Errorf("empty geometry collection")
+	}
+
+	var longest *geos.Geom
+	var longestLen float64
+
+	for i := 0; i < n; i++ {
+		component := multi.Geometry(i)
+		l := component.Length()
+		if longest == nil || l > longestLen {
+			longest = component
+			longestLen = l
+		}
+	}
+
+	if longest == nil {
+		return nil, fmt.Errorf("no valid components in multiline")
+	}
+
+	return longest.InterpolateNormalized(0.5), nil
 }
 
 func geomToGeoJSON(g *geos.Geom) map[string]any {

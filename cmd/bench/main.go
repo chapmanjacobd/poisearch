@@ -89,7 +89,8 @@ func runFullBench(pbf string, conf *config.Config) {
 		{"Leanest Mode", "no-geo", true, true},
 		{"No Geo", "no-geo", false, false},
 		{"Nodes Only", "geopoint", true, false},
-		{"Centroids Only", "geopoint", false, false},
+		{"Centroids (Simple)", "geopoint-centroid", false, false},
+		{"Representative Pts", "geopoint", false, false},
 		{"Simplified Shapes", "geoshape-simplified", false, false},
 		{"Raw Shapes", "geoshape-full", false, false},
 	}

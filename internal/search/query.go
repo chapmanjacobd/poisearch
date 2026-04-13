@@ -82,7 +82,7 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 
 	if params.Lat != nil && params.Lon != nil && params.Radius != "" {
 		var spatialQuery query.Query
-		if params.GeoMode == "geopoint" {
+		if params.GeoMode == "geopoint" || params.GeoMode == "geopoint-centroid" {
 			sq := bleve.NewGeoDistanceQuery(*params.Lon, *params.Lat, params.Radius)
 			sq.SetField("geometry")
 			spatialQuery = sq
@@ -100,7 +100,7 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		}
 	} else if params.MinLat != nil && params.MaxLat != nil && params.MinLon != nil && params.MaxLon != nil {
 		var spatialQuery query.Query
-		if params.GeoMode == "geopoint" {
+		if params.GeoMode == "geopoint" || params.GeoMode == "geopoint-centroid" {
 			// Top-left = [MinLon, MaxLat], Bottom-right = [MaxLon, MinLat]
 			sq := bleve.NewGeoBoundingBoxQuery(*params.MinLon, *params.MaxLat, *params.MaxLon, *params.MinLat)
 			sq.SetField("geometry")
