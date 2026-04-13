@@ -91,14 +91,16 @@ func runFullBench(pbf string, conf *config.Config) {
 		Mode      string
 		NodesOnly bool
 		Lean      bool
+		PBFOnly   bool
 	}{
-		{"Leanest Mode", "no-geo", true, true},
-		{"No Geo", "no-geo", false, false},
-		{"Nodes Only", "geopoint", true, false},
-		{"Centroids (Simple)", "geopoint-centroid", false, false},
-		{"Representative Pts", "geopoint", false, false},
-		{"Simplified Shapes", "geoshape-simplified", false, false},
-		{"Raw Shapes", "geoshape-full", false, false},
+		{"Leanest Mode", "no-geo", true, true, false},
+		{"No Geo", "no-geo", false, false, false},
+		{"Nodes Only", "geopoint", true, false, false},
+		{"Centroids (Simple)", "geopoint-centroid", false, false, false},
+		{"Representative Pts", "geopoint", false, false, false},
+		{"Simplified Shapes", "geoshape-simplified", false, false, false},
+		{"Raw Shapes", "geoshape-full", false, false, false},
+		{"Raw PBF Scan", "no-geo", false, false, true},
 	}
 
 	var modeResults []ModeResult
@@ -132,22 +134,33 @@ func runFullBench(pbf string, conf *config.Config) {
 			conf.DisableImportance = false
 		}
 		
-		conf.IndexPath = fmt.Sprintf("bench_%s.bleve", s.Label)
-		os.RemoveAll(conf.IndexPath)
+		var index bleve.Index
+		var buildTime time.Duration
+		var size int64
 
-		start := time.Now()
-		m := search.BuildIndexMapping(conf)
-		index, err := search.OpenOrCreateIndex(conf.IndexPath, m)
-		if err != nil {
-			log.Fatal(err)
+		if !s.PBFOnly {
+			conf.IndexPath = fmt.Sprintf("bench_%s.bleve", s.Label)
+			os.RemoveAll(conf.IndexPath)
+
+			start := time.Now()
+			m := search.BuildIndexMapping(conf)
+			idx, err := search.OpenOrCreateIndex(conf.IndexPath, m)
+			if err != nil {
+				log.Fatal(err)
+			}
+			index = idx
+			err = osm.BuildIndex(pbf, conf, index)
+			if err != nil {
+				log.Fatal(err)
+			}
+			buildTime = time.Since(start)
+			size = getDirSize(conf.IndexPath)
+			fmt.Printf("Build time: %v, Size: %s\n", buildTime, formatSize(size))
+		} else {
+			fmt.Printf("PBF Only: No build needed. Using source: %s\n", pbf)
+			buildTime = 0
+			size = 0
 		}
-		err = osm.BuildIndex(pbf, conf, index)
-		if err != nil {
-			log.Fatal(err)
-		}
-		buildTime := time.Since(start)
-		size := getDirSize(conf.IndexPath)
-		fmt.Printf("Build time: %v, Size: %s\n", buildTime, formatSize(size))
 
 		searchScenarios := []struct {
 			Label  string
@@ -198,7 +211,12 @@ func runFullBench(pbf string, conf *config.Config) {
 
 		var bResults []BenchmarkResult
 		for _, ss := range searchScenarios {
-			res := benchmark(index, ss.Label, ss.Params)
+			var res BenchmarkResult
+			if s.PBFOnly {
+				res = benchmarkPBF(pbf, ss.Label, ss.Params, conf)
+			} else {
+				res = benchmark(index, ss.Label, ss.Params)
+			}
 			res.ModeLabel = s.Label
 			bResults = append(bResults, res)
 			allSearchResults = append(allSearchResults, res)
@@ -211,7 +229,9 @@ func runFullBench(pbf string, conf *config.Config) {
 			Searches:  bResults,
 		})
 
-		index.Close()
+		if index != nil {
+			index.Close()
+		}
 	}
 
 	buf := new(bytes.Buffer)
@@ -226,7 +246,11 @@ func runFullBench(pbf string, conf *config.Config) {
 	fmt.Fprintf(w, "%-20s %-15s %-15s\n", "Scenario", "Index Size", "Build Time")
 	fmt.Fprintln(w, "------------------------------------------------------------")
 	for _, r := range modeResults {
-		fmt.Fprintf(w, "%-20s %-15s %-15v\n", r.Label, formatSize(r.Size), r.BuildTime)
+		sizeStr := formatSize(r.Size)
+		if r.Label == "Raw PBF Scan" {
+			sizeStr = "0 B (Live)"
+		}
+		fmt.Fprintf(w, "%-20s %-15s %-15v\n", r.Label, sizeStr, r.BuildTime)
 	}
 
 	fmt.Fprintln(w, "\n============================================================")
@@ -257,7 +281,6 @@ func updateReadme(report string) {
 	found := false
 	for i, line := range lines {
 		if strings.HasPrefix(line, "```plain") {
-			// Find where it ends
 			for j := i; j < len(lines); j++ {
 				if strings.HasPrefix(lines[j], "```") && j > i {
 					found = true
@@ -299,6 +322,23 @@ func benchmark(index bleve.Index, label string, params search.SearchParams) Benc
 		res, err := search.Search(index, params)
 		if err != nil {
 			log.Fatalf("Search failed for %s: %v", label, err)
+		}
+		count = int(res.Total)
+	}
+	avg := time.Since(start) / time.Duration(iterations)
+	fmt.Printf("  %-25s Avg: %-10v Results: %d\n", label, avg, count)
+	return BenchmarkResult{Label: label, Latency: avg, Results: count}
+}
+
+func benchmarkPBF(pbfPath string, label string, params search.SearchParams, conf *config.Config) BenchmarkResult {
+	start := time.Now()
+	iterations := 5
+	var count int
+
+	for i := 0; i < iterations; i++ {
+		res, err := osm.PBFSearch(pbfPath, params, conf)
+		if err != nil {
+			log.Fatalf("PBF search failed for %s: %v", label, err)
 		}
 		count = int(res.Total)
 	}
