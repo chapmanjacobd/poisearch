@@ -8,7 +8,7 @@ port = 8080
 
 [importance]
 default = 1.0
-population_boost_factor = 100.0 # Effectively no boost
+population_boost_weight = 0.0 # Disabled
 capital_boost = 0.0
 wikipedia_boost = 0.0
 

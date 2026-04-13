@@ -44,8 +44,10 @@ func main() {
 			Place:    map[string]float64{"city": 5, "town": 4, "village": 3},
 			Amenity:  map[string]float64{"restaurant": 2},
 			Highway:  map[string]float64{"primary": 1.5},
+			Shop:     map[string]float64{"bakery": 1.2},
+			Tourism:  map[string]float64{"museum": 2.5},
 			Default:  1.0,
-			PopBoost: 5,
+			PopBoost: 0.2,
 		},
 		SimplificationTol: 0.0001,
 	}
@@ -163,6 +165,14 @@ func runFullBench(pbf string, conf *config.Config) {
 					Label  string
 					Params search.SearchParams
 				}{"Combined (Fuzzy+Class)", search.SearchParams{Query: "Vadu", Fuzzy: true, Class: "place", GeoMode: s.Mode, Limit: 50}},
+				struct {
+					Label  string
+					Params search.SearchParams
+				}{"Shop Search", search.SearchParams{Subtype: "bakery", GeoMode: s.Mode, Limit: 50}},
+				struct {
+					Label  string
+					Params search.SearchParams
+				}{"Tourism Search", search.SearchParams{Subtype: "museum", GeoMode: s.Mode, Limit: 50}},
 			)
 		}
 

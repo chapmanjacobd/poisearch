@@ -17,8 +17,14 @@ type ImportanceWeights struct {
 	Place    map[string]float64 `toml:"place"`
 	Amenity  map[string]float64 `toml:"amenity"`
 	Highway  map[string]float64 `toml:"highway"`
+	Shop     map[string]float64 `toml:"shop"`
+	Tourism  map[string]float64 `toml:"tourism"`
+	Leisure  map[string]float64 `toml:"leisure"`
+	Historic map[string]float64 `toml:"historic"`
+	Natural  map[string]float64 `toml:"natural"`
+	Railway  map[string]float64 `toml:"railway"`
 	Default  float64            `toml:"default"`
-	PopBoost float64            `toml:"population_boost_factor"` // importance += math.Log(pop+1) / factor
+	PopBoost float64            `toml:"population_boost_weight"` // importance += math.Log(pop+1) * weight
 	Capital  float64            `toml:"capital_boost"`
 	Wiki     float64            `toml:"wikipedia_boost"`
 }

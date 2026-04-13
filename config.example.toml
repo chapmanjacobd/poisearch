@@ -9,7 +9,7 @@ port = 8080
 
 [importance]
 default = 1.0
-population_boost_factor = 5.0
+population_boost_weight = 0.2
 capital_boost = 2.0
 wikipedia_boost = 1.5
 
