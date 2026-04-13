@@ -1,0 +1,31 @@
+index_path = "pois.bleve"
+languages = ["en", "zh", "hi", "es", "ar", "fr", "bn", "pt", "ur", "ru", "de", "ja", "pcm", "arz"]
+geometry_mode = "geopoint"
+simplification_tolerance = 0.0001
+
+[server]
+host = "0.0.0.0"
+port = 8080
+
+[importance]
+default = 1.0
+population_boost_factor = 5.0
+capital_boost = 2.0
+wikipedia_boost = 1.5
+
+[importance.place]
+city = 5.0
+town = 4.0
+village = 3.0
+
+[importance.amenity]
+restaurant = 2.0
+cafe = 2.0
+school = 2.0
+hospital = 2.5
+
+[importance.highway]
+primary = 1.5
+secondary = 1.4
+tertiary = 1.3
+residential = 1.1

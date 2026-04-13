@@ -1,0 +1,21 @@
+index_path = "pois.bleve"
+languages = ["en"]
+# geometry_mode = "geopoint" # Comment out to disable spatial indexing if desired
+
+[server]
+host = "127.0.0.1"
+port = 8080
+
+[importance]
+default = 1.0
+population_boost_factor = 100.0 # Effectively no boost
+capital_boost = 0.0
+wikipedia_boost = 0.0
+
+[importance.place]
+city = 1.0
+town = 1.0
+village = 1.0
+
+[importance.amenity]
+[importance.highway]

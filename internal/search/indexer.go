@@ -1,0 +1,54 @@
+package search
+
+import (
+	"fmt"
+
+	"github.com/blevesearch/bleve/v2"
+	"github.com/blevesearch/bleve/v2/mapping"
+)
+
+type Feature struct {
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
+	Names      map[string]string `json:"names"` // name:en, name:zh, etc.
+	Class      string            `json:"class"`
+	Subtype    string            `json:"subtype"`
+	Importance float64           `json:"importance"`
+	Geometry   any               `json:"geometry"`
+}
+
+func OpenOrCreateIndex(indexPath string, m mapping.IndexMapping) (bleve.Index, error) {
+	index, err := bleve.Open(indexPath)
+	if err == bleve.ErrorIndexPathDoesNotExist {
+		index, err = bleve.New(indexPath, m)
+		if err != nil {
+			return nil, fmt.Errorf("could not create new index: %v", err)
+		}
+	} else if err != nil {
+		return nil, fmt.Errorf("could not open existing index: %v", err)
+	}
+	return index, nil
+}
+
+func (f *Feature) Type() string {
+	return "poi"
+}
+
+// Bleve dynamic indexing: we need to flatten the map for the mapping to pick up fields like name:en
+// But docMapping.AddFieldMappingsAt("name:"+lang, ...) expects the field to be in the struct or a map.
+// If we use a map[string]any as the source for Bleve, it's easier.
+
+func FeatureToMap(f *Feature) map[string]any {
+	m := map[string]any{
+		"id":         f.ID,
+		"name":       f.Name,
+		"class":      f.Class,
+		"subtype":    f.Subtype,
+		"importance": f.Importance,
+		"geometry":   f.Geometry,
+	}
+	for k, v := range f.Names {
+		m[k] = v
+	}
+	return m
+}
