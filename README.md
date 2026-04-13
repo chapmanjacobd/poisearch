@@ -2,14 +2,6 @@
 
 A lightweight (low RAM, medium disk) POI search engine for OpenStreetMap data.
 
-## Features
-
-- **Low RAM Build**: Processes PBF files in a single pass using streaming.
-- **Customizable Importance**: Configure POI weights via TOML.
-- **Multilingual Support**: Opt-in to index names in multiple languages.
-- **Spatial Search**: Support for Geopoint (centroid) and Geoshape (bbox, simplified, full) indexing.
-- **Fast Search**: Powered by Bleve v2.
-
 ## Prerequisites
 
 - Go 1.22+
@@ -37,17 +29,10 @@ sudo apt install libgeos-dev
    osmium add-locations-to-ways input.osm.pbf -o processed.osm.pbf
    ```
 
-   **Handling Relations**:
-   Large POIs like parks, universities, or city boundaries are often mapped as Relations. To index them efficiently:
-   - `poisearch` supports Relations if they have a bounding box (`Bounds`) included in the PBF (e.g., from `osmium add-locations-to-ways`).
-   - For complex multipolygon geometries, you can "flatten" relations into areas before indexing:
-     ```sh
-     osmium export processed.osm.pbf --geometry-types=polygon,point,linestring -o flat_pois.geojsonl
-     ```
-     *(Note: `poisearch` currently consumes PBF. For maximum reliability with complex relations, use osmium to filter/simplify into a PBF with locations added.)*
-
    To reduce index size, you can filter for specific tags first:
    ```sh
+   osmium tags-filter processed.osm.pbf n/* -o only.nodes.osm.pbf
+   # or
    osmium tags-filter processed.osm.pbf n/place n/amenity n/highway -o filtered.osm.pbf
    ```
 
@@ -79,26 +64,74 @@ Spatial search example:
 curl "http://localhost:8080/search?q=Restaurant&lat=52.52&lon=13.40&radius=1000m"
 ```
 
-## Performance & Geometry Modes
+## Benchmark Results
 
-Based on benchmarks (Liechtenstein extract, 500m proximity):
+```plain
+============================================================
+INDEX SIZE COMPARISON
+============================================================
+Scenario             Index Size      Build Time     
+------------------------------------------------------------
+Leanest Mode         719.16 KB       304.414922ms   
+No Geo               3.52 MB         1.10968034s    
+Nodes Only           5.65 MB         725.259509ms   
+Centroids (Simple)   11.63 MB        2.016247919s   
+Representative Pts   11.63 MB        1.974063586s   
+Simplified Shapes    12.89 MB        3.139264656s   
+Raw Shapes           13.03 MB        3.576690529s   
 
-| Data Type | Query Type | Avg Latency | Build Speed | Memory/Disk |
-| :--- | :--- | :--- | :--- | :--- |
-| **`geopoint`** | **Radius** | **~2.6ms** | **Fastest** | **Lowest** |
-| `geopoint` | BBox | ~2.6ms | Fastest | Lowest |
-| `geoshape` | Radius | ~14.7ms | Moderate | Medium |
-| `geoshape` | BBox | ~11.6ms | Moderate | Medium |
-
-**Recommendation**: Use **`geopoint`** with **`Radius`** for the best balance of performance, disk efficiency, and expected search behavior.
-
-## Configuration Options
-
-- `index_path`: Path to the Bleve index directory.
-- `languages`: List of language codes to index (e.g., `["en", "zh"]`).
-- `geometry_mode`:
-  - `geopoint`: Index only the centroid/representative point.
-  - `geoshape-bbox`: Index the bounding box.
-  - `geoshape-simplified`: Index a simplified version of the geometry.
-  - `geoshape-full`: Index the full geometry.
-- `importance`: Weights for different POI types and boosts for population, capitals, and Wikipedia tags.
+============================================================
+FULL PERFORMANCE REPORT (Sorted by Latency)
+============================================================
+Spatial Mode         Scenario                  Avg Latency     Results   
+--------------------------------------------------------------------------------
+Nodes Only           Class Filter              108.638µs       1         
+Centroids (Simple)   Subtype Filter            112.382µs       1         
+Simplified Shapes    Subtype Filter            114.938µs       1         
+Nodes Only           Subtype Filter            120.445µs       1         
+No Geo               Subtype Filter            128.533µs       1         
+Raw Shapes           Class Filter              146.934µs       1         
+Raw Shapes           Subtype Filter            159.381µs       1         
+Representative Pts   Class Filter              167.64µs        1         
+No Geo               Class Filter              169.161µs       1         
+Centroids (Simple)   Class Filter              175.572µs       1         
+Simplified Shapes    Class Filter              176.444µs       1         
+Representative Pts   Subtype Filter            195.941µs       1         
+Nodes Only           Combined (Fuzzy+Class)    265.589µs       1         
+No Geo               Combined (Fuzzy+Class)    515.498µs       1         
+Simplified Shapes    Combined (Fuzzy+Class)    534.565µs       1         
+Raw Shapes           Combined (Fuzzy+Class)    535.418µs       1         
+Centroids (Simple)   Combined (Fuzzy+Class)    560.522µs       1         
+Leanest Mode         Prefix Search             607.244µs       64        
+Nodes Only           Prefix Search             668.456µs       64        
+Representative Pts   Basic Search              673.097µs       71        
+Leanest Mode         Fuzzy Search              679.075µs       64        
+Leanest Mode         Basic Search              681.715µs       64        
+Nodes Only           Basic Search              776.64µs        64        
+No Geo               Basic Search              854.881µs       72        
+Centroids (Simple)   Basic Search              890.885µs       71        
+Nodes Only           Fuzzy Search              987.314µs       64        
+Simplified Shapes    Basic Search              1.04421ms       71        
+Simplified Shapes    Prefix Search             1.117473ms      71        
+Representative Pts   Combined (Fuzzy+Class)    1.143846ms      1         
+Raw Shapes           Basic Search              1.145567ms      71        
+Representative Pts   Prefix Search             1.19068ms       71        
+Centroids (Simple)   Prefix Search             1.21237ms       71        
+Centroids (Simple)   Fuzzy Search              1.218716ms      71        
+Raw Shapes           Prefix Search             1.230941ms      71        
+No Geo               Prefix Search             1.236397ms      72        
+Simplified Shapes    Fuzzy Search              1.329769ms      71        
+No Geo               Fuzzy Search              1.438238ms      72        
+Raw Shapes           Fuzzy Search              1.62641ms       71        
+Nodes Only           BBox Search               2.098771ms      405       
+Representative Pts   Fuzzy Search              2.102428ms      71        
+Nodes Only           Radius Search             2.119056ms      383       
+Representative Pts   BBox Search               2.435616ms      405       
+Centroids (Simple)   Radius Search             2.492112ms      383       
+Centroids (Simple)   BBox Search               2.706475ms      405       
+Representative Pts   Radius Search             3.313858ms      383       
+Simplified Shapes    Radius Search             12.815282ms     382       
+Simplified Shapes    BBox Search               13.01392ms      405       
+Raw Shapes           Radius Search             13.090436ms     382       
+Raw Shapes           BBox Search               13.217321ms     405
+```

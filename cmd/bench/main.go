@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blevesearch/bleve/v2"
@@ -16,9 +19,10 @@ import (
 )
 
 type BenchmarkResult struct {
-	Label   string
-	Latency time.Duration
-	Results int
+	ModeLabel string
+	Label     string
+	Latency   time.Duration
+	Results   int
 }
 
 type ModeResult struct {
@@ -96,6 +100,7 @@ func runFullBench(pbf string, conf *config.Config) {
 	}
 
 	var modeResults []ModeResult
+	var allSearchResults []BenchmarkResult
 
 	lat, lon := 47.14, 9.52 // Vaduz
 	radius := "500m"
@@ -141,7 +146,7 @@ func runFullBench(pbf string, conf *config.Config) {
 		}{
 			{"Basic Search", search.SearchParams{Query: "Vaduz", GeoMode: s.Mode, Limit: 50}},
 			{"Fuzzy Search", search.SearchParams{Query: "Vadu", Fuzzy: true, GeoMode: s.Mode, Limit: 50}},
-			{"Prefix Search", search.SearchParams{Query: "Vad", Prefix: true, GeoMode: s.Mode, Limit: 50}},
+			{"Prefix Search", search.SearchParams{Query: "vad", Prefix: true, GeoMode: s.Mode, Limit: 50}},
 		}
 
 		if !conf.DisableClassSubtype {
@@ -153,7 +158,7 @@ func runFullBench(pbf string, conf *config.Config) {
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Subtype Filter", search.SearchParams{Query: "Vaduz", Subtype: "city", GeoMode: s.Mode, Limit: 50}},
+				}{"Subtype Filter", search.SearchParams{Query: "Vaduz", Subtype: "town", GeoMode: s.Mode, Limit: 50}},
 				struct {
 					Label  string
 					Params search.SearchParams
@@ -177,7 +182,9 @@ func runFullBench(pbf string, conf *config.Config) {
 		var bResults []BenchmarkResult
 		for _, ss := range searchScenarios {
 			res := benchmark(index, ss.Label, ss.Params)
+			res.ModeLabel = s.Label
 			bResults = append(bResults, res)
+			allSearchResults = append(allSearchResults, res)
 		}
 
 		modeResults = append(modeResults, ModeResult{
@@ -190,29 +197,79 @@ func runFullBench(pbf string, conf *config.Config) {
 		index.Close()
 	}
 
-	fmt.Println("\n============================================================")
-	fmt.Println("INDEX SIZE COMPARISON")
-	fmt.Println("============================================================")
+	buf := new(bytes.Buffer)
+	w := io.MultiWriter(os.Stdout, buf)
+
+	fmt.Fprintln(w, "\n============================================================")
+	fmt.Fprintln(w, "INDEX SIZE COMPARISON")
+	fmt.Fprintln(w, "============================================================")
 	sort.Slice(modeResults, func(i, j int) bool {
 		return modeResults[i].Size < modeResults[j].Size
 	})
-	fmt.Printf("%-20s %-15s %-15s\n", "Scenario", "Index Size", "Build Time")
-	fmt.Println("------------------------------------------------------------")
+	fmt.Fprintf(w, "%-20s %-15s %-15s\n", "Scenario", "Index Size", "Build Time")
+	fmt.Fprintln(w, "------------------------------------------------------------")
 	for _, r := range modeResults {
-		fmt.Printf("%-20s %-15s %-15v\n", r.Label, formatSize(r.Size), r.BuildTime)
+		fmt.Fprintf(w, "%-20s %-15s %-15v\n", r.Label, formatSize(r.Size), r.BuildTime)
 	}
 
-	fmt.Println("\n============================================================")
-	fmt.Println("FULL PERFORMANCE REPORT")
-	fmt.Println("============================================================")
-	for _, r := range modeResults {
-		fmt.Printf("\n--- %s (%s) ---\n", r.Label, formatSize(r.Size))
-		sort.Slice(r.Searches, func(i, j int) bool {
-			return r.Searches[i].Latency < r.Searches[j].Latency
-		})
-		for _, s := range r.Searches {
-			fmt.Printf("%-25s %-15v %-10d\n", s.Label, s.Latency, s.Results)
+	fmt.Fprintln(w, "\n============================================================")
+	fmt.Fprintln(w, "FULL PERFORMANCE REPORT (Sorted by Latency)")
+	fmt.Fprintln(w, "============================================================")
+	sort.Slice(allSearchResults, func(i, j int) bool {
+		return allSearchResults[i].Latency < allSearchResults[j].Latency
+	})
+	fmt.Fprintf(w, "%-20s %-25s %-15s %-10s\n", "Spatial Mode", "Scenario", "Avg Latency", "Results")
+	fmt.Fprintln(w, "--------------------------------------------------------------------------------")
+	for _, r := range allSearchResults {
+		fmt.Fprintf(w, "%-20s %-25s %-15v %-10d\n", r.ModeLabel, r.Label, r.Latency, r.Results)
+	}
+
+	updateReadme(buf.String())
+}
+
+func updateReadme(report string) {
+	const readmeFile = "README.md"
+	content, err := os.ReadFile(readmeFile)
+	if err != nil {
+		log.Printf("failed to read README.md: %v", err)
+		return
+	}
+
+	lines := strings.Split(string(content), "\n")
+	newLines := []string{}
+	found := false
+	for i, line := range lines {
+		if strings.HasPrefix(line, "```plain") {
+			// Find where it ends
+			for j := i; j < len(lines); j++ {
+				if strings.HasPrefix(lines[j], "```") && j > i {
+					found = true
+					newLines = append(newLines, "```plain")
+					newLines = append(newLines, strings.TrimSpace(report))
+					newLines = append(newLines, "```")
+					lines = lines[j+1:]
+					break
+				}
+			}
+			if found {
+				break
+			}
 		}
+		newLines = append(newLines, line)
+	}
+
+	if !found {
+		newLines = append(newLines, "\n## Benchmark Results\n")
+		newLines = append(newLines, "```plain")
+		newLines = append(newLines, strings.TrimSpace(report))
+		newLines = append(newLines, "```")
+	} else {
+		newLines = append(newLines, lines...)
+	}
+
+	err = os.WriteFile(readmeFile, []byte(strings.Join(newLines, "\n")), 0644)
+	if err != nil {
+		log.Printf("failed to write README.md: %v", err)
 	}
 }
 
