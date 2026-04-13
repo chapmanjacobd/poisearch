@@ -54,6 +54,34 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 			continue
 		}
 
+		if conf.OnlyNamed {
+			hasName := tags["name"] != ""
+			if !hasName {
+				// Check alt names if not disabled
+				if !conf.DisableAltNames {
+					altNames := []string{"alt_name", "old_name", "short_name"}
+					for _, alt := range altNames {
+						if tags[alt] != "" {
+							hasName = true
+							break
+						}
+					}
+				}
+				// Check translations
+				if !hasName {
+					for _, lang := range conf.Languages {
+						if tags["name:"+lang] != "" {
+							hasName = true
+							break
+						}
+					}
+				}
+			}
+			if !hasName {
+				continue
+			}
+		}
+
 		classification := Classify(tags, &conf.Importance)
 		if classification == nil {
 			continue

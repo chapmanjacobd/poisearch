@@ -11,6 +11,9 @@ type Config struct {
 	DisableAltNames       bool               `toml:"disable_alt_names"`
 	DisableImportance     bool               `toml:"disable_importance"`
 	DisableClassSubtype   bool               `toml:"disable_class_subtype"`
+	OnlyNamed             bool               `toml:"only_named"`
+	StoreMetadata         bool               `toml:"store_metadata"`
+	StoreGeometry         bool               `toml:"store_geometry"`
 }
 
 type ImportanceWeights struct {

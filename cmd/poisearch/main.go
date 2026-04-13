@@ -27,7 +27,7 @@ type BuildCmd struct {
 func (b *BuildCmd) Run(conf *config.Config) error {
 	slog.Info("building index", "path", conf.IndexPath, "input", b.Input)
 
-	m := search.BuildIndexMapping(conf.Languages, conf.GeometryMode)
+	m := search.BuildIndexMapping(conf)
 	index, err := search.OpenOrCreateIndex(conf.IndexPath, m)
 	if err != nil {
 		return err

@@ -115,10 +115,17 @@ func runFullBench(pbf string, conf *config.Config) {
 		fmt.Printf("\n--- Scenario: %s ---\n", s.Label)
 		conf.GeometryMode = s.Mode
 		conf.NodesOnly = s.NodesOnly
+		conf.StoreMetadata = true
+		conf.StoreGeometry = true
+		conf.OnlyNamed = false
+
 		if s.Lean {
 			conf.DisableAltNames = true
 			conf.DisableClassSubtype = true
 			conf.DisableImportance = true
+			conf.OnlyNamed = true
+			conf.StoreMetadata = false
+			conf.StoreGeometry = false
 		} else {
 			conf.DisableAltNames = false
 			conf.DisableClassSubtype = false
@@ -129,7 +136,7 @@ func runFullBench(pbf string, conf *config.Config) {
 		os.RemoveAll(conf.IndexPath)
 
 		start := time.Now()
-		m := search.BuildIndexMapping(conf.Languages, conf.GeometryMode)
+		m := search.BuildIndexMapping(conf)
 		index, err := search.OpenOrCreateIndex(conf.IndexPath, m)
 		if err != nil {
 			log.Fatal(err)
