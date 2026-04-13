@@ -15,6 +15,7 @@ const (
 	ModeGeoshapeBBox     GeometryMode = "geoshape-bbox"
 	ModeGeoshapeSimplify GeometryMode = "geoshape-simplified"
 	ModeGeoshapeFull     GeometryMode = "geoshape-full"
+	ModeNoGeo            GeometryMode = "no-geo"
 )
 
 func CreateGeometry(obj osm.Object, mode GeometryMode, tolerance float64, ctx *geos.Context) (any, error) {

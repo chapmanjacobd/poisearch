@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -19,6 +21,13 @@ type BenchmarkResult struct {
 	Results int
 }
 
+type ModeResult struct {
+	Label     string
+	BuildTime time.Duration
+	Size      int64
+	Searches  []BenchmarkResult
+}
+
 func main() {
 	pbf := "liechtenstein-latest.osm.pbf"
 	if _, err := os.Stat(pbf); os.IsNotExist(err) {
@@ -26,7 +35,6 @@ func main() {
 	}
 
 	conf := &config.Config{
-		IndexPath: "bench.bleve",
 		Languages: []string{"en"},
 		Importance: config.ImportanceWeights{
 			Place:    map[string]float64{"city": 5, "town": 4, "village": 3},
@@ -41,17 +49,75 @@ func main() {
 	runFullBench(pbf, conf)
 }
 
-func runFullBench(pbf string, conf *config.Config) {
-	modes := []string{"geopoint", "geoshape-simplified"}
-
-	for _, mode := range modes {
-		fmt.Printf("\n--- Mode: %s ---\n", mode)
-		conf.GeometryMode = mode
-		if mode == "geopoint" {
-			conf.IndexPath = "bench_point.bleve"
-		} else {
-			conf.IndexPath = "bench_shape.bleve"
+func getDirSize(path string) int64 {
+	var size int64
+	err := filepath.Walk(path, func(_ string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
 		}
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return nil
+	})
+	if err != nil {
+		return 0
+	}
+	return size
+}
+
+func formatSize(size int64) string {
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	div, exp := int64(unit), 0
+	for n := size / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", float64(size)/float64(div), "KMGTPE"[exp])
+}
+
+func runFullBench(pbf string, conf *config.Config) {
+	scenarios := []struct {
+		Label     string
+		Mode      string
+		NodesOnly bool
+		Lean      bool
+	}{
+		{"Leanest Mode", "no-geo", true, true},
+		{"No Geo", "no-geo", false, false},
+		{"Nodes Only", "geopoint", true, false},
+		{"Centroids Only", "geopoint", false, false},
+		{"Simplified Shapes", "geoshape-simplified", false, false},
+		{"Raw Shapes", "geoshape-full", false, false},
+	}
+
+	var modeResults []ModeResult
+
+	lat, lon := 47.14, 9.52 // Vaduz
+	radius := "500m"
+	dLat := 0.0045
+	dLon := 0.0066
+	minLat, maxLat := lat-dLat, lat+dLat
+	minLon, maxLon := lon-dLon, lon+dLon
+
+	for _, s := range scenarios {
+		fmt.Printf("\n--- Scenario: %s ---\n", s.Label)
+		conf.GeometryMode = s.Mode
+		conf.NodesOnly = s.NodesOnly
+		if s.Lean {
+			conf.DisableAltNames = true
+			conf.DisableClassSubtype = true
+			conf.DisableImportance = true
+		} else {
+			conf.DisableAltNames = false
+			conf.DisableClassSubtype = false
+			conf.DisableImportance = false
+		}
+		
+		conf.IndexPath = fmt.Sprintf("bench_%s.bleve", s.Label)
 		os.RemoveAll(conf.IndexPath)
 
 		start := time.Now()
@@ -64,47 +130,88 @@ func runFullBench(pbf string, conf *config.Config) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Printf("Build time: %v\n", time.Since(start))
+		buildTime := time.Since(start)
+		size := getDirSize(conf.IndexPath)
+		fmt.Printf("Build time: %v, Size: %s\n", buildTime, formatSize(size))
 
-		lat, lon := 47.14, 9.52 // Vaduz
-		radius := "500m"
-		dLat := 0.0045
-		dLon := 0.0066
-		minLat, maxLat := lat-dLat, lat+dLat
-		minLon, maxLon := lon-dLon, lon+dLon
-
-		scenarios := []struct {
+		searchScenarios := []struct {
 			Label  string
 			Params search.SearchParams
 		}{
-			{"Basic Search", search.SearchParams{Query: "Vaduz", GeoMode: mode, Limit: 50}},
-			{"Radius Search", search.SearchParams{Lat: &lat, Lon: &lon, Radius: radius, GeoMode: mode, Limit: 50}},
-			{"BBox Search", search.SearchParams{MinLat: &minLat, MaxLat: &maxLat, MinLon: &minLon, MaxLon: &maxLon, GeoMode: mode, Limit: 50}},
-			{"Fuzzy Search", search.SearchParams{Query: "Vadu", Fuzzy: true, GeoMode: mode, Limit: 50}},
-			{"Prefix Search", search.SearchParams{Query: "Vad", Prefix: true, GeoMode: mode, Limit: 50}},
-			{"Class Filter", search.SearchParams{Query: "Vaduz", Class: "place", GeoMode: mode, Limit: 50}},
-			{"Subtype Filter", search.SearchParams{Query: "Vaduz", Subtype: "city", GeoMode: mode, Limit: 50}},
-			{"Combined (Fuzzy+Class)", search.SearchParams{Query: "Vadu", Fuzzy: true, Class: "place", GeoMode: mode, Limit: 50}},
+			{"Basic Search", search.SearchParams{Query: "Vaduz", GeoMode: s.Mode, Limit: 50}},
+			{"Fuzzy Search", search.SearchParams{Query: "Vadu", Fuzzy: true, GeoMode: s.Mode, Limit: 50}},
+			{"Prefix Search", search.SearchParams{Query: "Vad", Prefix: true, GeoMode: s.Mode, Limit: 50}},
 		}
 
-		var results []BenchmarkResult
-		for _, s := range scenarios {
-			res := benchmark(index, s.Label, s.Params)
-			results = append(results, res)
+		if !conf.DisableClassSubtype {
+			searchScenarios = append(searchScenarios,
+				struct {
+					Label  string
+					Params search.SearchParams
+				}{"Class Filter", search.SearchParams{Query: "Vaduz", Class: "place", GeoMode: s.Mode, Limit: 50}},
+				struct {
+					Label  string
+					Params search.SearchParams
+				}{"Subtype Filter", search.SearchParams{Query: "Vaduz", Subtype: "city", GeoMode: s.Mode, Limit: 50}},
+				struct {
+					Label  string
+					Params search.SearchParams
+				}{"Combined (Fuzzy+Class)", search.SearchParams{Query: "Vadu", Fuzzy: true, Class: "place", GeoMode: s.Mode, Limit: 50}},
+			)
 		}
 
-		sort.Slice(results, func(i, j int) bool {
-			return results[i].Latency < results[j].Latency
+		if s.Mode != "no-geo" {
+			searchScenarios = append(searchScenarios,
+				struct {
+					Label  string
+					Params search.SearchParams
+				}{"Radius Search", search.SearchParams{Lat: &lat, Lon: &lon, Radius: radius, GeoMode: s.Mode, Limit: 50}},
+				struct {
+					Label  string
+					Params search.SearchParams
+				}{"BBox Search", search.SearchParams{MinLat: &minLat, MaxLat: &maxLat, MinLon: &minLon, MaxLon: &maxLon, GeoMode: s.Mode, Limit: 50}},
+			)
+		}
+
+		var bResults []BenchmarkResult
+		for _, ss := range searchScenarios {
+			res := benchmark(index, ss.Label, ss.Params)
+			bResults = append(bResults, res)
+		}
+
+		modeResults = append(modeResults, ModeResult{
+			Label:     s.Label,
+			BuildTime: buildTime,
+			Size:      size,
+			Searches:  bResults,
 		})
 
-		fmt.Println("\nPerformance Summary (Sorted by Latency):")
-		fmt.Printf("%-25s %-15s %-10s\n", "Scenario", "Avg Latency", "Results")
-		fmt.Println("------------------------------------------------------------")
-		for _, r := range results {
-			fmt.Printf("%-25s %-15v %-10d\n", r.Label, r.Latency, r.Results)
-		}
-
 		index.Close()
+	}
+
+	fmt.Println("\n============================================================")
+	fmt.Println("INDEX SIZE COMPARISON")
+	fmt.Println("============================================================")
+	sort.Slice(modeResults, func(i, j int) bool {
+		return modeResults[i].Size < modeResults[j].Size
+	})
+	fmt.Printf("%-20s %-15s %-15s\n", "Scenario", "Index Size", "Build Time")
+	fmt.Println("------------------------------------------------------------")
+	for _, r := range modeResults {
+		fmt.Printf("%-20s %-15s %-15v\n", r.Label, formatSize(r.Size), r.BuildTime)
+	}
+
+	fmt.Println("\n============================================================")
+	fmt.Println("FULL PERFORMANCE REPORT")
+	fmt.Println("============================================================")
+	for _, r := range modeResults {
+		fmt.Printf("\n--- %s (%s) ---\n", r.Label, formatSize(r.Size))
+		sort.Slice(r.Searches, func(i, j int) bool {
+			return r.Searches[i].Latency < r.Searches[j].Latency
+		})
+		for _, s := range r.Searches {
+			fmt.Printf("%-25s %-15v %-10d\n", s.Label, s.Latency, s.Results)
+		}
 	}
 }
 
@@ -121,5 +228,6 @@ func benchmark(index bleve.Index, label string, params search.SearchParams) Benc
 		count = int(res.Total)
 	}
 	avg := time.Since(start) / time.Duration(iterations)
+	fmt.Printf("  %-25s Avg: %-10v Results: %d\n", label, avg, count)
 	return BenchmarkResult{Label: label, Latency: avg, Results: count}
 }

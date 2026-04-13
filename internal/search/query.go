@@ -133,7 +133,7 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	searchRequest.SortBy([]string{"-importance", "_score"})
 
 	// Fields to return
-	fields := []string{"id", "name", "alt_name", "old_name", "short_name", "class", "subtype", "importance", "geometry"}
+	fields := []string{"name", "alt_name", "old_name", "short_name", "class", "subtype", "importance", "geometry"}
 	for _, lang := range params.Langs {
 		fields = append(fields, "name:"+lang, "alt_name:"+lang, "old_name:"+lang, "short_name:"+lang)
 	}

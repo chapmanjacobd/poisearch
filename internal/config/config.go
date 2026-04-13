@@ -4,9 +4,13 @@ type Config struct {
 	IndexPath             string             `toml:"index_path"`
 	Languages             []string           `toml:"languages"`
 	Importance            ImportanceWeights  `toml:"importance"`
-	GeometryMode          string             `toml:"geometry_mode"`           // "geopoint", "geoshape-bbox", "geoshape-simplified", "geoshape-full"
+	GeometryMode          string             `toml:"geometry_mode"`           // "geopoint", "geoshape-bbox", "geoshape-simplified", "geoshape-full", "no-geo"
 	SimplificationTol     float64            `toml:"simplification_tolerance"` // tolerance for SimplifyPreserveTopology
 	Server                ServerConfig       `toml:"server"`
+	NodesOnly             bool               `toml:"nodes_only"`
+	DisableAltNames       bool               `toml:"disable_alt_names"`
+	DisableImportance     bool               `toml:"disable_importance"`
+	DisableClassSubtype   bool               `toml:"disable_class_subtype"`
 }
 
 type ImportanceWeights struct {

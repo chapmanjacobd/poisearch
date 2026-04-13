@@ -10,9 +10,15 @@ func BuildIndexMapping(langs []string, geoMode string) mapping.IndexMapping {
 
 	docMapping := bleve.NewDocumentMapping()
 
+	// Disable _all field to save space
+	docMapping.Enabled = true
+	docMapping.Dynamic = false // Only index defined fields
+
 	// Name fields
 	nameFieldMapping := bleve.NewTextFieldMapping()
-	nameFieldMapping.Analyzer = "en" // Default analyzer
+	nameFieldMapping.Analyzer = "en"
+	nameFieldMapping.IncludeInAll = false
+	nameFieldMapping.IncludeTermVectors = false // Saves space, no highlighting needed
 	docMapping.AddFieldMappingsAt("name", nameFieldMapping)
 	docMapping.AddFieldMappingsAt("alt_name", nameFieldMapping)
 	docMapping.AddFieldMappingsAt("old_name", nameFieldMapping)
@@ -28,15 +34,18 @@ func BuildIndexMapping(langs []string, geoMode string) mapping.IndexMapping {
 	// Class and Subtype
 	keywordMapping := bleve.NewTextFieldMapping()
 	keywordMapping.Analyzer = "keyword"
+	keywordMapping.IncludeInAll = false
+	keywordMapping.IncludeTermVectors = false
 	docMapping.AddFieldMappingsAt("class", keywordMapping)
 	docMapping.AddFieldMappingsAt("subtype", keywordMapping)
 
 	// Importance
 	numMapping := bleve.NewNumericFieldMapping()
+	numMapping.IncludeInAll = false
 	docMapping.AddFieldMappingsAt("importance", numMapping)
 
 	// Geometry
-	if geoMode != "" {
+	if geoMode != "" && geoMode != "no-geo" {
 		if geoMode == "geopoint" {
 			geoMapping := bleve.NewGeoPointFieldMapping()
 			docMapping.AddFieldMappingsAt("geometry", geoMapping)

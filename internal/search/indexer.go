@@ -34,13 +34,10 @@ func (f *Feature) Type() string {
 	return "poi"
 }
 
-// Bleve dynamic indexing: we need to flatten the map for the mapping to pick up fields like name:en
-// But docMapping.AddFieldMappingsAt("name:"+lang, ...) expects the field to be in the struct or a map.
-// If we use a map[string]any as the source for Bleve, it's easier.
-
 func FeatureToMap(f *Feature) map[string]any {
+	// Note: We do NOT store "id" in the document body.
+	// Bleve already stores it as the primary key of the document.
 	m := map[string]any{
-		"id":         f.ID,
 		"name":       f.Name,
 		"class":      f.Class,
 		"subtype":    f.Subtype,

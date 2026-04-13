@@ -39,9 +39,15 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 			tags = o.TagMap()
 			id = int64(o.ID)
 		case *osm.Way:
+			if conf.NodesOnly {
+				continue
+			}
 			tags = o.TagMap()
 			id = int64(o.ID)
 		case *osm.Relation:
+			if conf.NodesOnly {
+				continue
+			}
 			tags = o.TagMap()
 			id = int64(o.ID)
 		default:
@@ -53,36 +59,58 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 			continue
 		}
 
-		geom, err := CreateGeometry(obj, GeometryMode(conf.GeometryMode), conf.SimplificationTol, geosCtx)
-		if err != nil {
-			// Skip objects with invalid geometry
-			continue
+		var geom any
+		var err error
+		if ModeNoGeo != GeometryMode(conf.GeometryMode) {
+			geom, err = CreateGeometry(obj, GeometryMode(conf.GeometryMode), conf.SimplificationTol, geosCtx)
+			if err != nil {
+				// Skip objects with invalid geometry
+				continue
+			}
 		}
 
-		altNames := []string{"alt_name", "old_name", "short_name"}
 		feature := &search.Feature{
 			ID:         fmt.Sprintf("%s/%d", obj.ObjectID().Type(), id),
 			Name:       tags["name"],
 			Names:      make(map[string]string),
-			Class:      classification.Class,
-			Subtype:    classification.Subtype,
 			Importance: classification.Importance,
 			Geometry:   geom,
 		}
 
-		for _, alt := range altNames {
-			if val, ok := tags[alt]; ok {
-				feature.Names[alt] = val
-			}
+		if !conf.DisableImportance {
+			feature.Importance = classification.Importance
+		} else {
+			feature.Importance = 0
 		}
 
-		for _, lang := range conf.Languages {
-			if name, ok := tags["name:"+lang]; ok {
-				feature.Names["name:"+lang] = name
-			}
+		if !conf.DisableClassSubtype {
+			feature.Class = classification.Class
+			feature.Subtype = classification.Subtype
+		}
+
+		if !conf.DisableAltNames {
+			altNames := []string{"alt_name", "old_name", "short_name"}
 			for _, alt := range altNames {
-				if val, ok := tags[alt+":"+lang]; ok {
-					feature.Names[alt+":"+lang] = val
+				if val, ok := tags[alt]; ok {
+					feature.Names[alt] = val
+				}
+			}
+
+			for _, lang := range conf.Languages {
+				if name, ok := tags["name:"+lang]; ok {
+					feature.Names["name:"+lang] = name
+				}
+				for _, alt := range altNames {
+					if val, ok := tags[alt+":"+lang]; ok {
+						feature.Names[alt+":"+lang] = val
+					}
+				}
+			}
+		} else {
+			// Still index translations of "name" if languages are configured
+			for _, lang := range conf.Languages {
+				if name, ok := tags["name:"+lang]; ok {
+					feature.Names["name:"+lang] = name
 				}
 			}
 		}
