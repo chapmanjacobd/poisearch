@@ -72,17 +72,7 @@ func TestUpdateReadme(t *testing.T) {
 			}
 
 			// Change to temp dir so updateReadme finds the file
-			originalDir, _ := os.Getwd()
-			err = os.Chdir(tmpDir)
-			if err != nil {
-				t.Fatalf("failed to chdir to temp dir: %v", err)
-			}
-			defer func() {
-				err := os.Chdir(originalDir)
-				if err != nil {
-					t.Fatalf("failed to chdir back: %v", err)
-				}
-			}()
+			t.Chdir(tmpDir)
 
 			// Call updateReadme
 			updateReadme(tt.title, tt.report)
@@ -141,14 +131,7 @@ Use the CLI to search.
 		t.Fatalf("failed to write README: %v", err)
 	}
 
-	originalDir, _ := os.Getwd()
-	err = os.Chdir(tmpDir)
-	if err != nil {
-		t.Fatalf("failed to chdir: %v", err)
-	}
-	defer func() {
-		_ = os.Chdir(originalDir)
-	}()
+	t.Chdir(tmpDir)
 
 	updateReadme(title, report)
 
@@ -196,14 +179,7 @@ func TestUpdateReadme_MultipleUpdates(t *testing.T) {
 		t.Fatalf("failed to write README: %v", err)
 	}
 
-	originalDir, _ := os.Getwd()
-	err = os.Chdir(tmpDir)
-	if err != nil {
-		t.Fatalf("failed to chdir: %v", err)
-	}
-	defer func() {
-		_ = os.Chdir(originalDir)
-	}()
+	t.Chdir(tmpDir)
 
 	// First update
 	updateReadme("Benchmark Results", "v2")

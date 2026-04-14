@@ -167,7 +167,8 @@ func runFullBench(pbf string, conf *config.Config) {
 		var buildTime time.Duration
 		var size int64
 
-		if !s.PBFOnly && !s.PMTilesOnly {
+		switch {
+		case !s.PBFOnly && !s.PMTilesOnly:
 			conf.IndexPath = fmt.Sprintf("bench_%s.bleve", s.Label)
 			os.RemoveAll(conf.IndexPath)
 
@@ -185,11 +186,11 @@ func runFullBench(pbf string, conf *config.Config) {
 			buildTime = time.Since(start)
 			size = getDirSize(conf.IndexPath)
 			fmt.Printf("Build time: %v, Size: %s\n", buildTime, formatSize(size))
-		} else if s.PBFOnly {
+		case s.PBFOnly:
 			fmt.Printf("PBF Only: No build needed. Using source: %s\n", pbf)
 			buildTime = 0
 			size = 0
-		} else if s.PMTilesOnly {
+		case s.PMTilesOnly:
 			fmt.Printf("PMTiles Only: No build needed. Using source: %s\n", pmtiles)
 			buildTime = 0
 			size = 0
@@ -248,11 +249,12 @@ func runFullBench(pbf string, conf *config.Config) {
 		var bResults []BenchmarkResult
 		for _, ss := range searchScenarios {
 			var res BenchmarkResult
-			if s.PBFOnly {
+			switch {
+			case s.PBFOnly:
 				res = benchmarkPBF(pbf, ss.Label, ss.Params, conf)
-			} else if s.PMTilesOnly {
+			case s.PMTilesOnly:
 				res = benchmarkPMTiles(pmtiles, ss.Label, ss.Params, conf)
-			} else {
+			default:
 				res = benchmark(index, ss.Label, ss.Params)
 			}
 			res.ModeLabel = s.Label
@@ -334,59 +336,9 @@ func updateReadme(title, report string) {
 	}
 
 	lines := strings.Split(string(content), "\n")
-	newLines := []string{}
-	headerFound := false
-	i := 0
+	newLines, updated := replaceReadmeSection(lines, title, report)
 
-	for i < len(lines) {
-		line := lines[i]
-		if strings.HasPrefix(line, "## "+title) && !headerFound {
-			headerFound = true
-			newLines = append(newLines, line)
-
-			// Look ahead for the code block
-			foundCodeBlock := false
-			codeBlockEnd := -1
-
-			for j := i + 1; j < len(lines); j++ {
-				if strings.HasPrefix(lines[j], "```plain") {
-					// Find the end of the code block
-					for k := j + 1; k < len(lines); k++ {
-						if strings.HasPrefix(lines[k], "```") {
-							codeBlockEnd = k
-							break
-						}
-					}
-					foundCodeBlock = true
-					break
-				}
-				// Stop if we hit another header or non-blank line
-				if strings.HasPrefix(lines[j], "## ") {
-					break
-				}
-			}
-
-			if foundCodeBlock {
-				// Replace the existing code block
-				newLines = append(newLines, "```plain")
-				newLines = append(newLines, strings.TrimSpace(report))
-				newLines = append(newLines, "```")
-				// Skip the old lines including the code block
-				i = codeBlockEnd + 1
-			} else {
-				// No code block found, insert one right after the header
-				newLines = append(newLines, "```plain")
-				newLines = append(newLines, strings.TrimSpace(report))
-				newLines = append(newLines, "```")
-				i++
-			}
-		} else {
-			newLines = append(newLines, line)
-			i++
-		}
-	}
-
-	if !headerFound {
+	if !updated {
 		newLines = append(newLines, "## "+title)
 		newLines = append(newLines, "```plain")
 		newLines = append(newLines, strings.TrimSpace(report))
@@ -397,6 +349,54 @@ func updateReadme(title, report string) {
 	if err != nil {
 		log.Printf("failed to write README.md: %v", err)
 	}
+}
+
+func replaceReadmeSection(lines []string, title, report string) ([]string, bool) {
+	newLines := []string{}
+	updated := false
+	i := 0
+	for i < len(lines) {
+		line := lines[i]
+		if strings.HasPrefix(line, "## "+title) && !updated {
+			updated = true
+			newLines = append(newLines, line)
+			i = skipOldBlock(lines, i+1, &newLines, report)
+		} else {
+			newLines = append(newLines, line)
+			i++
+		}
+	}
+	return newLines, updated
+}
+
+func skipOldBlock(lines []string, start int, newLines *[]string, report string) int {
+	foundCodeBlock := false
+	codeBlockEnd := -1
+
+	for j := start; j < len(lines); j++ {
+		if strings.HasPrefix(lines[j], "```plain") {
+			for k := j + 1; k < len(lines); k++ {
+				if strings.HasPrefix(lines[k], "```") {
+					codeBlockEnd = k
+					break
+				}
+			}
+			foundCodeBlock = true
+			break
+		}
+		if strings.HasPrefix(lines[j], "## ") {
+			break
+		}
+	}
+
+	*newLines = append(*newLines, "```plain")
+	*newLines = append(*newLines, strings.TrimSpace(report))
+	*newLines = append(*newLines, "```")
+
+	if foundCodeBlock {
+		return codeBlockEnd + 1
+	}
+	return start
 }
 
 // runAnalyzerBench runs analyzer comparison benchmarks to measure search performance.

@@ -60,7 +60,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer s.indexLock.RUnlock()
 
 	mux := http.NewServeMux()
-	api.RegisterHandlersWithPBF(mux, s.index, s.conf, s.pbfPath, s.pmtilesPath, s.cache)
+	api.RegisterHandlersWithPBF(mux, api.HandlerOptions{
+		Index:       s.index,
+		Conf:        s.conf,
+		PBFPath:     s.pbfPath,
+		PMTilesPath: s.pmtilesPath,
+		Cache:       s.cache,
+	})
 
 	handler := api.CORSMiddleware(mux, s.conf.Server.AllowedOrigins)
 	handler.ServeHTTP(w, r)

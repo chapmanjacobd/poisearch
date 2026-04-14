@@ -108,11 +108,6 @@ func buildTestIndex(t *testing.T, pbfPath string, conf *config.Config) (string, 
 	conf.StoreMetadata = false
 	conf.StoreGeometry = false
 
-	// Load wikdata importance if configured
-	if conf.WikidataImportance == "" {
-		conf.WikidataImportance = loadWikidataImportance(t)
-	}
-
 	// Build index mapping
 	m := search.BuildIndexMapping(conf)
 

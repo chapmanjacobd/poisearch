@@ -17,6 +17,7 @@ import (
 	"github.com/chapmanjacobd/poisearch/internal/search"
 	"github.com/paulmach/orb"
 	"github.com/paulmach/orb/encoding/mvt"
+	"github.com/paulmach/orb/geojson"
 	"github.com/paulmach/orb/maptile"
 	"github.com/protomaps/go-pmtiles/pmtiles"
 	"github.com/twpayne/go-geos"
@@ -29,17 +30,22 @@ type pmtilesCache struct {
 	header   pmtiles.HeaderV3
 }
 
-var (
-	pmtilesArchives = make(map[string]*pmtilesCache)
-	pmtilesMu       sync.Mutex
-)
+type pmtilesManager struct {
+	archives map[string]*pmtilesCache
+	mu       sync.Mutex
+}
+
+//nolint:gochecknoglobals // global manager used for caching opened PMTiles archives
+var globalPMTilesManager = &pmtilesManager{
+	archives: make(map[string]*pmtilesCache),
+}
 
 // getOrCreateArchive opens or retrieves a cached PMTiles archive.
-func getOrCreateArchive(pmtilesPath string) (*pmtilesCache, error) {
-	pmtilesMu.Lock()
-	defer pmtilesMu.Unlock()
+func (m *pmtilesManager) getOrCreateArchive(pmtilesPath string) (*pmtilesCache, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	if cache, ok := pmtilesArchives[pmtilesPath]; ok {
+	if cache, ok := m.archives[pmtilesPath]; ok {
 		return cache, nil
 	}
 
@@ -51,19 +57,20 @@ func getOrCreateArchive(pmtilesPath string) (*pmtilesCache, error) {
 	// Read header
 	r, err := bucket.NewRangeReader(ctx, filename, 0, pmtiles.HeaderV3LenBytes)
 	if err != nil {
-		bucket.Close()
+		_ = bucket.Close()
 		return nil, fmt.Errorf("reading PMTiles header: %w", err)
 	}
+	defer r.Close()
+
 	headerBytes, err := io.ReadAll(r)
-	r.Close()
 	if err != nil {
-		bucket.Close()
+		_ = bucket.Close()
 		return nil, fmt.Errorf("reading PMTiles header bytes: %w", err)
 	}
 
 	header, err := pmtiles.DeserializeHeader(headerBytes)
 	if err != nil {
-		bucket.Close()
+		_ = bucket.Close()
 		return nil, fmt.Errorf("deserializing PMTiles header: %w", err)
 	}
 
@@ -72,7 +79,7 @@ func getOrCreateArchive(pmtilesPath string) (*pmtilesCache, error) {
 		filename: filename,
 		header:   header,
 	}
-	pmtilesArchives[pmtilesPath] = cache
+	m.archives[pmtilesPath] = cache
 	return cache, nil
 }
 
@@ -89,7 +96,7 @@ func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.
 		}
 	}
 
-	archive, err := getOrCreateArchive(pmtilesPath)
+	archive, err := globalPMTilesManager.getOrCreateArchive(pmtilesPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening PMTiles archive: %w", err)
 	}
@@ -112,22 +119,23 @@ func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.
 	// Compute tiles at MaxZoom that intersect the search area
 	minTileX, minTileY, maxTileX, maxTileY := getTileRange(filter, maxZoom)
 
+	pOpts := &processTileOptions{
+		archive:    archive,
+		res:        res,
+		params:     params,
+		conf:       conf,
+		ont:        ont,
+		geosCtx:    geosCtx,
+		queryLower: queryLower,
+	}
+
 	// Fetch tiles and search features
 	for x := minTileX; x <= maxTileX; x++ {
 		for y := minTileY; y <= maxTileY; y++ {
-			err := processTile(
-				ctx,
-				archive,
-				uint32(maxZoom),
-				uint32(x),
-				uint32(y),
-				res,
-				params,
-				conf,
-				ont,
-				geosCtx,
-				queryLower,
-			)
+			pOpts.z = uint32(maxZoom)
+			pOpts.x = uint32(x)
+			pOpts.y = uint32(y)
+			err := processTile(ctx, pOpts)
 			if err != nil {
 				// Continue with other tiles
 				continue
@@ -160,26 +168,27 @@ func getTileRange(f spatialFilter, zoom int) (minX, minY, maxX, maxY int) {
 	return minX, minY, maxX, maxY
 }
 
-func lonLatToTile(lon, lat float64, zoom int) (int, int) {
+func lonLatToTile(lon, lat float64, zoom int) (x, y int) {
 	n := math.Pow(2, float64(zoom))
-	x := int((lon + 180.0) / 360.0 * n)
-	y := int((1.0 - math.Log(math.Tan(lat*math.Pi/180.0)+1.0/math.Cos(lat*math.Pi/180.0))/math.Pi) / 2.0 * n)
+	x = int((lon + 180.0) / 360.0 * n)
+	y = int((1.0 - math.Log(math.Tan(lat*math.Pi/180.0)+1.0/math.Cos(lat*math.Pi/180.0))/math.Pi) / 2.0 * n)
 	return x, y
 }
 
-func processTile(
-	ctx context.Context,
-	archive *pmtilesCache,
-	z, x, y uint32,
-	res *bleve.SearchResult,
-	params search.SearchParams,
-	conf *config.Config,
-	ont *PlaceTypeOntology,
-	geosCtx *geos.Context,
-	queryLower string,
-) error {
+type processTileOptions struct {
+	archive    *pmtilesCache
+	z, x, y    uint32
+	res        *bleve.SearchResult
+	params     search.SearchParams
+	conf       *config.Config
+	ont        *PlaceTypeOntology
+	geosCtx    *geos.Context
+	queryLower string
+}
+
+func processTile(ctx context.Context, p *processTileOptions) error {
 	// Read tile directly using direct access (no server overhead)
-	tileData, err := readTileDirect(ctx, archive, uint8(z), x, y)
+	tileData, err := readTileDirect(ctx, p.archive, uint8(p.z), p.x, p.y)
 	if err != nil {
 		return err
 	}
@@ -192,7 +201,7 @@ func processTile(
 		return err
 	}
 
-	tile := maptile.New(x, y, maptile.Zoom(z))
+	tile := maptile.New(p.x, p.y, maptile.Zoom(p.z))
 
 	for _, layer := range layers {
 		if !isPOILayer(layer.Name) {
@@ -203,56 +212,63 @@ func processTile(
 		layer.ProjectToWGS84(tile)
 
 		for _, feature := range layer.Features {
-			tags := make(map[string]string)
-			for k, v := range feature.Properties {
-				tags[k] = fmt.Sprint(v)
-			}
-
-			// Normalize MVT tags to OSM tags
-			if _, ok := tags["name"]; !ok && tags["name:en"] != "" {
-				tags["name"] = tags["name:en"]
-			}
-
-			coords := featureToCoords(feature.Geometry)
-			if len(coords) == 0 {
-				continue
-			}
-
-			latNano := nanodegree(coords[0][1])
-			lonNano := nanodegree(coords[0][0])
-
-			filter := computeSpatialFilter(params)
-			radiusMeters := parseRadiusToInt(params.Radius)
-			if !matchesSpatialFilter(latNano, lonNano, filter.hasRadius, filter.hasBbox,
-				filter.minLat, filter.maxLat, filter.minLon, filter.maxLon, params, radiusMeters) {
-
-				continue
-			}
-
-			id := int64(0)
-			if feature.ID != nil {
-				switch v := feature.ID.(type) {
-				case int64:
-					id = v
-				case uint64:
-					id = int64(v)
-				case float64:
-					id = int64(v)
-				case int:
-					id = int64(v)
-				}
-			}
-
-			if hit := processPBFFntity("pmtiles", id, tags, coords,
-				queryLower, params, conf, ont, geosCtx); hit != nil {
-				if collectHit(res, hit, params) {
-					return nil // Limit reached
-				}
+			if done := processMVTFeature(feature, p); done {
+				return nil
 			}
 		}
 	}
 
 	return nil
+}
+
+func processMVTFeature(feature *geojson.Feature, p *processTileOptions) bool {
+	tags := make(map[string]string)
+	for k, v := range feature.Properties {
+		tags[k] = fmt.Sprint(v)
+	}
+
+	// Normalize MVT tags to OSM tags
+	if _, ok := tags["name"]; !ok && tags["name:en"] != "" {
+		tags["name"] = tags["name:en"]
+	}
+
+	coords := featureToCoords(feature.Geometry)
+	if len(coords) == 0 {
+		return false
+	}
+
+	latNano := nanodegree(coords[0][1])
+	lonNano := nanodegree(coords[0][0])
+
+	filter := computeSpatialFilter(p.params)
+	radiusMeters := parseRadiusToInt(p.params.Radius)
+	if !matchesSpatialFilter(latNano, lonNano, filter.hasRadius, filter.hasBbox,
+		filter.minLat, filter.maxLat, filter.minLon, filter.maxLon, p.params, radiusMeters) {
+
+		return false
+	}
+
+	id := int64(0)
+	if feature.ID != nil {
+		switch v := feature.ID.(type) {
+		case int64:
+			id = v
+		case uint64:
+			id = int64(v)
+		case float64:
+			id = int64(v)
+		case int:
+			id = int64(v)
+		}
+	}
+
+	if hit := processPBFFntity("pmtiles", id, tags, coords,
+		p.queryLower, p.params, p.conf, p.ont, p.geosCtx); hit != nil {
+		if collectHit(p.res, hit, p.params) {
+			return true // Limit reached
+		}
+	}
+	return false
 }
 
 // readTileDirect reads a tile directly from the PMTiles archive.
@@ -268,47 +284,61 @@ func readTileDirect(
 	dirLength := archive.header.RootLength
 
 	for range 4 {
-		r, err := archive.bucket.NewRangeReader(ctx, archive.filename, int64(dirOffset), int64(dirLength))
+		b, err := readDirectory(ctx, archive, dirOffset, dirLength)
 		if err != nil {
-			return nil, fmt.Errorf("reading directory: %w", err)
-		}
-		b, err := io.ReadAll(r)
-		r.Close()
-		if err != nil {
-			return nil, fmt.Errorf("reading directory bytes: %w", err)
+			return nil, err
 		}
 
 		directory := pmtiles.DeserializeEntries(bytes.NewBuffer(b), archive.header.InternalCompression)
 		entry, ok := pmtiles.FindTile(directory, tileID)
-		if ok {
-			if entry.RunLength > 0 {
-				// Found the tile
-				tileReader, err := archive.bucket.NewRangeReader(
-					ctx,
-					archive.filename,
-					int64(archive.header.TileDataOffset+entry.Offset),
-					int64(entry.Length),
-				)
-				if err != nil {
-					return nil, fmt.Errorf("reading tile: %w", err)
-				}
-				tileBytes, err := io.ReadAll(tileReader)
-				tileReader.Close()
-				if err != nil {
-					return nil, fmt.Errorf("reading tile bytes: %w", err)
-				}
-				return tileBytes, nil
-			}
-			// Leaf directory - continue search
-			dirOffset = archive.header.LeafDirectoryOffset + entry.Offset
-			dirLength = uint64(entry.Length)
-		} else {
+		if !ok {
 			// Tile not found
 			return nil, nil
 		}
+
+		if entry.RunLength > 0 {
+			// Found the tile
+			return readTileData(ctx, archive, entry)
+		}
+		// Leaf directory - continue search
+		dirOffset = archive.header.LeafDirectoryOffset + entry.Offset
+		dirLength = uint64(entry.Length)
 	}
 
 	return nil, errors.New("exceeded max directory depth")
+}
+
+func readDirectory(ctx context.Context, archive *pmtilesCache, offset, length uint64) ([]byte, error) {
+	r, err := archive.bucket.NewRangeReader(ctx, archive.filename, int64(offset), int64(length))
+	if err != nil {
+		return nil, fmt.Errorf("reading directory: %w", err)
+	}
+	defer r.Close()
+
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("reading directory bytes: %w", err)
+	}
+	return b, nil
+}
+
+func readTileData(ctx context.Context, archive *pmtilesCache, entry pmtiles.EntryV3) ([]byte, error) {
+	tileReader, err := archive.bucket.NewRangeReader(
+		ctx,
+		archive.filename,
+		int64(archive.header.TileDataOffset+entry.Offset),
+		int64(entry.Length),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("reading tile: %w", err)
+	}
+	defer tileReader.Close()
+
+	tileBytes, err := io.ReadAll(tileReader)
+	if err != nil {
+		return nil, fmt.Errorf("reading tile bytes: %w", err)
+	}
+	return tileBytes, nil
 }
 
 func isPOILayer(name string) bool {

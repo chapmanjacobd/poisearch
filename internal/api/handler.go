@@ -85,22 +85,27 @@ func CORSMiddleware(next http.Handler, allowedOrigins []string) http.Handler {
 	})
 }
 
-func RegisterHandlers(mux *http.ServeMux, index bleve.Index, conf *config.Config) {
-	RegisterHandlersWithPBF(mux, index, conf, "", "", nil)
+// HandlerOptions contains configuration for API handlers.
+type HandlerOptions struct {
+	Index       bleve.Index
+	Conf        *config.Config
+	PBFPath     string
+	PMTilesPath string
+	Cache       *search.QueryCache
 }
 
-func RegisterHandlersWithPBF(
-	mux *http.ServeMux,
-	index bleve.Index,
-	conf *config.Config,
-	pbfPath string,
-	pmtilesPath string,
-	cache *search.QueryCache,
-) {
+func RegisterHandlers(mux *http.ServeMux, index bleve.Index, conf *config.Config) {
+	RegisterHandlersWithPBF(mux, HandlerOptions{
+		Index: index,
+		Conf:  conf,
+	})
+}
+
+func RegisterHandlersWithPBF(mux *http.ServeMux, opts HandlerOptions) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		if cache != nil {
-			stats := cache.Stats()
+		if opts.Cache != nil {
+			stats := opts.Cache.Stats()
 			_, _ = w.Write(fmt.Appendf(nil, "OK (cache: %d hits, %d misses, %.2f%% hit rate)",
 				stats.Hits, stats.Misses, stats.HitRate*100))
 		} else {
@@ -110,16 +115,16 @@ func RegisterHandlersWithPBF(
 
 	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
 		// If PBF path is configured and ?mode=pbf is set, use direct PBF search
-		if pbfPath != "" && r.URL.Query().Get("mode") == "pbf" {
-			handlePBFSearch(w, r, pbfPath, conf)
+		if opts.PBFPath != "" && r.URL.Query().Get("mode") == "pbf" {
+			handlePBFSearch(w, r, opts.PBFPath, opts.Conf)
 			return
 		}
 		// If PMTiles path is configured and ?mode=pmtiles is set, use direct PMTiles search
-		if pmtilesPath != "" && r.URL.Query().Get("mode") == "pmtiles" {
-			handlePMTilesSearch(w, r, pmtilesPath, conf)
+		if opts.PMTilesPath != "" && r.URL.Query().Get("mode") == "pmtiles" {
+			handlePMTilesSearch(w, r, opts.PMTilesPath, opts.Conf)
 			return
 		}
-		handleIndexSearch(w, r, index, conf, cache)
+		handleIndexSearch(w, r, opts.Index, opts.Conf, opts.Cache)
 	})
 }
 
