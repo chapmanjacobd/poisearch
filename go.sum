@@ -44,8 +44,8 @@ github.com/blevesearch/zapx/v15 v15.4.3 h1:iJiMJOHrz216jyO6lS0m9RTCEkprUnzvqAI2l
 github.com/blevesearch/zapx/v15 v15.4.3/go.mod h1:1pssev/59FsuWcgSnTa0OeEpOzmhtmr/0/11H0Z8+Nw=
 github.com/blevesearch/zapx/v16 v16.3.2 h1:R8alnAeYxzKO4JjQY4FBqJduJwcPE3YjcgevWgI+XT0=
 github.com/blevesearch/zapx/v16 v16.3.2/go.mod h1:zCFjv7McXWm1C8rROL+3mUoD5WYe2RKsZP3ufqcYpLY=
-github.com/codesoap/lineworker v0.2.0 h1:hy8dj55dwRCr6PspJM3ISV533P9TKWrvD3Mx66uSAbg=
-github.com/codesoap/lineworker v0.2.0/go.mod h1:aatQ4DVq3bEOUG0O5lAcBhSiwH2BmwmSYQPJjrYCv6w=
+github.com/codesoap/lineworker v0.2.1 h1:YZI1Xamk7/i9J3iPWz7hopttZKwFEn0GXOsF5UeebNI=
+github.com/codesoap/lineworker v0.2.1/go.mod h1:aatQ4DVq3bEOUG0O5lAcBhSiwH2BmwmSYQPJjrYCv6w=
 github.com/codesoap/pbf v0.1.2 h1:DP2hgEtSDcYfVH5LpiqeAX2C17pIvb1tB0y9A84pjd8=
 github.com/codesoap/pbf v0.1.2/go.mod h1:7DnX49CF9HZpZVF/d6E43/tDxLoO+AMomF6zhg5fS/M=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -62,8 +62,8 @@ github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUq
 github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
 github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=
 github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
-github.com/klauspost/compress v1.17.10 h1:oXAz+Vh0PMUvJczoi+flxpnBEPxoER1IaAnU/NMPtT0=
-github.com/klauspost/compress v1.17.10/go.mod h1:pMDklpSncoRMuLFrf1W9Ss9KT+0rH90U12bZKk7uwG0=
+github.com/klauspost/compress v1.18.5 h1:/h1gH5Ce+VWNLSWqPzOVn6XBO+vJbCNGvjoaGBFW2IE=
+github.com/klauspost/compress v1.18.5/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd h1:TRLaZ9cD/w8PVh93nsPXa1VrQ6jlwL5oN8l14QlcNfg=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=

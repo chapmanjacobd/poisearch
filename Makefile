@@ -78,14 +78,14 @@ serve: build
 	./$(BINARY) --config $(CONFIG) serve
 
 search: build
-	@curl -s "http://localhost:8080/search?q=$(Q)&limit=$(LIMIT)" | python3 -m json.tool 2>/dev/null || \
-	curl -s "http://localhost:8080/search?q=$(Q)&limit=$(LIMIT)"
+	@curl -s "http://localhost:9889/search?q=$(Q)&limit=$(LIMIT)" | python3 -m json.tool 2>/dev/null || \
+	curl -s "http://localhost:9889/search?q=$(Q)&limit=$(LIMIT)"
 
 open:
-	@python3 -m webbrowser "http://localhost:8080/search?q=restaurant&limit=10" 2>/dev/null || \
-	xdg-open "http://localhost:8080/search?q=restaurant&limit=10" 2>/dev/null || \
-	open "http://localhost:8080/search?q=restaurant&limit=10" 2>/dev/null || \
-	echo "Open http://localhost:8080/search?q=restaurant&limit=10 in your browser"
+	@python3 -m webbrowser "http://localhost:9889/search?q=restaurant&limit=10" 2>/dev/null || \
+	xdg-open "http://localhost:9889/search?q=restaurant&limit=10" 2>/dev/null || \
+	open "http://localhost:9889/search?q=restaurant&limit=10" 2>/dev/null || \
+	echo "Open http://localhost:9889/search?q=restaurant&limit=10 in your browser"
 
 clean-index:
 	@if [ -d "$(shell grep -oP 'index_path\s*=\s*"\K[^"]+' $(CONFIG) 2>/dev/null || echo pois.bleve)" ]; then \

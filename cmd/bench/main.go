@@ -33,11 +33,6 @@ type ModeResult struct {
 }
 
 func main() {
-	pbf := "liechtenstein-latest.osm.pbf"
-	if _, err := os.Stat(pbf); os.IsNotExist(err) {
-		log.Fatalf("PBF file %s not found. Please download it first.", pbf)
-	}
-
 	conf := &config.Config{
 		Languages: []string{"en"},
 		Importance: config.ImportanceWeights{
@@ -50,6 +45,14 @@ func main() {
 			PopBoost: 0.2,
 		},
 		SimplificationTol: 0.0001,
+		PBFPath:           config.DefaultPBF,
+		Server:            config.ServerConfig{Host: "127.0.0.1", Port: config.DefaultPort},
+	}
+
+	// Check if PBF file exists
+	pbf := conf.PBFPath
+	if _, err := os.Stat(pbf); os.IsNotExist(err) {
+		log.Fatalf("PBF file %s not found. Please download it first or set pbf_path in config.", pbf)
 	}
 
 	runFullBench(pbf, conf)

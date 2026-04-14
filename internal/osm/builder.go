@@ -183,16 +183,24 @@ func buildTagFilter(weights *config.ImportanceWeights) pbf.Filter {
 		Tags: make(map[string][]string),
 	}
 
+	// Add tag keys to the filter.
+	// If values is empty, we use an empty slice []string{} which means
+	// "any value for this key, but key must be present".
+	// If values has entries, we include those specific values.
 	addTag := func(key string, values map[string]float64) {
 		if len(values) == 0 {
 			return
 		}
+		// If there are specific values configured, include them
+		// Otherwise use empty slice to match any value for this key
 		filter.Tags[key] = make([]string, 0, len(values))
 		for v := range values {
 			if v != "" && v != "yes" && v != "no" {
 				filter.Tags[key] = append(filter.Tags[key], v)
 			}
 		}
+		// If no specific values were added (all were yes/no/empty),
+		// the slice is empty which means "any value for this key"
 	}
 
 	addTag("place", weights.Place)

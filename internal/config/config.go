@@ -1,5 +1,12 @@
 package config
 
+const (
+	// DefaultPort is the default server port if not specified in config.
+	DefaultPort = 9889
+	// DefaultPBF is the default PBF filename.
+	DefaultPBF = "liechtenstein-latest.osm.pbf"
+)
+
 type Config struct {
 	IndexPath           string            `toml:"index_path"`
 	PBFPath             string            `toml:"pbf_path"`            // Optional: path to PBF for direct (no-index) search

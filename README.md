@@ -56,12 +56,12 @@ go run ./cmd/poisearch --config config.toml serve
 ### Search
 
 ```sh
-curl "http://localhost:8080/search?q=Berlin&limit=5"
+curl "http://localhost:9889/search?q=Berlin&limit=5"
 ```
 
 Spatial search example:
 ```sh
-curl "http://localhost:8080/search?q=Restaurant&lat=52.52&lon=13.40&radius=1000m"
+curl "http://localhost:9889/search?q=Restaurant&lat=52.52&lon=13.40&radius=1000m"
 ```
 
 ## Benchmark Results
