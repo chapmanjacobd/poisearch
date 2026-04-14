@@ -267,11 +267,14 @@ func processMVTFeature(feature *geojson.Feature, layerName string, p *processTil
 		}
 	}
 
+	// Fast path: use first coordinate for initial spatial filtering
+	coords := featureToCoords(feature.Geometry)
+	if len(coords) == 0 {
+		return false
+	}
 
-	// Use centroid for spatial filtering to be more accurate for polygons/lines
-	centroid := getCentroid(feature.Geometry)
-	latNano := nanodegree(centroid.Lat())
-	lonNano := nanodegree(centroid.Lon())
+	latNano := nanodegree(coords[0][1])
+	lonNano := nanodegree(coords[0][0])
 
 	filter := computeSpatialFilter(p.params)
 	radiusMeters := parseRadiusToInt(p.params.Radius)
@@ -281,9 +284,13 @@ func processMVTFeature(feature *geojson.Feature, layerName string, p *processTil
 		return false
 	}
 
-	coords := featureToCoords(feature.Geometry)
-	if len(coords) == 0 {
-		return false
+	// Opt-in: precise intersection check for non-point geometries
+	if p.conf.PMTilesPostProcess || p.params.ExactMatch {
+		if _, ok := feature.Geometry.(orb.Point); !ok {
+			if !matchesPreciseFilter(feature.Geometry, &filter, p.params, radiusMeters) {
+				return false
+			}
+		}
 	}
 
 	id := int64(0)
@@ -432,46 +439,25 @@ func featureToCoords(g orb.Geometry) [][]float64 {
 	return res
 }
 
-func getCentroid(g orb.Geometry) orb.Point {
-	if g == nil {
-		return orb.Point{}
+func matchesPreciseFilter(g orb.Geometry, f *spatialFilter, params search.SearchParams, radiusMeters int) bool {
+	if f.hasRadius {
+		// Precise Distance check
+		center := orb.Point{*params.Lon, *params.Lat}
+		dist := planar.DistanceFrom(g, center)
+		// Distance is in degrees approximately, convert to meters
+		distMeters := dist * 111319.9
+		return distMeters <= float64(radiusMeters)
 	}
 
-	switch geom := g.(type) {
-	case orb.Point:
-		return geom
-	case orb.MultiPoint:
-		if len(geom) == 0 {
-			return orb.Point{}
+	if f.hasBbox {
+		// Intersection with bounding box
+		rect := orb.Bound{
+			Min: orb.Point{*params.MinLon, *params.MinLat},
+			Max: orb.Point{*params.MaxLon, *params.MaxLat},
 		}
-		c, _ := planar.CentroidArea(geom)
-		return c
-	case orb.LineString:
-		if len(geom) == 0 {
-			return orb.Point{}
-		}
-		c, _ := planar.CentroidArea(geom)
-		return c
-	case orb.MultiLineString:
-		if len(geom) == 0 {
-			return orb.Point{}
-		}
-		// Use the first line for centroid
-		c, _ := planar.CentroidArea(geom[0])
-		return c
-	case orb.Polygon:
-		if len(geom) == 0 {
-			return orb.Point{}
-		}
-		c, _ := planar.CentroidArea(geom)
-		return c
-	case orb.MultiPolygon:
-		if len(geom) == 0 {
-			return orb.Point{}
-		}
-		c, _ := planar.CentroidArea(geom[0])
-		return c
+		// Intersects check using Bounding Boxes
+		return rect.Intersects(g.Bound())
 	}
 
-	return orb.Point{}
+	return true
 }

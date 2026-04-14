@@ -35,6 +35,9 @@ type SearchParams struct {
 	// Analyzer type used during indexing (affects query strategy)
 	Analyzer string
 
+	// ExactMatch forces precise intersection checks (e.g. for PMTiles)
+	ExactMatch bool
+
 	// Address search fields
 	Street      string
 	HouseNumber string

@@ -17,7 +17,7 @@ func TestPMTilesSearch(t *testing.T) {
 
 	conf := &config.Config{
 		Importance: config.ImportanceWeights{
-			Place:   map[string]float64{"city": 4.0, "country": 5.0},
+			Place:   map[string]float64{"city": 4.0, "country": 5.0, "town": 3.0, "village": 2.0},
 			Default: 1.0,
 		},
 	}
@@ -84,5 +84,21 @@ func TestPMTilesSearch(t *testing.T) {
 			t.Errorf("expected results for bbox search, got 0")
 		}
 		t.Logf("BBox search found %d results", res.Total)
+	})
+
+	t.Run("ExactMatchPreciseFiltering", func(t *testing.T) {
+		params := search.SearchParams{
+			Query:      "Vaduz",
+			Lat:        &lat,
+			Lon:        &lon,
+			Radius:     "500m",
+			Limit:      10,
+			ExactMatch: true,
+		}
+		res, err := osm.PMTilesSearch(pmtilesPath, params, conf)
+		if err != nil {
+			t.Fatalf("PMTilesSearch failed: %v", err)
+		}
+		t.Logf("ExactMatch search found %d results", res.Total)
 	})
 }

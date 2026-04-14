@@ -40,6 +40,7 @@ type Config struct {
 	StoreGeometry          bool              `toml:"store_geometry"`
 	StoreAddress           bool              `toml:"store_address"`            // Opt-in: index addr:* tags for address search
 	IndexWikidataRedirects bool              `toml:"index_wikidata_redirects"` // Opt-in: index Wikipedia redirect titles as alternate names
+	PMTilesPostProcess     bool              `toml:"pmtiles_post_process"`     // Opt-in: perform precise intersection check for PMTiles (slow)
 
 	// Build optimization configuration
 	BuildWorkers int `toml:"build_workers"`  // Number of parallel workers for index building (default: 1, range: 1-8)
