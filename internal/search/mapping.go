@@ -86,10 +86,23 @@ func BuildIndexMapping(conf *config.Config) mapping.IndexMapping {
 	addImportanceField(docMapping, conf)
 	addGeometryField(docMapping, conf)
 	addAddressFields(docMapping, conf)
+	addMetadataFields(docMapping, conf)
 	addWikidataRedirectFields(docMapping, conf, nameAnalyzer)
 
 	indexMapping.DefaultMapping = docMapping
 	return indexMapping
+}
+
+func addMetadataFields(docMapping *mapping.DocumentMapping, _ *config.Config) {
+	keywordMapping := bleve.NewTextFieldMapping()
+	keywordMapping.Analyzer = "keyword"
+	keywordMapping.IncludeInAll = false
+	keywordMapping.Store = true
+
+	fields := []string{"phone", "wheelchair", "opening_hours"}
+	for _, f := range fields {
+		docMapping.AddFieldMappingsAt(f, keywordMapping)
+	}
 }
 
 func addNameFields(docMapping *mapping.DocumentMapping, conf *config.Config, nameAnalyzer string) {
@@ -162,7 +175,7 @@ func addAddressFields(docMapping *mapping.DocumentMapping, conf *config.Config) 
 	fields := []string{
 		"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
 		"addr:country", "addr:state", "addr:district", "addr:suburb",
-		"addr:neighbourhood",
+		"addr:neighbourhood", "addr:floor", "addr:unit", "level",
 	}
 	for _, f := range fields {
 		docMapping.AddFieldMappingsAt(f, addrMapping)

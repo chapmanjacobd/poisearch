@@ -234,6 +234,7 @@ func processMVTFeature(feature *geojson.Feature, layerName string, p *processTil
 	}
 
 	NormalizeNameTag(tags, p.conf.Languages)
+	enhanceName(tags)
 
 	// Map OpenMapTiles 'class' to OSM-style tags for classification
 	if class, ok := tags["class"]; ok {
@@ -264,6 +265,22 @@ func processMVTFeature(feature *geojson.Feature, layerName string, p *processTil
 			tags["landuse"] = class
 		case "building":
 			tags["building"] = "yes"
+		}
+	}
+
+	// Map other common OMT fields to OSM tags for classification/metadata
+	if v, ok := tags["level"]; ok {
+		tags["level"] = v
+	}
+	if v, ok := tags["rank"]; ok && tags["importance"] == "" {
+		// Use rank as a fallback for importance if missing
+		tags["importance"] = v
+	}
+
+	// Address fields (some schemas include these in 'pois' or 'housenumber' layers)
+	for _, k := range []string{"housenumber", "street", "city", "postcode"} {
+		if v, ok := tags[k]; ok {
+			tags["addr:"+k] = v
 		}
 	}
 

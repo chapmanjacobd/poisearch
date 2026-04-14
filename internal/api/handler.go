@@ -238,6 +238,14 @@ func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams
 	postcode := r.URL.Query().Get("postcode")
 	city := r.URL.Query().Get("city")
 	country := r.URL.Query().Get("country")
+	floor := r.URL.Query().Get("floor")
+	unit := r.URL.Query().Get("unit")
+	level := r.URL.Query().Get("level")
+
+	// Metadata search params
+	phone := r.URL.Query().Get("phone")
+	wheelchair := r.URL.Query().Get("wheelchair")
+	openingHours := r.URL.Query().Get("opening_hours")
 
 	var lat, lon *float64
 	if latStr != "" {
@@ -287,26 +295,32 @@ func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams
 	}
 
 	return search.SearchParams{
-		Query:       q,
-		Lat:         lat,
-		Lon:         lon,
-		Radius:      radius,
-		Limit:       limit,
-		From:        from,
-		Langs:       langs,
-		GeoMode:     conf.GeometryMode,
-		Fuzzy:       fuzzy,
-		Prefix:      prefix,
-		Class:       class,
-		Subtype:     subtype,
-		Classes:     classList,
-		Subtypes:    subtypeList,
-		Street:      street,
-		HouseNumber: housenumber,
-		Postcode:    postcode,
-		City:        city,
-		Country:     country,
-		Analyzer:    conf.NameAnalyzer,
+		Query:        q,
+		Lat:          lat,
+		Lon:          lon,
+		Radius:       radius,
+		Limit:        limit,
+		From:         from,
+		Langs:        langs,
+		GeoMode:      conf.GeometryMode,
+		Fuzzy:        fuzzy,
+		Prefix:       prefix,
+		Class:        class,
+		Subtype:      subtype,
+		Classes:      classList,
+		Subtypes:     subtypeList,
+		Street:       street,
+		HouseNumber:  housenumber,
+		Postcode:     postcode,
+		City:         city,
+		Country:      country,
+		Floor:        floor,
+		Unit:         unit,
+		Level:        level,
+		Phone:        phone,
+		Wheelchair:   wheelchair,
+		OpeningHours: openingHours,
+		Analyzer:     conf.NameAnalyzer,
 	}
 }
 
@@ -371,9 +385,20 @@ func writeTextResponse(w http.ResponseWriter, res *bleve.SearchResult, langs []s
 		}
 
 		// Address fields
-		for _, addrKey := range []string{"addr:housenumber", "addr:street", "addr:city", "addr:postcode", "addr:country", "addr:state", "addr:district", "addr:suburb", "addr:neighbourhood"} {
+		for _, addrKey := range []string{
+			"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
+			"addr:country", "addr:state", "addr:district", "addr:suburb",
+			"addr:neighbourhood", "addr:floor", "addr:unit", "level",
+		} {
 			if val, ok := hit.Fields[addrKey].(string); ok && val != "" {
 				fmt.Fprintf(w, "%s: %s\n", addrKey, val)
+			}
+		}
+
+		// Metadata fields
+		for _, metaKey := range []string{"phone", "wheelchair", "opening_hours"} {
+			if val, ok := hit.Fields[metaKey].(string); ok && val != "" {
+				fmt.Fprintf(w, "%s: %s\n", metaKey, val)
 			}
 		}
 

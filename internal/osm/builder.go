@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -534,6 +535,24 @@ func processEntity(
 	return true
 }
 
+func enhanceName(tags map[string]string) {
+	name := tags["name"]
+	if name == "" {
+		return
+	}
+
+	for _, k := range []string{"brand", "operator", "religion", "denomination"} {
+		v := tags[k]
+		if v != "" && v != "yes" && v != "no" {
+			// If name doesn't already contain the brand/operator/etc (case-insensitive)
+			if !strings.Contains(strings.ToLower(name), strings.ToLower(v)) {
+				tags["name"] = fmt.Sprintf("%s (%s)", name, v)
+				return // Only add one enhancement
+			}
+		}
+	}
+}
+
 func NormalizeNameTag(tags map[string]string, languages []string) {
 	if tags["name"] != "" {
 		return
@@ -621,14 +640,23 @@ type featureParams struct {
 
 func buildFeatureFromTags(p featureParams) *search.Feature {
 	NormalizeNameTag(p.tags, p.conf.Languages)
+	enhanceName(p.tags) // Add brand/operator/etc in parentheses
+
 	feature := &search.Feature{
-		ID:         fmt.Sprintf("%s/%d", p.entityType, p.id),
-		Name:       p.tags["name"],
-		Names:      make(map[string]string),
-		Importance: p.best.Importance,
-		Geometry:   p.geom,
-		Class:      p.best.Class,
-		Subtype:    p.best.Subtype,
+		ID:           fmt.Sprintf("%s/%d", p.entityType, p.id),
+		Name:         p.tags["name"],
+		Names:        make(map[string]string),
+		Importance:   p.best.Importance,
+		Geometry:     p.geom,
+		Class:        p.best.Class,
+		Subtype:      p.best.Subtype,
+		Phone:        p.tags["phone"],
+		Wheelchair:   p.tags["wheelchair"],
+		OpeningHours: p.tags["opening_hours"],
+	}
+
+	if p.tags["phone"] == "" && p.tags["contact:phone"] != "" {
+		feature.Phone = p.tags["contact:phone"]
 	}
 
 	if p.conf.DisableImportance {
@@ -683,7 +711,7 @@ func addAddressToFeature(feature *search.Feature, tags map[string]string, conf *
 		addrKeys := []string{
 			"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
 			"addr:country", "addr:state", "addr:district", "addr:suburb",
-			"addr:neighbourhood",
+			"addr:neighbourhood", "addr:floor", "addr:unit", "level",
 		}
 		for _, k := range addrKeys {
 			if val, ok := tags[k]; ok {

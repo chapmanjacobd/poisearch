@@ -12,12 +12,12 @@ func createTestIndexForQuery(t *testing.T) bleve.Index {
 	t.Helper()
 
 	conf := &config.Config{
-		Languages:      []string{"en"},
-		StoreAddress:   true,
-		StoreGeometry:  true,
-		StoreMetadata:  true,
-		GeometryMode:   "geopoint",
-		NameAnalyzer:   "standard",
+		Languages:     []string{"en"},
+		StoreAddress:  true,
+		StoreGeometry: true,
+		StoreMetadata: true,
+		GeometryMode:  "geopoint",
+		NameAnalyzer:  "standard",
 	}
 
 	indexMapping := search.BuildIndexMapping(conf)
@@ -29,36 +29,75 @@ func createTestIndexForQuery(t *testing.T) bleve.Index {
 
 	// Index test documents
 	testDocs := []struct {
-		id         string
-		name       string
-		class      string
-		subtype    string
-		importance float64
-		lat, lon   float64
-		street     string
-		housenum   string
-		postcode   string
-		city       string
-		country    string
+		id           string
+		name         string
+		class        string
+		subtype      string
+		importance   float64
+		lat, lon     float64
+		street       string
+		housenum     string
+		postcode     string
+		city         string
+		country      string
+		floor        string
+		unit         string
+		level        string
+		phone        string
+		wheelchair   string
+		openingHours string
 	}{
-		{"node/1", "Berlin", "place", "city", 10.0, 52.52, 13.40, "Unter den Linden", "1", "10117", "Berlin", "DE"},
-		{"node/2", "Munich", "place", "city", 9.0, 48.13, 11.58, "Marienplatz", "1", "80331", "Munich", "DE"},
 		{
-			"node/3",
-			"Restaurant Alpha",
-			"amenity",
-			"restaurant",
-			5.0,
-			52.53,
-			13.41,
-			"Friedrichstr",
-			"10",
-			"10117",
-			"Berlin",
-			"DE",
+			id:           "node/1",
+			name:         "Berlin",
+			class:        "place",
+			subtype:      "city",
+			importance:   10.0,
+			lat:          52.52,
+			lon:          13.40,
+			street:       "Unter den Linden",
+			housenum:     "1",
+			postcode:     "10117",
+			city:         "Berlin",
+			country:      "DE",
+			phone:        "+49 30 123456",
+			wheelchair:   "yes",
+			openingHours: "24/7",
 		},
-		{"node/4", "Cafe Beta", "amenity", "cafe", 4.0, 52.54, 13.42, "", "", "", "", ""},
-		{"node/5", "Shop Gamma", "shop", "yes", 3.0, 48.14, 11.59, "", "", "80331", "", "DE"},
+		{
+			id:         "node/2",
+			name:       "Munich",
+			class:      "place",
+			subtype:    "city",
+			importance: 9.0,
+			lat:        48.13,
+			lon:        11.58,
+			street:     "Marienplatz",
+			housenum:   "1",
+			postcode:   "80331",
+			city:       "Munich",
+			country:    "DE",
+			level:      "0",
+		},
+		{
+			id:           "node/3",
+			name:         "Restaurant Alpha",
+			class:        "amenity",
+			subtype:      "restaurant",
+			importance:   5.0,
+			lat:          52.53,
+			lon:          13.41,
+			street:       "Friedrichstr",
+			housenum:     "10",
+			postcode:     "10117",
+			city:         "Berlin",
+			country:      "DE",
+			floor:        "1",
+			unit:         "A",
+			openingHours: "Mo-Fr 09:00-20:00",
+		},
+		{"node/4", "Cafe Beta", "amenity", "cafe", 4.0, 52.54, 13.42, "", "", "", "", "", "", "", "", "", "", ""},
+		{"node/5", "Shop Gamma", "shop", "yes", 3.0, 48.14, 11.59, "", "", "80331", "", "DE", "", "", "", "", "", ""},
 	}
 
 	for _, doc := range testDocs {
@@ -83,6 +122,24 @@ func createTestIndexForQuery(t *testing.T) bleve.Index {
 		}
 		if doc.country != "" {
 			data["addr:country"] = doc.country
+		}
+		if doc.floor != "" {
+			data["addr:floor"] = doc.floor
+		}
+		if doc.unit != "" {
+			data["addr:unit"] = doc.unit
+		}
+		if doc.level != "" {
+			data["level"] = doc.level
+		}
+		if doc.phone != "" {
+			data["phone"] = doc.phone
+		}
+		if doc.wheelchair != "" {
+			data["wheelchair"] = doc.wheelchair
+		}
+		if doc.openingHours != "" {
+			data["opening_hours"] = doc.openingHours
 		}
 		if err := index.Index(doc.id, data); err != nil {
 			t.Fatalf("failed to index document %s: %v", doc.id, err)
@@ -265,6 +322,94 @@ func TestSearch_AddressFilters(t *testing.T) {
 				Limit:   10,
 				Langs:   []string{"en"},
 				GeoMode: "geopoint",
+			},
+			expectMin: 1,
+		},
+		{
+			name: "filter by floor",
+			params: search.SearchParams{
+				Query:   "",
+				Floor:   "1",
+				Limit:   10,
+				Langs:   []string{"en"},
+				GeoMode: "geopoint",
+			},
+			expectMin: 1,
+		},
+		{
+			name: "filter by unit",
+			params: search.SearchParams{
+				Query:   "",
+				Unit:    "A",
+				Limit:   10,
+				Langs:   []string{"en"},
+				GeoMode: "geopoint",
+			},
+			expectMin: 1,
+		},
+		{
+			name: "filter by level",
+			params: search.SearchParams{
+				Query:   "",
+				Level:   "0",
+				Limit:   10,
+				Langs:   []string{"en"},
+				GeoMode: "geopoint",
+			},
+			expectMin: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results, err := search.Search(index, tt.params)
+			if err != nil {
+				t.Fatalf("search failed: %v", err)
+			}
+
+			if int(results.Total) < tt.expectMin {
+				t.Errorf("expected at least %d results, got %d", tt.expectMin, results.Total)
+			}
+		})
+	}
+}
+
+func TestSearch_MetadataFilters(t *testing.T) {
+	index := createTestIndexForQuery(t)
+	defer index.Close()
+
+	tests := []struct {
+		name      string
+		params    search.SearchParams
+		expectMin int
+	}{
+		{
+			name: "filter by phone",
+			params: search.SearchParams{
+				Query: "",
+				Phone: "+49 30 123456",
+				Limit: 10,
+				Langs: []string{"en"},
+			},
+			expectMin: 1,
+		},
+		{
+			name: "filter by wheelchair",
+			params: search.SearchParams{
+				Query:      "",
+				Wheelchair: "yes",
+				Limit:      10,
+				Langs:      []string{"en"},
+			},
+			expectMin: 1,
+		},
+		{
+			name: "filter by opening hours",
+			params: search.SearchParams{
+				Query:        "",
+				OpeningHours: "24/7",
+				Limit:        10,
+				Langs:        []string{"en"},
 			},
 			expectMin: 1,
 		},

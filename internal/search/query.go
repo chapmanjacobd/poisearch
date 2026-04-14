@@ -44,6 +44,14 @@ type SearchParams struct {
 	Postcode    string
 	City        string
 	Country     string
+	Floor       string
+	Unit        string
+	Level       string
+
+	// Metadata filters
+	Phone        string
+	Wheelchair   string
+	OpeningHours string
 }
 
 // QueryFields returns the number of query fields (words) in the search query.
@@ -305,7 +313,7 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 
 	// Address filters
 	if params.Street != "" || params.HouseNumber != "" || params.Postcode != "" || params.City != "" ||
-		params.Country != "" {
+		params.Country != "" || params.Floor != "" || params.Unit != "" || params.Level != "" {
 
 		conjunctions := []query.Query{q}
 		if params.Street != "" {
@@ -331,6 +339,42 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		if params.Country != "" {
 			sq := bleve.NewMatchQuery(params.Country)
 			sq.SetField("addr:country")
+			conjunctions = append(conjunctions, sq)
+		}
+		if params.Floor != "" {
+			sq := bleve.NewMatchQuery(params.Floor)
+			sq.SetField("addr:floor")
+			conjunctions = append(conjunctions, sq)
+		}
+		if params.Unit != "" {
+			sq := bleve.NewMatchQuery(params.Unit)
+			sq.SetField("addr:unit")
+			conjunctions = append(conjunctions, sq)
+		}
+		if params.Level != "" {
+			sq := bleve.NewMatchQuery(params.Level)
+			sq.SetField("level")
+			conjunctions = append(conjunctions, sq)
+		}
+		q = bleve.NewConjunctionQuery(conjunctions...)
+	}
+
+	// Metadata filters
+	if params.Phone != "" || params.Wheelchair != "" || params.OpeningHours != "" {
+		conjunctions := []query.Query{q}
+		if params.Phone != "" {
+			sq := bleve.NewMatchQuery(params.Phone)
+			sq.SetField("phone")
+			conjunctions = append(conjunctions, sq)
+		}
+		if params.Wheelchair != "" {
+			sq := bleve.NewMatchQuery(params.Wheelchair)
+			sq.SetField("wheelchair")
+			conjunctions = append(conjunctions, sq)
+		}
+		if params.OpeningHours != "" {
+			sq := bleve.NewMatchQuery(params.OpeningHours)
+			sq.SetField("opening_hours")
 			conjunctions = append(conjunctions, sq)
 		}
 		q = bleve.NewConjunctionQuery(conjunctions...)
@@ -362,12 +406,14 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	)
 	// Add address fields when any address filter is used
 	if params.Street != "" || params.HouseNumber != "" || params.Postcode != "" || params.City != "" ||
-		params.Country != "" {
+		params.Country != "" || params.Floor != "" || params.Unit != "" || params.Level != "" ||
+		params.Phone != "" || params.Wheelchair != "" || params.OpeningHours != "" {
 
 		fields = append(fields,
 			"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
 			"addr:country", "addr:state", "addr:district", "addr:suburb",
-			"addr:neighbourhood",
+			"addr:neighbourhood", "addr:floor", "addr:unit", "level",
+			"phone", "wheelchair", "opening_hours",
 		)
 	}
 	for _, lang := range params.Langs {

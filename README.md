@@ -23,7 +23,7 @@ sudo apt install libgeos-dev
 
 ## Setup
 
-1. **Pre-process OSM PBF**:
+1. Pre-process OSM PBF:
    `poisearch` requires PBF files to have node locations added to ways. You can do this with `osmium`:
    ```sh
    osmium add-locations-to-ways input.osm.pbf -o processed.osm.pbf
@@ -36,7 +36,7 @@ sudo apt install libgeos-dev
    osmium tags-filter processed.osm.pbf n/place n/amenity n/highway -o filtered.osm.pbf
    ```
 
-2. **Configuration**:
+2. Configuration:
    Copy `config.example.toml` to `config.toml` and adjust as needed.
 
 ## Usage
@@ -63,6 +63,48 @@ Spatial search example:
 ```sh
 curl "http://localhost:9889/search?q=Restaurant&lat=52.52&lon=13.40&radius=1000m"
 ```
+
+Metadata and direct PBF examples:
+```sh
+# Search for wheelchair accessible POIs
+curl "http://localhost:9889/search?wheelchair=yes&city=Berlin"
+
+# Direct PBF search (no index needed)
+curl "http://localhost:9889/search?q=museum&mode=pbf"
+
+# Search by phone number
+curl "http://localhost:9889/search?phone=123456"
+```
+
+## Features
+
+- Multi-Interface Search: Search via high-performance Bleve index, direct PBF scan, or PMTiles.
+- Rich Metadata: Support for `phone`, `opening_hours`, `wheelchair` accessibility, and detailed classification.
+- Enhanced Results: Names are automatically enhanced with `brand`, `operator`, `religion`, or `denomination` (e.g., "St. Mary's (Catholic)").
+- Advanced Address Search: Support for house numbers, streets, cities, postcodes, and even `floor`, `unit`, and `level`.
+- Spatial Filters: Radius search, bounding box filters, and precise intersection checks.
+- On-the-fly Classification: Sophisticated POI classification based on an extensible ontology.
+
+### Supported Tags
+
+| Category | Searchable Keys | Returned Fields |
+| :--- | :--- | :--- |
+| Names | `name`, `alt_name`, `short_name`, `old_name`, `brand`, `operator`, `name:lang` | Full name set + enhanced name |
+| Classification | `amenity`, `shop`, `tourism`, `leisure`, `place`, `highway`, etc. | `class`, `subtype`, `classes`, `subtypes` |
+| Address | `addr:street`, `addr:housenumber`, `addr:city`, `addr:postcode`, `addr:country`, `addr:floor`, `addr:unit`, `level` | Full address set |
+| Metadata | `phone`, `opening_hours`, `wheelchair`, `wikidata`, `wikipedia` | `phone`, `opening_hours`, `wheelchair`, `importance` |
+
+## Options
+
+`config.toml` defines both index creation time and runtime options. There are three main search strategies, each with different tradeoffs:
+
+| Feature/Tag | Bleve Index | Raw PBF (`--mode=pbf`) | Raw PMTiles (`--mode=pmtiles`) |
+| :--- | :--- | :--- | :--- |
+| Searchable Fields | Explicitly mapped fields (Name, Address, Metadata, Class). Fast & Scalable. | Full Tag Set. Matches against all OSM tags via arbitrary data fallback. | Limited by PMTiles schema (default: OpenMapTiles). |
+| Performance | High. Optimized for large datasets and complex queries. | Low. Linear scan of the PBF file. Best for small files. | Medium. Spatial indexing allows fast lookups without a full index. |
+| Address Support | Strong. Indexed `addr:*` tags including floor, unit, and level. | Strong. Direct access to all address tags in the PBF. | Weak. Most address tags are stripped by default OMT schema. |
+| Classification | Static. Pre-calculated at index time for maximum speed. | Dynamic. Re-calculates classification on every scan. | Heuristic. Re-maps generic OMT classes back to OSM tags. |
+| Custom Tags | Requires updating `mapping.go` and re-indexing. | High. Instant support for any tag via `TagMap()`. | Very Low. Limited to what `planetiler` preserves. |
 
 ## Benchmark Results (taiwan-latest.osm.pbf, 315.5 MB)
 

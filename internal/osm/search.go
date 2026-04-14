@@ -320,6 +320,7 @@ func processPBFEntity(
 	}
 
 	NormalizeNameTag(tags, conf.Languages)
+	enhanceName(tags)
 
 	if !matchFilters(classifications, tags, params, queryLower) {
 		return nil
@@ -330,10 +331,16 @@ func processPBFEntity(
 		ID:    fmt.Sprintf("%s/%d", entityType, id),
 		Score: classifications[0].Importance,
 		Fields: map[string]any{
-			"name":    tags["name"],
-			"class":   classifications[0].Class,
-			"subtype": classifications[0].Subtype,
+			"name":          tags["name"],
+			"class":         classifications[0].Class,
+			"subtype":       classifications[0].Subtype,
+			"phone":         tags["phone"],
+			"wheelchair":    tags["wheelchair"],
+			"opening_hours": tags["opening_hours"],
 		},
+	}
+	if tags["phone"] == "" && tags["contact:phone"] != "" {
+		hit.Fields["phone"] = tags["contact:phone"]
 	}
 
 	// Store other names
@@ -367,6 +374,9 @@ func matchFilters(
 		return false
 	}
 	if !matchAddress(tags, params) {
+		return false
+	}
+	if !matchMetadata(tags, params) {
 		return false
 	}
 	return true
@@ -419,13 +429,20 @@ func matchTextQuery(tags map[string]string, params search.SearchParams, queryLow
 	if strings.Contains(strings.ToLower(tags["name"]), queryLower) {
 		return true
 	}
-	for _, alt := range []string{"alt_name", "old_name", "short_name"} {
+	for _, alt := range []string{"alt_name", "old_name", "short_name", "brand", "operator", "religion", "denomination"} {
 		if strings.Contains(strings.ToLower(tags[alt]), queryLower) {
 			return true
 		}
 	}
 	for _, lang := range params.Langs {
 		if strings.Contains(strings.ToLower(tags["name:"+lang]), queryLower) {
+			return true
+		}
+	}
+
+	// Optional: Search all tags if requested or as fallback
+	for _, v := range tags {
+		if strings.Contains(strings.ToLower(v), queryLower) {
 			return true
 		}
 	}
@@ -447,6 +464,32 @@ func matchAddress(tags map[string]string, params search.SearchParams) bool {
 	}
 	if params.Country != "" &&
 		!strings.Contains(strings.ToLower(tags["addr:country"]), strings.ToLower(params.Country)) {
+
+		return false
+	}
+	if params.Floor != "" && tags["addr:floor"] != params.Floor {
+		return false
+	}
+	if params.Unit != "" && tags["addr:unit"] != params.Unit {
+		return false
+	}
+	if params.Level != "" && tags["level"] != params.Level {
+		return false
+	}
+	return true
+}
+
+func matchMetadata(tags map[string]string, params search.SearchParams) bool {
+	if params.Phone != "" && !strings.Contains(tags["phone"], params.Phone) &&
+		!strings.Contains(tags["contact:phone"], params.Phone) {
+
+		return false
+	}
+	if params.Wheelchair != "" && tags["wheelchair"] != params.Wheelchair {
+		return false
+	}
+	if params.OpeningHours != "" &&
+		!strings.Contains(strings.ToLower(tags["opening_hours"]), strings.ToLower(params.OpeningHours)) {
 
 		return false
 	}
