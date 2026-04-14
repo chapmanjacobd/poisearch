@@ -47,11 +47,12 @@ var cli struct {
 }
 
 type Server struct {
-	index     bleve.Index
-	indexLock sync.RWMutex
-	conf      *config.Config
-	pbfPath   string
-	cache     *search.QueryCache
+	index       bleve.Index
+	indexLock   sync.RWMutex
+	conf        *config.Config
+	pbfPath     string
+	pmtilesPath string
+	cache       *search.QueryCache
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +60,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer s.indexLock.RUnlock()
 
 	mux := http.NewServeMux()
-	api.RegisterHandlersWithPBF(mux, s.index, s.conf, s.pbfPath, s.cache)
+	api.RegisterHandlersWithPBF(mux, s.index, s.conf, s.pbfPath, s.pmtilesPath, s.cache)
 
 	handler := api.CORSMiddleware(mux, s.conf.Server.AllowedOrigins)
 	handler.ServeHTTP(w, r)
@@ -76,6 +77,8 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 		conf.IndexPath,
 		"pbf",
 		conf.PBFPath,
+		"pmtiles",
+		conf.PMTilesPath,
 	)
 
 	index, err := bleve.Open(conf.IndexPath)
@@ -105,10 +108,11 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 	}
 
 	srv := &Server{
-		index:   index,
-		conf:    conf,
-		pbfPath: conf.PBFPath,
-		cache:   cache,
+		index:       index,
+		conf:        conf,
+		pbfPath:     conf.PBFPath,
+		pmtilesPath: conf.PMTilesPath,
+		cache:       cache,
 	}
 
 	addr := fmt.Sprintf("%s:%d", conf.Server.Host, conf.Server.Port)

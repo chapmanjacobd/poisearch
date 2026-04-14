@@ -22,6 +22,7 @@ const (
 type Config struct {
 	IndexPath              string            `toml:"index_path"`
 	PBFPath                string            `toml:"pbf_path"`            // Optional: path to PBF for direct (no-index) search
+	PMTilesPath            string            `toml:"pmtiles_path"`        // Optional: path to PMTiles for direct (no-index) search
 	WikidataImportance     string            `toml:"wikidata_importance"` // Optional: path to wikimedia_importance.tsv.gz
 	OntologyPath           string            `toml:"ontology_path"`       // Optional: path to custom place type ontology CSV
 	Languages              []string          `toml:"languages"`

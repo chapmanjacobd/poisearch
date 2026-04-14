@@ -86,7 +86,7 @@ func CORSMiddleware(next http.Handler, allowedOrigins []string) http.Handler {
 }
 
 func RegisterHandlers(mux *http.ServeMux, index bleve.Index, conf *config.Config) {
-	RegisterHandlersWithPBF(mux, index, conf, "", nil)
+	RegisterHandlersWithPBF(mux, index, conf, "", "", nil)
 }
 
 func RegisterHandlersWithPBF(
@@ -94,6 +94,7 @@ func RegisterHandlersWithPBF(
 	index bleve.Index,
 	conf *config.Config,
 	pbfPath string,
+	pmtilesPath string,
 	cache *search.QueryCache,
 ) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -113,96 +114,46 @@ func RegisterHandlersWithPBF(
 			handlePBFSearch(w, r, pbfPath, conf)
 			return
 		}
+		// If PMTiles path is configured and ?mode=pmtiles is set, use direct PMTiles search
+		if pmtilesPath != "" && r.URL.Query().Get("mode") == "pmtiles" {
+			handlePMTilesSearch(w, r, pmtilesPath, conf)
+			return
+		}
 		handleIndexSearch(w, r, index, conf, cache)
 	})
 }
 
 func handlePBFSearch(w http.ResponseWriter, r *http.Request, pbfPath string, conf *config.Config) {
-	q := r.URL.Query().Get("q")
-	latStr := r.URL.Query().Get("lat")
-	lonStr := r.URL.Query().Get("lon")
-	radius := r.URL.Query().Get("radius")
-	bbox := r.URL.Query().Get("bbox") // bbox=minLat,minLon,maxLat,maxLon
-	limitStr := r.URL.Query().Get("limit")
-	fromStr := r.URL.Query().Get("from")
-	class := r.URL.Query().Get("class")
-	subtype := r.URL.Query().Get("subtype")
-	format := r.URL.Query().Get("format")
-
-	var lat, lon *float64
-	if latStr != "" {
-		l, err := strconv.ParseFloat(latStr, 64)
-		if err == nil {
-			lat = &l
-		}
-	}
-	if lonStr != "" {
-		l, err := strconv.ParseFloat(lonStr, 64)
-		if err == nil {
-			lon = &l
-		}
-	}
-
-	// Parse bbox parameter
-	var minLat, maxLat, minLon, maxLon *float64
-	if bbox != "" {
-		parts := strings.Split(bbox, ",")
-		if len(parts) == 4 {
-			minLatVal, err1 := strconv.ParseFloat(parts[0], 64)
-			minLonVal, err2 := strconv.ParseFloat(parts[1], 64)
-			maxLatVal, err3 := strconv.ParseFloat(parts[2], 64)
-			maxLonVal, err4 := strconv.ParseFloat(parts[3], 64)
-			if err1 == nil && err2 == nil && err3 == nil && err4 == nil {
-				minLat = &minLatVal
-				minLon = &minLonVal
-				maxLat = &maxLatVal
-				maxLon = &maxLonVal
-			}
-		}
-	}
-
-	limit := 10
-	if limitStr != "" {
-		l, err := strconv.Atoi(limitStr)
-		if err == nil {
-			limit = l
-		}
-	}
-
-	from := 0
-	if fromStr != "" {
-		f, err := strconv.Atoi(fromStr)
-		if err == nil && f >= 0 {
-			from = f
-		}
-	}
-
-	params := search.SearchParams{
-		Query:   q,
-		Lat:     lat,
-		Lon:     lon,
-		Radius:  radius,
-		MinLat:  minLat,
-		MaxLat:  maxLat,
-		MinLon:  minLon,
-		MaxLon:  maxLon,
-		Limit:   limit,
-		From:    from,
-		Langs:   conf.Languages,
-		GeoMode: conf.GeometryMode,
-		Class:   class,
-		Subtype: subtype,
-	}
+	params := parseSearchParams(r, conf)
 
 	res, err := osm.PBFSearch(pbfPath, params, conf)
 	if err != nil {
-		slog.Error("PBF search failed", "error", err, "query", q)
+		slog.Error("PBF search failed", "error", err, "query", params.Query)
 		writeJSONError(w, http.StatusInternalServerError, "search_error", "PBF search failed: "+err.Error())
 		return
 	}
 
+	writeJSONResponse(w, r, res, params)
+}
+
+func handlePMTilesSearch(w http.ResponseWriter, r *http.Request, pmtilesPath string, conf *config.Config) {
+	params := parseSearchParams(r, conf)
+
+	res, err := osm.PMTilesSearch(pmtilesPath, params, conf)
+	if err != nil {
+		slog.Error("PMTiles search failed", "error", err, "query", params.Query)
+		writeJSONError(w, http.StatusInternalServerError, "search_error", "PMTiles search failed: "+err.Error())
+		return
+	}
+
+	writeJSONResponse(w, r, res, params)
+}
+
+func writeJSONResponse(w http.ResponseWriter, r *http.Request, res *bleve.SearchResult, params search.SearchParams) {
+	// Support text/plain output format (UNIX-pipe-friendly)
+	format := r.URL.Query().Get("format")
 	if format == "text" || strings.Contains(r.Header.Get("Accept"), "text/plain") {
-		writeTextResponse(w, res, conf.Languages)
+		writeTextResponse(w, res, params.Langs)
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(res); err != nil {

@@ -106,20 +106,22 @@ func runFullBench(pbf string, conf *config.Config) {
 
 	// Then run the full geometry mode benchmark
 	scenarios := []struct {
-		Label     string
-		Mode      string
-		NodesOnly bool
-		Lean      bool
-		PBFOnly   bool
+		Label       string
+		Mode        string
+		NodesOnly   bool
+		Lean        bool
+		PBFOnly     bool
+		PMTilesOnly bool
 	}{
-		{"Leanest Mode", "no-geo", true, true, false},
-		{"No Geo", "no-geo", false, false, false},
-		{"Nodes Only", "geopoint", true, false, false},
-		{"Centroids (Simple)", "geopoint-centroid", false, false, false},
-		{"Representative Pts", "geopoint", false, false, false},
-		{"Simplified Shapes", "geoshape-simplified", false, false, false},
-		{"Raw Shapes", "geoshape-full", false, false, false},
-		{"Raw PBF Scan", "no-geo", false, false, true},
+		{"Leanest Mode", "no-geo", true, true, false, false},
+		{"No Geo", "no-geo", false, false, false, false},
+		{"Nodes Only", "geopoint", true, false, false, false},
+		{"Centroids (Simple)", "geopoint-centroid", false, false, false, false},
+		{"Representative Pts", "geopoint", false, false, false, false},
+		{"Simplified Shapes", "geoshape-simplified", false, false, false, false},
+		{"Raw Shapes", "geoshape-full", false, false, false, false},
+		{"Raw PBF Scan", "no-geo", false, false, true, false},
+		{"PMTiles Scan", "geopoint", false, false, false, true},
 	}
 
 	modeResults := make([]ModeResult, 0, len(scenarios))
@@ -128,6 +130,7 @@ func runFullBench(pbf string, conf *config.Config) {
 	lat, lon := 47.14, 9.52 // Vaduz
 	city := "Vaduz"
 	subtype := "town"
+	pmtiles := "naturalearth-openmaptiles.2025-12-10.full.pmtiles"
 	if pbf == "taiwan-latest.osm.pbf" {
 		lat, lon = 25.03, 121.56 // Taipei
 		city = "Taipei"
@@ -164,7 +167,7 @@ func runFullBench(pbf string, conf *config.Config) {
 		var buildTime time.Duration
 		var size int64
 
-		if !s.PBFOnly {
+		if !s.PBFOnly && !s.PMTilesOnly {
 			conf.IndexPath = fmt.Sprintf("bench_%s.bleve", s.Label)
 			os.RemoveAll(conf.IndexPath)
 
@@ -182,8 +185,12 @@ func runFullBench(pbf string, conf *config.Config) {
 			buildTime = time.Since(start)
 			size = getDirSize(conf.IndexPath)
 			fmt.Printf("Build time: %v, Size: %s\n", buildTime, formatSize(size))
-		} else {
+		} else if s.PBFOnly {
 			fmt.Printf("PBF Only: No build needed. Using source: %s\n", pbf)
+			buildTime = 0
+			size = 0
+		} else if s.PMTilesOnly {
+			fmt.Printf("PMTiles Only: No build needed. Using source: %s\n", pmtiles)
 			buildTime = 0
 			size = 0
 		}
@@ -243,6 +250,8 @@ func runFullBench(pbf string, conf *config.Config) {
 			var res BenchmarkResult
 			if s.PBFOnly {
 				res = benchmarkPBF(pbf, ss.Label, ss.Params, conf)
+			} else if s.PMTilesOnly {
+				res = benchmarkPMTiles(pmtiles, ss.Label, ss.Params, conf)
 			} else {
 				res = benchmark(index, ss.Label, ss.Params)
 			}
@@ -276,7 +285,7 @@ func runFullBench(pbf string, conf *config.Config) {
 	fmt.Fprintln(w, "------------------------------------------------------------")
 	for _, r := range modeResults {
 		sizeStr := formatSize(r.Size)
-		if r.Label == "Raw PBF Scan" {
+		if r.Label == "Raw PBF Scan" || r.Label == "PMTiles Scan" {
 			sizeStr = "0 B (Live)"
 		}
 		fmt.Fprintf(w, "%-20s %-15s %-15v\n", r.Label, sizeStr, r.BuildTime)
@@ -295,6 +304,24 @@ func runFullBench(pbf string, conf *config.Config) {
 	}
 
 	updateReadme(buf.String())
+}
+
+func benchmarkPMTiles(pmtilesPath, label string, params search.SearchParams, conf *config.Config) BenchmarkResult {
+	start := time.Now()
+	iterations := 5
+	var count int
+
+	for range iterations {
+		res, err := osm.PMTilesSearch(pmtilesPath, params, conf)
+		if err != nil {
+			// Skip if it fails (e.g. no spatial filter)
+			continue
+		}
+		count = int(res.Total)
+	}
+	avg := time.Since(start) / time.Duration(iterations)
+	fmt.Printf("  %-25s Avg: %-10v Results: %d\n", label, avg, count)
+	return BenchmarkResult{Label: label, Latency: avg, Results: count}
 }
 
 func updateReadme(report string) {
