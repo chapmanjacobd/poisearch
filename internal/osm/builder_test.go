@@ -1,13 +1,70 @@
 package osm
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/chapmanjacobd/poisearch/internal/config"
 	"github.com/chapmanjacobd/poisearch/internal/search"
 )
+
+// BenchmarkBuildIndex benchmarks index building with different worker counts.
+// Run with: go test -bench=BenchmarkBuildIndex -benchmem ./internal/osm/
+// Each configuration builds a fresh index and reports timing + doc count.
+func BenchmarkBuildIndex(b *testing.B) {
+	// Use Taiwan PBF if available, otherwise fall back to Liechtenstein
+	pbfPath := "../../taiwan-latest.osm.pbf"
+	if _, err := os.Stat(pbfPath); os.IsNotExist(err) {
+		pbfPath = "../../liechtenstein-latest.osm.pbf"
+	}
+	if _, err := os.Stat(pbfPath); os.IsNotExist(err) {
+		b.Skip("test PBF file not found, skipping")
+	}
+
+	workerCounts := []int{1, 2, 4, 6, 8}
+
+	for _, workers := range workerCounts {
+		b.Run(fmt.Sprintf("workers=%d", workers), func(b *testing.B) {
+			tmpDir := b.TempDir()
+			indexPath := filepath.Join(tmpDir, "test.bleve")
+
+			conf := &config.Config{
+				IndexPath:     indexPath,
+				Languages:     []string{"en"},
+				GeometryMode:  "geopoint",
+				NameAnalyzer:  "standard",
+				BuildWorkers:  workers,
+			}
+
+			mapping := search.BuildIndexMapping(conf)
+			index, err := search.OpenOrCreateIndex(indexPath, mapping)
+			if err != nil {
+				b.Fatalf("failed to create index: %v", err)
+			}
+			defer index.Close()
+
+			start := time.Now()
+
+			err = BuildIndex(pbfPath, conf, index)
+			if err != nil {
+				b.Fatalf("BuildIndex failed: %v", err)
+			}
+
+			elapsed := time.Since(start)
+
+			docCount, err := index.DocCount()
+			if err != nil {
+				b.Fatalf("failed to get doc count: %v", err)
+			}
+
+			b.ReportMetric(float64(elapsed.Milliseconds()), "ms_total")
+			b.ReportMetric(float64(docCount), "docs")
+		})
+	}
+}
 
 // TestBuildIndex_ParallelWorkers builds an index with multiple workers
 // and verifies the results are correct and race-free.
@@ -76,6 +133,8 @@ func TestBuildIndex_ParallelVsSingle(t *testing.T) {
 		{"four_workers", 4},
 	}
 
+	var firstDocCount uint64
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
@@ -95,7 +154,9 @@ func TestBuildIndex_ParallelVsSingle(t *testing.T) {
 				t.Fatalf("failed to create index: %v", err)
 			}
 
+			start := time.Now()
 			err = BuildIndex(pbfPath, conf, index)
+			elapsed := time.Since(start)
 			if err != nil {
 				index.Close()
 				t.Fatalf("BuildIndex failed: %v", err)
@@ -109,10 +170,13 @@ func TestBuildIndex_ParallelVsSingle(t *testing.T) {
 
 			index.Close()
 
-			t.Logf("Workers: %d, Documents: %d", tc.workers, docCount)
+			t.Logf("Workers: %d, Documents: %d, Time: %v", tc.workers, docCount, elapsed)
 
-			// All configurations should produce the same number of documents
-			// We'll verify this across runs in the test output
+			if firstDocCount == 0 {
+				firstDocCount = docCount
+			} else if docCount != firstDocCount {
+				t.Errorf("expected %d documents (same as first run), got %d", firstDocCount, docCount)
+			}
 		})
 	}
 }

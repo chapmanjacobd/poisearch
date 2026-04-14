@@ -351,8 +351,8 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 	}
 
 	// Flush remaining batch
-	if batch.Size() > 0 {
-		if err := index.Batch(batch); err != nil {
+	if ectx.batch.Size() > 0 {
+		if err := index.Batch(ectx.batch); err != nil {
 			return err
 		}
 	}

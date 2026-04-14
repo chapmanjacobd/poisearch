@@ -51,6 +51,11 @@ func main() {
 
 	// Check if PBF file exists
 	pbf := conf.PBFPath
+	if _, err := os.Stat("taiwan-latest.osm.pbf"); err == nil {
+		pbf = "taiwan-latest.osm.pbf"
+		fmt.Printf("Using Taiwan PBF for benchmarking: %s\n", pbf)
+	}
+
 	if _, err := os.Stat(pbf); os.IsNotExist(err) {
 		log.Fatalf("PBF file %s not found. Please download it first or set pbf_path in config.", pbf)
 	}
@@ -117,6 +122,13 @@ func runFullBench(pbf string, conf *config.Config) {
 	var allSearchResults []BenchmarkResult
 
 	lat, lon := 47.14, 9.52 // Vaduz
+	city := "Vaduz"
+	subtype := "town"
+	if pbf == "taiwan-latest.osm.pbf" {
+		lat, lon = 25.03, 121.56 // Taipei
+		city = "Taipei"
+		subtype = "city"
+	}
 	radius := "500m"
 	dLat := 0.0045
 	dLon := 0.0066
@@ -176,9 +188,9 @@ func runFullBench(pbf string, conf *config.Config) {
 			Label  string
 			Params search.SearchParams
 		}{
-			{"Basic Search", search.SearchParams{Query: "Vaduz", GeoMode: s.Mode, Limit: 50}},
-			{"Fuzzy Search", search.SearchParams{Query: "Vadu", Fuzzy: true, GeoMode: s.Mode, Limit: 50}},
-			{"Prefix Search", search.SearchParams{Query: "vad", Prefix: true, GeoMode: s.Mode, Limit: 50}},
+			{"Basic Search", search.SearchParams{Query: city, GeoMode: s.Mode, Limit: 50}},
+			{"Fuzzy Search", search.SearchParams{Query: city[:len(city)-1], Fuzzy: true, GeoMode: s.Mode, Limit: 50}},
+			{"Prefix Search", search.SearchParams{Query: strings.ToLower(city[:3]), Prefix: true, GeoMode: s.Mode, Limit: 50}},
 		}
 
 		if !conf.DisableClassSubtype {
@@ -186,15 +198,15 @@ func runFullBench(pbf string, conf *config.Config) {
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Class Filter", search.SearchParams{Query: "Vaduz", Class: "place", GeoMode: s.Mode, Limit: 50}},
+				}{"Class Filter", search.SearchParams{Query: city, Class: "place", GeoMode: s.Mode, Limit: 50}},
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Subtype Filter", search.SearchParams{Query: "Vaduz", Subtype: "town", GeoMode: s.Mode, Limit: 50}},
+				}{"Subtype Filter", search.SearchParams{Query: city, Subtype: subtype, GeoMode: s.Mode, Limit: 50}},
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Combined (Fuzzy+Class)", search.SearchParams{Query: "Vadu", Fuzzy: true, Class: "place", GeoMode: s.Mode, Limit: 50}},
+				}{"Combined (Fuzzy+Class)", search.SearchParams{Query: city[:len(city)-1], Fuzzy: true, Class: "place", GeoMode: s.Mode, Limit: 50}},
 				struct {
 					Label  string
 					Params search.SearchParams
@@ -343,17 +355,22 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 	analyzerResults := make([]AnalyzerResult, 0, len(analyzers))
 
 	lat, lon := 47.14, 9.52 // Vaduz
+	city := "Vaduz"
+	if pbf == "taiwan-latest.osm.pbf" {
+		lat, lon = 25.03, 121.56 // Taipei
+		city = "Taipei"
+	}
 
 	searchQueries := []struct {
 		Label  string
 		Params search.SearchParams
 	}{
-		{"Exact: Vaduz", search.SearchParams{Query: "Vaduz", Limit: 50}},
-		{"Prefix: vad", search.SearchParams{Query: "vad", Limit: 50}},
-		{"Partial: vadu", search.SearchParams{Query: "vadu", Limit: 50}},
+		{"Exact: " + city, search.SearchParams{Query: city, Limit: 50}},
+		{"Prefix: " + strings.ToLower(city[:3]), search.SearchParams{Query: strings.ToLower(city[:3]), Limit: 50}},
+		{"Partial: " + city[:len(city)-1], search.SearchParams{Query: city[:len(city)-1], Limit: 50}},
 		{"Autocomplete: rest", search.SearchParams{Query: "rest", Limit: 50}},
-		{"Short: va", search.SearchParams{Query: "va", Limit: 50}},
-		{"Geo + Text", search.SearchParams{Query: "Vaduz", Lat: &lat, Lon: &lon, Radius: "500m", Limit: 50}},
+		{"Short: " + strings.ToLower(city[:2]), search.SearchParams{Query: strings.ToLower(city[:2]), Limit: 50}},
+		{"Geo + Text", search.SearchParams{Query: city, Lat: &lat, Lon: &lon, Radius: "500m", Limit: 50}},
 	}
 
 	for _, analyzer := range analyzers {
