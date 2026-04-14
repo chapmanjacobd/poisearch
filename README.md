@@ -76,6 +76,26 @@ curl "http://localhost:9889/search?q=museum&mode=pbf"
 curl "http://localhost:9889/search?phone=123456"
 ```
 
+## API Documentation
+
+The following query parameters are supported on `/search`:
+
+| Parameter | Type | Example | Description |
+| :--- | :--- | :--- | :--- |
+| `q` | string | `Berlin` | Search query string |
+| `mode` | string | `pbf` | "pbf" or "pmtiles" for live search against those file types (skips index) |
+| `format` | string | `text` | "text" for flat key-value response (UNIX-pipe friendly) |
+| `lat`, `lon` | float | `52.52`, `13.40` | Center coordinates for spatial search |
+| `radius` | string | `1000m` | Radius (e.g. "1000m", "5km") for spatial search |
+| `min_lat`, `max_lat`, `min_lon`, `max_lon` | float | `52.4`, `52.6`, `13.3`, `13.5` | Bounding box coordinates for spatial search |
+| `limit` | int | `10` | Maximum number of results to return (default: 10) |
+| `from` | int | `0` | Offset for pagination |
+| `langs` | string | `en,de` | Comma-separated list of preferred languages |
+| `fuzzy` | bool | `true` | Toggle fuzzy matching (true/1) |
+| `prefix` | bool | `true` | Toggle prefix matching (true/1) |
+| `class`, `subtype` | string | `amenity`, `restaurant` | Filter by primary classification |
+| `classes`, `subtypes` | string | `amenity,shop` | Comma-separated multi-value filters |
+
 ## Features
 
 - Multi-Interface Search: Search via high-performance Bleve index, direct PBF scan, or PMTiles.

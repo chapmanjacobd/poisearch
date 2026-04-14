@@ -17,7 +17,7 @@ func TestPMTilesSearch(t *testing.T) {
 
 	conf := &config.Config{
 		Importance: config.ImportanceWeights{
-			Place:   map[string]float64{"city": 4.0, "country": 5.0, "town": 3.0, "village": 2.0},
+			Boosts:  []string{"city", "country", "town", "village"},
 			Default: 1.0,
 		},
 	}

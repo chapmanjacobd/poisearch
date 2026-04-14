@@ -53,29 +53,11 @@ type Config struct {
 }
 
 type ImportanceWeights struct {
-	Place      map[string]float64 `toml:"place"`
-	Amenity    map[string]float64 `toml:"amenity"`
-	Highway    map[string]float64 `toml:"highway"`
-	Shop       map[string]float64 `toml:"shop"`
-	Tourism    map[string]float64 `toml:"tourism"`
-	Leisure    map[string]float64 `toml:"leisure"`
-	Historic   map[string]float64 `toml:"historic"`
-	Natural    map[string]float64 `toml:"natural"`
-	Railway    map[string]float64 `toml:"railway"`
-	Waterway   map[string]float64 `toml:"waterway"`
-	Water      map[string]float64 `toml:"water"`
-	Building   map[string]float64 `toml:"building"`
-	Office     map[string]float64 `toml:"office"`
-	ManMade    map[string]float64 `toml:"man_made"`
-	Craft      map[string]float64 `toml:"craft"`
-	Military   map[string]float64 `toml:"military"`
-	Healthcare map[string]float64 `toml:"healthcare"`
-	Cuisine    map[string]float64 `toml:"cuisine"`
-	Religion   map[string]float64 `toml:"religion"`
-	Default    float64            `toml:"default"`
-	PopBoost   float64            `toml:"population_boost_weight"` // importance += math.Log(pop+1) * weight
-	Capital    float64            `toml:"capital_boost"`
-	Wiki       float64            `toml:"wikipedia_boost"`
+	Boosts     []string `toml:"boosts"`                   // List of classes/subtypes to prioritize (first = highest)
+	Default    float64  `toml:"default"`
+	PopBoost   float64  `toml:"population_boost_weight"` // importance += math.Log(pop+1) * weight
+	Capital    float64  `toml:"capital_boost"`
+	Wiki       float64  `toml:"wikipedia_boost"`
 }
 
 type ServerConfig struct {

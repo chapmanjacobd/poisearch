@@ -1,22 +1,8 @@
-index_path = "pois.bleve"
+index_path = "minimal.bleve"
 languages = ["en"]
-# name_analyzer = "standard"  # "standard", "edge_ngram", "ngram"
-# geometry_mode = "geopoint" # Comment out to disable spatial indexing if desired
-
-[server]
-host = "127.0.0.1"
-port = 9889
-
-[importance]
-default = 1.0
-population_boost_weight = 0.0 # Disabled
-capital_boost = 0.0
-wikipedia_boost = 0.0
-
-[importance.place]
-city = 1.0
-town = 1.0
-village = 1.0
-
-[importance.amenity]
-[importance.highway]
+geometry_mode = "no-geo"
+nodes_only = true
+disable_alt_names = true
+disable_importance = true
+disable_class_subtype = true
+only_named = true

@@ -132,7 +132,7 @@ func runFullBench(pbf string, conf *config.Config) {
 		WikiRedirects bool
 		CacheEnabled  bool
 	}{
-		{"Leanest Mode", "no-geo", true, true, false, false, false, false, false},
+		{"Minimal Mode", "no-geo", true, true, false, false, false, false, false},
 		{"No Geo", "no-geo", false, false, false, false, false, false, false},
 		{"Nodes Only", "geopoint", true, false, false, false, false, false, false},
 		{"Centroids (Simple)", "geopoint-centroid", false, false, false, false, false, false, false},

@@ -7,12 +7,37 @@ import (
 	"github.com/chapmanjacobd/poisearch/internal/config"
 )
 
+func TestMatchBoostPattern(t *testing.T) {
+	tests := []struct {
+		class, subtype, pattern string
+		expected                bool
+	}{
+		{"amenity", "hospital", "hospital", true},
+		{"hospital", "yes", "hospital", true},
+		{"amenity", "pharmacy", "amenity=pharmacy", true},
+		{"shop", "pharmacy", "amenity=pharmacy", false},
+		{"hospital", "clinic", "hospital=*", true},
+		{"amenity", "hospital", "hospital=*", false},
+		{"amenity", "hospital", "*=hospital", true},
+		{"amenity", "hospital", "=hospital", true},
+		{"place", "city", "city", true},
+		{"place", "city", "place=city", true},
+		{"place", "village", "place=city", false},
+	}
+
+	for _, tt := range tests {
+		got := matchBoostPattern(tt.class, tt.subtype, tt.pattern)
+		if got != tt.expected {
+			t.Errorf("matchBoostPattern(%s, %s, %s) = %v, want %v", tt.class, tt.subtype, tt.pattern, got, tt.expected)
+		}
+	}
+}
+
 func TestClassify(t *testing.T) {
 	weights := &config.ImportanceWeights{
-		Place:    map[string]float64{"city": 5.0, "town": 4.0},
-		Amenity:  map[string]float64{"restaurant": 2.0},
+		Boosts:   []string{"city", "amenity=pharmacy", "*=big", "hospital"},
 		Default:  1.0,
-		PopBoost: 5.0,
+		PopBoost: 1.0,
 		Capital:  2.0,
 		Wiki:     1.5,
 	}
@@ -23,16 +48,43 @@ func TestClassify(t *testing.T) {
 		expected *Classification
 	}{
 		{
-			name: "City with population",
-			tags: map[string]string{"place": "city", "population": "1000000"},
+			name: "City (matches boost 'city')",
+			tags: map[string]string{"place": "city"},
 			expected: &Classification{
 				Class:      "place",
 				Subtype:    "city",
-				Importance: 5.0 + 69.077558, // 5 + ln(1000001) * 5 ≈ 5 + 13.8155 * 5 ≈ 5 + 69.0776
+				Importance: 1040.0,
 			},
 		},
 		{
-			name: "Restaurant",
+			name: "Pharmacy (matches boost 'amenity=pharmacy')",
+			tags: map[string]string{"amenity": "pharmacy"},
+			expected: &Classification{
+				Class:      "amenity",
+				Subtype:    "pharmacy",
+				Importance: 1030.0,
+			},
+		},
+		{
+			name: "Any=big (matches boost '*=big')",
+			tags: map[string]string{"shop": "big"},
+			expected: &Classification{
+				Class:      "shop",
+				Subtype:    "big",
+				Importance: 1020.0,
+			},
+		},
+		{
+			name: "Hospital (matches boost 'hospital')",
+			tags: map[string]string{"healthcare": "hospital"},
+			expected: &Classification{
+				Class:      "healthcare",
+				Subtype:    "hospital",
+				Importance: 1010.0,
+			},
+		},
+		{
+			name: "Restaurant (unboosted fallback to default)",
 			tags: map[string]string{"amenity": "restaurant"},
 			expected: &Classification{
 				Class:      "amenity",
@@ -41,21 +93,12 @@ func TestClassify(t *testing.T) {
 			},
 		},
 		{
-			name: "Restaurant with cuisine",
-			tags: map[string]string{"amenity": "restaurant", "cuisine": "italian"},
+			name: "City with population boost",
+			tags: map[string]string{"place": "city", "population": "1000"},
 			expected: &Classification{
-				Class:      "amenity",
-				Subtype:    "restaurant",
-				Importance: 2.0,
-			},
-		},
-		{
-			name: "Just cuisine (e.g. food court stall)",
-			tags: map[string]string{"cuisine": "italian"},
-			expected: &Classification{
-				Class:      "cuisine",
-				Subtype:    "italian",
-				Importance: 1.5,
+				Class:      "place",
+				Subtype:    "city",
+				Importance: 1040.0 + 6.90875, // 1040 + ln(1001) ≈ 1040 + 6.90875
 			},
 		},
 		{

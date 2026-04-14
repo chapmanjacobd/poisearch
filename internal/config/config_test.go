@@ -27,13 +27,7 @@ default = 1.0
 population_boost_weight = 0.2
 capital_boost = 2.0
 wikipedia_boost = 1.5
-
-[importance.place]
-city = 5.0
-town = 4.0
-
-[importance.amenity]
-restaurant = 2.0
+boosts = ["city", "town", "pharmacy"]
 `
 
 	var conf config.Config
@@ -64,8 +58,8 @@ restaurant = 2.0
 	if conf.Importance.Default != 1.0 {
 		t.Errorf("importance.default = %f, want 1.0", conf.Importance.Default)
 	}
-	if conf.Importance.Place["city"] != 5.0 {
-		t.Errorf("importance.place[city] = %f, want 5.0", conf.Importance.Place["city"])
+	if len(conf.Importance.Boosts) != 3 {
+		t.Errorf("importance.boosts count = %d, want 3", len(conf.Importance.Boosts))
 	}
 }
 
@@ -237,10 +231,8 @@ port = 8080
 
 [importance]
 default = 1.0
-pop_boost = 0.3
-
-[importance.place]
-city = 6.0
+population_boost_weight = 0.3
+boosts = ["city"]
 `
 	if err := os.WriteFile(configPath, []byte(tomlContent), 0o644); err != nil {
 		t.Fatalf("failed to write config file: %v", err)
@@ -273,6 +265,9 @@ city = 6.0
 	if conf.Server.Port != 8080 {
 		t.Errorf("server.port = %d, want 8080", conf.Server.Port)
 	}
+	if len(conf.Importance.Boosts) != 1 || conf.Importance.Boosts[0] != "city" {
+		t.Errorf("expected boost ['city'], got %v", conf.Importance.Boosts)
+	}
 }
 
 func TestConfig_ImportanceWeights(t *testing.T) {
@@ -289,19 +284,7 @@ default = 2.0
 population_boost_weight = 0.5
 capital_boost = 3.0
 wikipedia_boost = 2.5
-
-[importance.place]
-city = 10.0
-town = 8.0
-village = 5.0
-
-[importance.amenity]
-restaurant = 3.0
-cafe = 2.5
-hospital = 4.0
-
-[importance.shop]
-yes = 1.5
+boosts = ["city", "town", "hospital"]
 `
 
 	var conf config.Config
@@ -323,11 +306,8 @@ yes = 1.5
 	if conf.Importance.Wiki != 2.5 {
 		t.Errorf("importance.wikipedia_boost = %f, want 2.5", conf.Importance.Wiki)
 	}
-	if conf.Importance.Place["city"] != 10.0 {
-		t.Errorf("importance.place[city] = %f, want 10.0", conf.Importance.Place["city"])
-	}
-	if conf.Importance.Amenity["hospital"] != 4.0 {
-		t.Errorf("importance.amenity[hospital] = %f, want 4.0", conf.Importance.Amenity["hospital"])
+	if len(conf.Importance.Boosts) != 3 {
+		t.Errorf("expected 3 boosts, got %d", len(conf.Importance.Boosts))
 	}
 }
 

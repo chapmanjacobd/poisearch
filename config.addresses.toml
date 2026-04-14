@@ -1,0 +1,4 @@
+index_path = "addresses.bleve"
+languages = ["en"]
+geometry_mode = "geopoint-centroid"
+store_address = true

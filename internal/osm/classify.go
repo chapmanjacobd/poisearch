@@ -57,120 +57,27 @@ func ClassifyMulti(
 
 		class := k
 		subtype := v
-		importance := weights.Default
 
 		// Map OSM keys to our simplified classes
 		if k == "highway" {
 			class = "street"
 		}
 
-		// Look up specific weights for this class/subtype
-		foundWeight := false
-		switch k {
-		case "place":
-			w, ok := weights.Place[v]
-			if !ok {
-				// Skip places not in our whitelist
-				continue
-			}
-			importance = w
-			foundWeight = true
-		case "amenity":
-			if w, ok := weights.Amenity[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "highway":
-			if w, ok := weights.Highway[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "shop":
-			if w, ok := weights.Shop[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "tourism":
-			if w, ok := weights.Tourism[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "leisure":
-			if w, ok := weights.Leisure[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "historic":
-			if w, ok := weights.Historic[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "natural":
-			if w, ok := weights.Natural[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "railway":
-			if w, ok := weights.Railway[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "waterway":
-			if w, ok := weights.Waterway[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "water":
-			if w, ok := weights.Water[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "building":
-			if w, ok := weights.Building[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "office":
-			if w, ok := weights.Office[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "man_made":
-			if w, ok := weights.ManMade[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "craft":
-			if w, ok := weights.Craft[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "military":
-			if w, ok := weights.Military[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "healthcare":
-			if w, ok := weights.Healthcare[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "cuisine":
-			if w, ok := weights.Cuisine[v]; ok {
-				importance = w
-				foundWeight = true
-			}
-		case "religion":
-			if w, ok := weights.Religion[v]; ok {
-				importance = w
-				foundWeight = true
+		// Calculate base importance
+		importance := getTypeDefaultImportance(k, v)
+		boostFound := false
+		for i, pattern := range weights.Boosts {
+			if matchBoostPattern(class, subtype, pattern) {
+				// Strict bifurcation: boosted items get 1000+ score to sort above non-boosted matches.
+				// First match in the array gets the highest priority.
+				importance = 1000.0 + float64(len(weights.Boosts)-i)*10.0
+				boostFound = true
+				break
 			}
 		}
 
-		// Apply global boosts
-		if !foundWeight {
-			// Use type-based default importance when no explicit weight is configured
-			importance = getTypeDefaultImportance(k, v)
+		if !boostFound && weights.Default != 0 && weights.Default != 1.0 {
+			importance *= weights.Default
 		}
 
 		// Population boost: importance += ln(pop+1) * factor
@@ -210,6 +117,26 @@ func ClassifyMulti(
 	}
 
 	return results
+}
+
+// matchBoostPattern evaluates if a class/subtype pair matches a boost pattern.
+// Supported patterns:
+//   - "hospital"         : Match if class="hospital" OR subtype="hospital"
+//   - "amenity=hospital" : Match class="amenity" AND subtype="hospital"
+//   - "hospital=*"       : Match class="hospital" AND any subtype
+//   - "*=big" or "=big"  : Match any class AND subtype="big"
+func matchBoostPattern(class, subtype, pattern string) bool {
+	if strings.Contains(pattern, "=") {
+		parts := strings.SplitN(pattern, "=", 2)
+		pClass := parts[0]
+		pSubtype := parts[1]
+
+		matchClass := pClass == "" || pClass == "*" || pClass == class
+		matchSubtype := pSubtype == "" || pSubtype == "*" || pSubtype == subtype
+		return matchClass && matchSubtype
+	}
+	// No '=', match if pattern equals class or pattern equals subtype
+	return pattern == class || pattern == subtype
 }
 
 // Classify returns the first (highest priority) classification for a set of OSM tags.

@@ -1,0 +1,6 @@
+index_path = "cached_searches.bleve"
+languages = ["en"]
+geometry_mode = "geopoint-centroid"
+cache_enabled = true
+cache_size = 1000
+cache_ttl = "5m"

@@ -615,6 +615,65 @@ func TestSearch_GeoFilters(t *testing.T) {
 	}
 }
 
+func TestSearch_BoostedPriority(t *testing.T) {
+	index := createTestIndexForQuery(t)
+	defer index.Close()
+
+	// node/1: Berlin (city) importance 10.0
+	// node/2: Munich (city) importance 9.0
+	// node/3: Restaurant Alpha importance 5.0
+	// node/4: Cafe Beta importance 4.0
+	// node/5: Shop Gamma importance 3.0
+
+	// We want to verify that search sorts by -importance first.
+	// Since node/1 has the highest importance (10.0), it should be first for an empty query.
+	params := search.SearchParams{
+		Query:    "",
+		Limit:    10,
+		Langs:    []string{"en"},
+		GeoMode:  "geopoint",
+		Analyzer: "standard",
+	}
+
+	results, err := search.Search(index, params)
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+
+	if len(results.Hits) < 5 {
+		t.Fatalf("expected at least 5 hits, got %d", len(results.Hits))
+	}
+
+	if results.Hits[0].ID != "node/1" {
+		t.Errorf("expected node/1 to be first, got %s", results.Hits[0].ID)
+	}
+	if results.Hits[1].ID != "node/2" {
+		t.Errorf("expected node/2 to be second, got %s", results.Hits[1].ID)
+	}
+
+	// Now verify that if we had an item with importance 1000+, it would be first.
+	// We'll index a new item with high importance.
+	highImpDoc := map[string]any{
+		"name":       "Priority Pharmacy",
+		"class":      "amenity",
+		"subtype":    "pharmacy",
+		"importance": 1000.0,
+		"geometry":   []float64{13.42, 52.54},
+	}
+	if err := index.Index("node/99", highImpDoc); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err = search.Search(index, params)
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+
+	if results.Hits[0].ID != "node/99" {
+		t.Errorf("expected boosted node/99 to be first, got %s", results.Hits[0].ID)
+	}
+}
+
 func floatPtr(f float64) *float64 {
 	return new(f)
 }

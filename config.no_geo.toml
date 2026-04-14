@@ -1,0 +1,3 @@
+index_path = "no_geo.bleve"
+languages = ["en"]
+geometry_mode = "no-geo"

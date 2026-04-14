@@ -1,9 +1,18 @@
 index_path = "pois.bleve"
+
 # Optional: path to PBF for direct (no-index) search via ?mode=pbf
 # pbf_path = "processed.osm.pbf"
+
+# Optional: path to PMTiles for direct (no-index) search via ?mode=pmtiles
+# pmtiles_path = "planet.pmtiles"
+
+# Opt-in: perform precise intersection check for PMTiles (slower but more accurate)
+# pmtiles_post_process = false
+
 # Optional: path to wikimedia_importance TSV/CSV (tab-separated: language, type, title, importance, wikidata_id)
 # Supports .gz compression. Boosts POIs with wikidata tags based on Wikipedia link prominence.
 # wikidata_importance = "wikimedia-importance-2025-11.csv.gz"
+
 # Optional: path to custom place type ontology CSV (qid, level, label, osm_key, osm_value)
 # If not set, a default built-in ontology (~70 place types) is used.
 # ontology_path = "wikidata_place_types.csv"
@@ -21,47 +30,45 @@ simplification_tolerance = 0.0001
 name_analyzer = "standard"
 
 # Toggle optional features
-# nodes_only = false          # Index only nodes (skip ways/relations)
-# disable_alt_names = false   # Skip alt_name, old_name, short_name fields
-# disable_importance = false  # Set all importance scores to 0
+# nodes_only = false           # Index only nodes (skip ways/relations)
+# disable_alt_names = false    # Skip alt_name, old_name, short_name fields
+# disable_importance = false   # Set all importance scores to 0
 # disable_class_subtype = false # Skip class/subtype indexing
-# only_named = true           # Only index objects with a name tag
-# store_metadata = false      # Store class/subtype/importance in index (increases size)
-# store_geometry = false      # Store geometry in index (increases size)
+# only_named = true            # Only index objects with a name tag
+# store_metadata = false       # Store class/subtype/importance in index (increases size)
+# store_geometry = false       # Store geometry in index (increases size)
+# store_address = false        # Index addr:* tags for address search
 # index_wikidata_redirects = false # Index Wikipedia redirect titles as alternate names (increases size)
 
 # Build optimization (optional, defaults shown)
-# build_workers = 1           # Parallel workers for index building (1-8, default: 1)
-# geo_batch_size = 200        # Batch size for geometry operations (50-1000, default: 200)
+# build_workers = 1            # Parallel workers for index building (1-8, default: 1)
+# geo_batch_size = 200         # Batch size for geometry operations (50-1000, default: 200)
 
 # Query cache (optional, disabled by default)
-# cache_enabled = false       # Enable query result caching
-# cache_size = 1000           # Cache capacity in entries (default: 1000)
-# cache_ttl = "5m"            # Cache entry TTL, e.g. "5m", "1h" (default: 5m)
+# cache_enabled = false        # Enable query result caching
+# cache_size = 1000            # Cache capacity in entries (default: 1000)
+# cache_ttl = "5m"             # Cache entry TTL, e.g. "5m", "1h" (default: 5m)
 
 [server]
 host = "0.0.0.0"
 port = 9889
+# Allowed origins for CORS (e.g. ["http://localhost:3000", "https://example.com"]).
+# Use ["*"] to allow all origins.
+# allowed_origins = ["*"]
 
 [importance]
 default = 1.0
-population_boost_weight = 0.2   # importance += ln(pop+1) * weight
-capital_boost = 2.0             # Added if capital=yes
-wikipedia_boost = 1.5           # Added if wikipedia or wikidata tag present
+population_boost_weight = 0.2  # importance += ln(pop+1) * weight
+capital_boost = 2.0            # Added if capital=yes
+wikipedia_boost = 1.5          # Added if wikipedia or wikidata tag present
 
-[importance.place]
-city = 5.0
-town = 4.0
-village = 3.0
-
-[importance.amenity]
-restaurant = 2.0
-cafe = 2.0
-school = 2.0
-hospital = 2.5
-
-[importance.highway]
-primary = 1.5
-secondary = 1.4
-tertiary = 1.3
-residential = 1.1
+# Boosts allow prioritizing specific classes and subtypes.
+# Patterns can be:
+#   - "hospital"         : Match if class="hospital" OR subtype="hospital"
+#   - "amenity=hospital" : Match class="amenity" AND subtype="hospital"
+#   - "hospital=*"       : Match class="hospital" AND any subtype
+#   - "*=big" or "=big"  : Match any class AND subtype="big"
+#
+# Order matters: first match gets highest boost.
+# Boosted items receive a high baseline score (e.g. 1000+) to sort above non-boosted matches.
+boosts = ["city", "town", "village", "hospital", "pharmacy", "restaurant", "cafe"]
