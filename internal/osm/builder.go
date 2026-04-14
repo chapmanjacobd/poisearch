@@ -162,8 +162,8 @@ func geomToGeoJSON(g *geos.Geom) map[string]any {
 			geometries = append(geometries, geomToGeoJSON(comp))
 		}
 		return map[string]any{
-			"type":         "geometrycollection",
-			"geometries":   geometries,
+			"type":       "geometrycollection",
+			"geometries": geometries,
 		}
 	default:
 		centroid := g.Centroid()
@@ -211,7 +211,8 @@ func buildTagFilter(weights *config.ImportanceWeights) pbf.Filter {
 // BuildIndex builds a Bleve index from an OSM PBF file using the codesoap/pbf library.
 // This leverages vtprotobuf optimization, object pooling, and parallel blob decoding
 // for significantly better performance than standard PBF parsers.
-// nolint:cyclop // Index building requires coordinating multiple components, complexity is inherent
+//
+//nolint:revive,funlen // Index building requires coordinating multiple components, complexity is inherent
 func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error {
 	slog.Info("building index", "path", conf.IndexPath, "input", inputPath)
 
@@ -258,11 +259,14 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 	geosCtx := geos.NewContext()
 	count := 0
 	skipped := 0
+	totalEntities := len(entities.Nodes) + len(entities.Ways) + len(entities.Relations)
 	batch := index.NewBatch()
-	batchSize := 1000
+	batchSize := 500 // Flush more frequently for lower peak memory and faster resume
 	geoMode := GeometryMode(conf.GeometryMode)
 
 	// processEntity is a helper function to index a single entity
+	// Bleve uses upsert semantics: re-indexing an existing ID overwrites it,
+	// so interrupted builds can be safely resumed by re-running.
 	processEntity := func(entityType string, id int64, tags map[string]string, coords [][]float64) error {
 		feature, shouldIndex, err := buildFeature(entityType, id, tags, coords, conf, wdLookup, ont, geosCtx, geoMode)
 		if err != nil {
@@ -286,9 +290,15 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 				return err
 			}
 			batch = index.NewBatch()
-			if count%10000 == 0 {
-				slog.Info("indexed features", "count", count)
-			}
+			slog.Info(
+				"indexing progress",
+				"indexed",
+				count,
+				"total",
+				totalEntities,
+				"pct",
+				fmt.Sprintf("%.1f%%", float64(count)*100/float64(totalEntities)),
+			)
 		}
 		return nil
 	}
@@ -348,7 +358,8 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 }
 
 // buildFeature creates a search.Feature from OSM entity data.
-// nolint:cyclop // Feature building requires handling many classification and geometry cases
+//
+//nolint:revive // Feature building requires handling many classification and geometry cases
 func buildFeature(
 	entityType string,
 	id int64,
@@ -359,7 +370,11 @@ func buildFeature(
 	ont *PlaceTypeOntology,
 	geosCtx *geos.Context,
 	geoMode GeometryMode,
-) (*search.Feature, bool, error) {
+) (
+	*search.Feature,
+	bool,
+	error,
+) {
 	if len(tags) == 0 {
 		return nil, false, nil
 	}
@@ -525,7 +540,10 @@ func createGeometryFromCoords(
 	mode GeometryMode,
 	tolerance float64,
 	ctx *geos.Context,
-) (any, error) {
+) (
+	any,
+	error,
+) {
 	if len(coords) == 0 {
 		return nil, errors.New("no coordinates provided")
 	}

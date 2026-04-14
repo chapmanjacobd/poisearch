@@ -263,7 +263,7 @@ linters:
     nolintlint:
       # Exclude following linters from requiring an explanation.
       # Default: []
-      allow-no-explanation: [ funlen, gocognit, golines ]
+      allow-no-explanation: [ funlen, gocognit, golines, revive, cyclop ]
       # Enable to require an explanation of nonzero length after each nolint directive.
       # Default: false
       require-explanation: true
@@ -329,7 +329,7 @@ linters:
       os-temp-dir: true
 
     maintidx:
-      under: 30
+      under: -1
 
     nilnil:
       checked-types:

@@ -19,7 +19,7 @@ type Classification struct {
 // A single POI can have multiple classifications (e.g., a building that is both
 // a historic castle and a tourism museum).
 //
-//nolint:cyclop // Classification requires checking multiple OSM keys and applying various boosts
+//nolint:revive,cyclop,funlen // Classification requires checking multiple OSM keys and applying various boosts
 func ClassifyMulti(
 	tags map[string]string,
 	weights *config.ImportanceWeights,
@@ -53,13 +53,13 @@ func ClassifyMulti(
 		foundWeight := false
 		switch k {
 		case "place":
-			if w, ok := weights.Place[v]; !ok {
+			w, ok := weights.Place[v]
+			if !ok {
 				// Skip places not in our whitelist
 				continue
-			} else {
-				importance = w
-				foundWeight = true
 			}
+			importance = w
+			foundWeight = true
 		case "amenity":
 			if w, ok := weights.Amenity[v]; ok {
 				importance = w

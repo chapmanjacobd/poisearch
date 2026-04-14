@@ -87,7 +87,7 @@ func formatSize(size int64) string {
 
 // runFullBench runs comprehensive benchmarks across multiple geometry modes and search scenarios.
 //
-//nolint:funlen // Benchmark function needs to be comprehensive to cover all scenarios
+//nolint:funlen,revive // Benchmark function needs to be comprehensive to cover all scenarios
 func runFullBench(pbf string, conf *config.Config) {
 	// First run analyzer comparison benchmark
 	runAnalyzerBench(pbf, conf)
@@ -322,7 +322,7 @@ func updateReadme(report string) {
 
 // runAnalyzerBench runs analyzer comparison benchmarks to measure search performance.
 //
-//nolint:funlen // Benchmark function needs to compare multiple analyzers comprehensively
+//nolint:funlen,revive // Benchmark function needs to compare multiple analyzers comprehensively
 func runAnalyzerBench(pbf string, conf *config.Config) {
 	fmt.Println("\n============================================================")
 	fmt.Println("ANALYZER COMPARISON BENCHMARK")

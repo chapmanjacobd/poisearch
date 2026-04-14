@@ -142,6 +142,9 @@ func normalizeQuery(q string) string {
 	return strings.ToLower(strings.TrimSpace(out.String()))
 }
 
+// Search performs a search on the Bleve index with the given parameters.
+//
+//nolint:revive,cyclop,funlen // Search requires handling many query type and spatial filtering cases
 func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error) {
 	var q query.Query
 

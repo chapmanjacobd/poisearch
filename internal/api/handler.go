@@ -208,7 +208,8 @@ func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index
 
 // writeTextResponse writes search results in a simple key-value format
 // suitable for piping through UNIX tools like grep, awk, etc.
-// nolint:cyclop // Response formatting requires handling all fields, complexity is inherent
+//
+//nolint:revive // Response formatting requires handling all fields, complexity is inherent
 func writeTextResponse(w http.ResponseWriter, res *bleve.SearchResult, langs []string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 

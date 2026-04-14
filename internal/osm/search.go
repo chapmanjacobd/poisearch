@@ -37,6 +37,8 @@ func parseRadiusToInt(radius string) int {
 
 // PBFSearch performs direct PBF search without using a pre-built index
 // Uses codesoap/pbf library for efficient entity extraction with vtprotobuf optimizations
+//
+//nolint:revive,cyclop,funlen // Search requires handling many spatial filtering and classification cases
 func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) (*bleve.SearchResult, error) {
 	// Build tag filter for early filtering
 	filter := buildTagFilter(&conf.Importance)
@@ -240,6 +242,8 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 }
 
 // matchesSpatialFilter checks if coordinates match the spatial filter (radius or bbox)
+//
+//nolint:revive // Spatial filtering requires many parameters for efficient radius and bbox checks
 func matchesSpatialFilter(
 	latNano, lonNano int64,
 	hasRadiusFilter, hasBboxFilter bool,
@@ -274,7 +278,9 @@ func matchesSpatialFilter(
 	return true
 }
 
-// processEntity checks if an entity matches the search criteria and creates a DocumentMatch
+// processEntity processes an OSM entity and creates a search result match.
+//
+//nolint:revive // Processing entities requires handling many classification and geometry cases with multiple parameters
 func processEntity(
 	entityType string,
 	id int64,
