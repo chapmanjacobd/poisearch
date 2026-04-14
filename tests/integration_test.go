@@ -450,6 +450,54 @@ func TestSearch_ClassFilter(t *testing.T) {
 	}
 }
 
+// TestSearch_AddressFilter tests searching by address fields.
+func TestSearch_AddressFilter(t *testing.T) {
+	pbfPath := downloadPBF(t)
+	conf := defaultTestConfig()
+	conf.StoreAddress = true
+	conf.NameAnalyzer = "standard"
+
+	_, idx := buildTestIndex(t, pbfPath, conf)
+	defer idx.Close()
+
+	tests := []struct {
+		name      string
+		city      string
+		street    string
+		expectMin int
+	}{
+		{"city: Vaduz", "Vaduz", "", 1},
+		{"city: Schaan", "Schaan", "", 1},
+		{"city lowercase: vaduz", "vaduz", "", 1},
+		// Streets are harder to guarantee in a small PBF without knowing the data,
+		// but Liechtenstein PBF should have some.
+		// "Herrengasse" is a common street name in Vaduz.
+		{"street: Herrengasse", "", "Herrengasse", 0}, // Min 0 as we're not 100% sure it's in the PBF
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := search.SearchParams{
+				City:    tt.city,
+				Street:  tt.street,
+				Limit:   50,
+				GeoMode: "geopoint-centroid",
+				Langs:   conf.Languages,
+			}
+
+			results, err := search.Search(idx, params)
+			if err != nil {
+				t.Fatalf("search failed: %v", err)
+			}
+
+			count := int(results.Total)
+			if count < tt.expectMin {
+				t.Errorf("expected at least %d results, got %d", tt.expectMin, count)
+			}
+		})
+	}
+}
+
 // TestSearch_EmptyQuery tests searching with no query (returns all).
 func TestSearch_EmptyQuery(t *testing.T) {
 	pbfPath := downloadPBF(t)

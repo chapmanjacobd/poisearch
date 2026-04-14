@@ -89,10 +89,10 @@ func MatchTierBoost(tier MatchTier) float64 {
 func addNameQuery(q string, fuzzy, prefix bool, field, analyzer string) query.Query {
 	// For keyword analyzer: exact match only
 	if analyzer == "keyword" {
-		tq := bleve.NewTermQuery(q)
-		tq.SetField(field)
-		tq.SetBoost(MatchTierBoost(TierExact))
-		return tq
+		mq := bleve.NewMatchQuery(q)
+		mq.SetField(field)
+		mq.SetBoost(MatchTierBoost(TierExact))
+		return mq
 	}
 
 	// For edge_ngram analyzer: indexed tokens are prefixes,
@@ -211,9 +211,9 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		}
 		classQueries := make([]query.Query, 0, len(classList)*2)
 		for _, c := range classList {
-			cq1 := bleve.NewTermQuery(c)
+			cq1 := bleve.NewMatchQuery(c)
 			cq1.SetField("class")
-			cq2 := bleve.NewTermQuery(c)
+			cq2 := bleve.NewMatchQuery(c)
 			cq2.SetField("classes")
 			classQueries = append(classQueries, cq1, cq2)
 		}
@@ -229,9 +229,9 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		}
 		subtypeQueries := make([]query.Query, 0, len(subtypeList)*2)
 		for _, s := range subtypeList {
-			sq1 := bleve.NewTermQuery(s)
+			sq1 := bleve.NewMatchQuery(s)
 			sq1.SetField("subtype")
-			sq2 := bleve.NewTermQuery(s)
+			sq2 := bleve.NewMatchQuery(s)
 			sq2.SetField("subtypes")
 			subtypeQueries = append(subtypeQueries, sq1, sq2)
 		}
@@ -243,16 +243,16 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		conjunctions := []query.Query{q}
 		if classFilter != "" {
 			// Search both primary and multi-class fields
-			cq1 := bleve.NewTermQuery(classFilter)
+			cq1 := bleve.NewMatchQuery(classFilter)
 			cq1.SetField("class")
-			cq2 := bleve.NewTermQuery(classFilter)
+			cq2 := bleve.NewMatchQuery(classFilter)
 			cq2.SetField("classes")
 			conjunctions = append(conjunctions, bleve.NewDisjunctionQuery(cq1, cq2))
 		}
 		if subtypeFilter != "" {
-			sq1 := bleve.NewTermQuery(subtypeFilter)
+			sq1 := bleve.NewMatchQuery(subtypeFilter)
 			sq1.SetField("subtype")
-			sq2 := bleve.NewTermQuery(subtypeFilter)
+			sq2 := bleve.NewMatchQuery(subtypeFilter)
 			sq2.SetField("subtypes")
 			conjunctions = append(conjunctions, bleve.NewDisjunctionQuery(sq1, sq2))
 		}
@@ -309,27 +309,27 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 
 		conjunctions := []query.Query{q}
 		if params.Street != "" {
-			sq := bleve.NewTermQuery(params.Street)
+			sq := bleve.NewMatchQuery(params.Street)
 			sq.SetField("addr:street")
 			conjunctions = append(conjunctions, sq)
 		}
 		if params.HouseNumber != "" {
-			sq := bleve.NewTermQuery(params.HouseNumber)
+			sq := bleve.NewMatchQuery(params.HouseNumber)
 			sq.SetField("addr:housenumber")
 			conjunctions = append(conjunctions, sq)
 		}
 		if params.Postcode != "" {
-			sq := bleve.NewTermQuery(params.Postcode)
+			sq := bleve.NewMatchQuery(params.Postcode)
 			sq.SetField("addr:postcode")
 			conjunctions = append(conjunctions, sq)
 		}
 		if params.City != "" {
-			sq := bleve.NewTermQuery(params.City)
+			sq := bleve.NewMatchQuery(params.City)
 			sq.SetField("addr:city")
 			conjunctions = append(conjunctions, sq)
 		}
 		if params.Country != "" {
-			sq := bleve.NewTermQuery(params.Country)
+			sq := bleve.NewMatchQuery(params.Country)
 			sq.SetField("addr:country")
 			conjunctions = append(conjunctions, sq)
 		}

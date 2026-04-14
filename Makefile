@@ -68,14 +68,6 @@ deps:
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	go install gotest.tools/gotestsum@latest
 
-# Runtime targets
-build-index: build
-	@if [ -z "$(PBF)" ]; then \
-		echo "Error: PBF=<path> is required"; \
-		exit 1; \
-	fi
-	./$(BINARY) --config $(CONFIG) build $(PBF)
-
 serve: build
 	./$(BINARY) --config $(CONFIG) serve
 
@@ -88,14 +80,6 @@ open:
 	xdg-open "http://localhost:9889/search?q=restaurant&limit=10" 2>/dev/null || \
 	open "http://localhost:9889/search?q=restaurant&limit=10" 2>/dev/null || \
 	echo "Open http://localhost:9889/search?q=restaurant&limit=10 in your browser"
-
-clean-index:
-	@if [ -d "$(shell grep -oP 'index_path\s*=\s*"\K[^"]+' $(CONFIG) 2>/dev/null || echo pois.bleve)" ]; then \
-		rm -rf $(shell grep -oP 'index_path\s*=\s*"\K[^"]+' $(CONFIG) 2>/dev/null || echo pois.bleve); \
-		echo "Index removed."; \
-	else \
-		echo "No index found at configured path."; \
-	fi
 
 # Benchmarks
 bench:

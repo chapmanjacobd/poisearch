@@ -4,48 +4,23 @@ import (
 	"testing"
 
 	"github.com/blevesearch/bleve/v2"
+	"github.com/chapmanjacobd/poisearch/internal/config"
 	"github.com/chapmanjacobd/poisearch/internal/search"
 )
 
 func createTestIndexForQuery(t *testing.T) bleve.Index {
 	t.Helper()
 
-	indexMapping := bleve.NewIndexMapping()
-	docMapping := bleve.NewDocumentMapping()
+	conf := &config.Config{
+		Languages:      []string{"en"},
+		StoreAddress:   true,
+		StoreGeometry:  true,
+		StoreMetadata:  true,
+		GeometryMode:   "geopoint",
+		NameAnalyzer:   "standard",
+	}
 
-	// Name fields
-	nameFieldMapping := bleve.NewTextFieldMapping()
-	docMapping.AddFieldMappingsAt("name", nameFieldMapping)
-	docMapping.AddFieldMappingsAt("alt_name", nameFieldMapping)
-	docMapping.AddFieldMappingsAt("old_name", nameFieldMapping)
-	docMapping.AddFieldMappingsAt("short_name", nameFieldMapping)
-
-	// Class and subtype
-	keywordMapping := bleve.NewTextFieldMapping()
-	keywordMapping.Analyzer = "keyword"
-	docMapping.AddFieldMappingsAt("class", keywordMapping)
-	docMapping.AddFieldMappingsAt("subtype", keywordMapping)
-	docMapping.AddFieldMappingsAt("classes", keywordMapping)
-	docMapping.AddFieldMappingsAt("subtypes", keywordMapping)
-
-	// Importance
-	numMapping := bleve.NewNumericFieldMapping()
-	docMapping.AddFieldMappingsAt("importance", numMapping)
-
-	// Geometry
-	geoMapping := bleve.NewGeoPointFieldMapping()
-	docMapping.AddFieldMappingsAt("geometry", geoMapping)
-
-	// Address fields
-	addrMapping := bleve.NewTextFieldMapping()
-	addrMapping.Analyzer = "keyword"
-	docMapping.AddFieldMappingsAt("addr:housenumber", addrMapping)
-	docMapping.AddFieldMappingsAt("addr:street", addrMapping)
-	docMapping.AddFieldMappingsAt("addr:city", addrMapping)
-	docMapping.AddFieldMappingsAt("addr:postcode", addrMapping)
-	docMapping.AddFieldMappingsAt("addr:country", addrMapping)
-
-	indexMapping.DefaultMapping = docMapping
+	indexMapping := search.BuildIndexMapping(conf)
 
 	index, err := bleve.NewMemOnly(indexMapping)
 	if err != nil {
@@ -95,10 +70,18 @@ func createTestIndexForQuery(t *testing.T) bleve.Index {
 			"geometry":   []float64{doc.lon, doc.lat},
 		}
 		if doc.street != "" {
-			data["addr:housenumber"] = doc.housenum
 			data["addr:street"] = doc.street
+		}
+		if doc.housenum != "" {
+			data["addr:housenumber"] = doc.housenum
+		}
+		if doc.city != "" {
 			data["addr:city"] = doc.city
+		}
+		if doc.postcode != "" {
 			data["addr:postcode"] = doc.postcode
+		}
+		if doc.country != "" {
 			data["addr:country"] = doc.country
 		}
 		if err := index.Index(doc.id, data); err != nil {
@@ -250,6 +233,28 @@ func TestSearch_AddressFilters(t *testing.T) {
 				GeoMode: "geopoint",
 			},
 			expectMin: 3, // Only 3 docs have address fields populated
+		},
+		{
+			name: "filter by city case-insensitive",
+			params: search.SearchParams{
+				Query:   "",
+				City:    "berlin", // Lowercase
+				Limit:   10,
+				Langs:   []string{"en"},
+				GeoMode: "geopoint",
+			},
+			expectMin: 2,
+		},
+		{
+			name: "filter by country case-insensitive",
+			params: search.SearchParams{
+				Query:   "",
+				Country: "de", // Lowercase
+				Limit:   10,
+				Langs:   []string{"en"},
+				GeoMode: "geopoint",
+			},
+			expectMin: 3,
 		},
 		{
 			name: "filter by street and city",
