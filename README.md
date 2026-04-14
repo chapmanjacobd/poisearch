@@ -1,6 +1,6 @@
-# poisearch
+# koisearch🎏
 
-A lightweight (low RAM, medium disk) POI search engine for OpenStreetMap data.
+A lightweight (low RAM, medium disk) POI search engine for OpenStreetMap data
 
 ## Prerequisites
 
