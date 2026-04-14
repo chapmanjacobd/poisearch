@@ -85,6 +85,9 @@ func formatSize(size int64) string {
 	return fmt.Sprintf("%.2f %cB", float64(size)/float64(div), "KMGTPE"[exp])
 }
 
+// runFullBench runs comprehensive benchmarks across multiple geometry modes and search scenarios.
+//
+//nolint:funlen // Benchmark function needs to be comprehensive to cover all scenarios
 func runFullBench(pbf string, conf *config.Config) {
 	// First run analyzer comparison benchmark
 	runAnalyzerBench(pbf, conf)
@@ -107,7 +110,7 @@ func runFullBench(pbf string, conf *config.Config) {
 		{"Raw PBF Scan", "no-geo", false, false, true},
 	}
 
-	var modeResults []ModeResult
+	modeResults := make([]ModeResult, 0, len(scenarios))
 	var allSearchResults []BenchmarkResult
 
 	lat, lon := 47.14, 9.52 // Vaduz
@@ -311,12 +314,15 @@ func updateReadme(report string) {
 		newLines = append(newLines, lines...)
 	}
 
-	err = os.WriteFile(readmeFile, []byte(strings.Join(newLines, "\n")), 0644)
+	err = os.WriteFile(readmeFile, []byte(strings.Join(newLines, "\n")), 0o644)
 	if err != nil {
 		log.Printf("failed to write README.md: %v", err)
 	}
 }
 
+// runAnalyzerBench runs analyzer comparison benchmarks to measure search performance.
+//
+//nolint:funlen // Benchmark function needs to compare multiple analyzers comprehensively
 func runAnalyzerBench(pbf string, conf *config.Config) {
 	fmt.Println("\n============================================================")
 	fmt.Println("ANALYZER COMPARISON BENCHMARK")
@@ -331,7 +337,7 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 		Searches  []BenchmarkResult
 	}
 
-	var analyzerResults []AnalyzerResult
+	analyzerResults := make([]AnalyzerResult, 0, len(analyzers))
 
 	lat, lon := 47.14, 9.52 // Vaduz
 
@@ -372,7 +378,7 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 		size := getDirSize(testConf.IndexPath)
 		fmt.Printf("Build time: %v, Size: %s\n", buildTime, formatSize(size))
 
-		var searchResults []BenchmarkResult
+		searchResults := make([]BenchmarkResult, 0, len(searchQueries))
 		for _, sq := range searchQueries {
 			sq.Params.GeoMode = testConf.GeometryMode
 			sq.Params.Analyzer = analyzer
@@ -414,7 +420,7 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 		Queries int
 	}
 
-	var avgs []AnalyzerAvg
+	avgs := make([]AnalyzerAvg, 0, len(analyzerResults))
 	for _, ar := range analyzerResults {
 		var total time.Duration
 		minLat := ar.Searches[0].Latency
@@ -442,7 +448,15 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 		return avgs[i].Avg < avgs[j].Avg
 	})
 
-	fmt.Fprintf(os.Stdout, "%-18s %-15s %-15s %-15s %-10s\n", "Analyzer", "Avg Latency", "Min Latency", "Max Latency", "Queries")
+	fmt.Fprintf(
+		os.Stdout,
+		"%-18s %-15s %-15s %-15s %-10s\n",
+		"Analyzer",
+		"Avg Latency",
+		"Min Latency",
+		"Max Latency",
+		"Queries",
+	)
 	fmt.Println("------------------------------------------------------------------------------------")
 	for _, a := range avgs {
 		fmt.Fprintf(os.Stdout, "%-18s %-15v %-15v %-15v %-10d\n", a.Name, a.Avg, a.Min, a.Max, a.Queries)
@@ -482,7 +496,7 @@ func benchmark(index bleve.Index, label string, params search.SearchParams) Benc
 	return BenchmarkResult{Label: label, Latency: avg, Results: count}
 }
 
-func benchmarkPBF(pbfPath string, label string, params search.SearchParams, conf *config.Config) BenchmarkResult {
+func benchmarkPBF(pbfPath, label string, params search.SearchParams, conf *config.Config) BenchmarkResult {
 	start := time.Now()
 	iterations := 5
 	var count int

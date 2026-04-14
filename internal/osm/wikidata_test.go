@@ -1,9 +1,11 @@
-package osm
+package osm_test
 
 import (
 	"compress/gzip"
 	"os"
 	"testing"
+
+	"github.com/chapmanjacobd/poisearch/internal/osm"
 )
 
 func TestLoadWikidataImportance(t *testing.T) {
@@ -13,7 +15,7 @@ func TestLoadWikidataImportance(t *testing.T) {
 		t.Skipf("wikimedia file not found at %s, skipping integration test", path)
 	}
 
-	lookup, err := LoadWikidataImportance(path)
+	lookup, err := osm.LoadWikidataImportance(path)
 	if err != nil {
 		t.Fatalf("failed to load wikidata importance: %v", err)
 	}
@@ -38,7 +40,7 @@ func TestLoadWikidataImportance(t *testing.T) {
 
 func TestLoadWikidataImportanceSample(t *testing.T) {
 	// Create a small test file with the format from the user's data
-	tmpFile, err := os.CreateTemp("", "wikidata-test-*.csv.gz")
+	tmpFile, err := os.CreateTemp(t.TempDir(), "wikidata-test-*.csv.gz")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +60,7 @@ de	a	Berlin	0.85	Berlin_Q64
 	tmpFile.Close()
 
 	// Load the test file
-	lookup, err := LoadWikidataImportance(tmpFile.Name())
+	lookup, err := osm.LoadWikidataImportance(tmpFile.Name())
 	if err != nil {
 		t.Fatalf("failed to load test wikidata importance: %v", err)
 	}

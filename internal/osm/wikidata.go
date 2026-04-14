@@ -77,7 +77,7 @@ func LoadWikidataImportance(path string) (*WikidataLookup, error) {
 		}
 
 		var importance float64
-		fmt.Sscanf(parts[3], "%f", &importance)
+		_, _ = fmt.Sscanf(parts[3], "%f", &importance)
 
 		// Store the highest importance for each QID
 		if existing, ok := lookup.scores[wikidataID]; !ok || importance > existing {

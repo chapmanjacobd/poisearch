@@ -18,7 +18,13 @@ type Classification struct {
 // ClassifyMulti returns all applicable classifications for a set of OSM tags.
 // A single POI can have multiple classifications (e.g., a building that is both
 // a historic castle and a tourism museum).
-func ClassifyMulti(tags map[string]string, weights *config.ImportanceWeights, ont *PlaceTypeOntology) []*Classification {
+//
+//nolint:cyclop // Classification requires checking multiple OSM keys and applying various boosts
+func ClassifyMulti(
+	tags map[string]string,
+	weights *config.ImportanceWeights,
+	ont *PlaceTypeOntology,
+) []*Classification {
 	// All keys that can contribute to classification
 	classifiableKeys := []string{
 		"place", "amenity", "shop", "tourism", "leisure",
@@ -39,8 +45,7 @@ func ClassifyMulti(tags map[string]string, weights *config.ImportanceWeights, on
 		importance := weights.Default
 
 		// Map OSM keys to our simplified classes
-		switch k {
-		case "highway":
+		if k == "highway" {
 			class = "street"
 		}
 
@@ -48,12 +53,12 @@ func ClassifyMulti(tags map[string]string, weights *config.ImportanceWeights, on
 		foundWeight := false
 		switch k {
 		case "place":
-			if w, ok := weights.Place[v]; ok {
-				importance = w
-				foundWeight = true
-			} else {
+			if w, ok := weights.Place[v]; !ok {
 				// Skip places not in our whitelist
 				continue
+			} else {
+				importance = w
+				foundWeight = true
 			}
 		case "amenity":
 			if w, ok := weights.Amenity[v]; ok {
@@ -148,7 +153,11 @@ func Classify(tags map[string]string, weights *config.ImportanceWeights) *Classi
 }
 
 // ClassifyWithOntology returns the highest-importance classification with ontology support.
-func ClassifyWithOntology(tags map[string]string, weights *config.ImportanceWeights, ont *PlaceTypeOntology) *Classification {
+func ClassifyWithOntology(
+	tags map[string]string,
+	weights *config.ImportanceWeights,
+	ont *PlaceTypeOntology,
+) *Classification {
 	results := ClassifyMulti(tags, weights, ont)
 	if len(results) == 0 {
 		return nil

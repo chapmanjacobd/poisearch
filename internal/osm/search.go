@@ -31,7 +31,7 @@ func parseRadiusToInt(radius string) int {
 	radius = strings.TrimSuffix(radius, "m")
 	radius = strings.TrimSuffix(radius, "M")
 	var result int
-	fmt.Sscanf(radius, "%d", &result)
+	_, _ = fmt.Sscanf(radius, "%d", &result)
 	return result
 }
 
@@ -70,7 +70,9 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 		lonCenter := nanodegree(*params.Lon)
 
 		radiusLatNano := int64(1_000_000_000 * float64(radiusMeters) / 111_000)
-		radiusLonNano := int64(1_000_000_000 * float64(radiusMeters) / (6_367_000 * math.Cos(*params.Lat*math.Pi/180) * math.Pi / 180))
+		radiusLonNano := int64(
+			1_000_000_000 * float64(radiusMeters) / (6_367_000 * math.Cos(*params.Lat*math.Pi/180) * math.Pi / 180),
+		)
 
 		minLatNano = latCenter - radiusLatNano
 		maxLatNano = latCenter + radiusLatNano
@@ -93,7 +95,19 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 	for _, node := range entities.Nodes {
 		latNano, lonNano := node.Coords()
 
-		if !matchesSpatialFilter(latNano, lonNano, hasRadiusFilter, hasBboxFilter, minLatNano, maxLatNano, minLonNano, maxLonNano, params, radiusMeters) {
+		if !matchesSpatialFilter(
+			latNano,
+			lonNano,
+			hasRadiusFilter,
+			hasBboxFilter,
+			minLatNano,
+			maxLatNano,
+			minLonNano,
+			maxLonNano,
+			params,
+			radiusMeters,
+		) {
+
 			continue
 		}
 
@@ -102,7 +116,19 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 			nanodegreeToFloat(latNano),
 		}}
 
-		if hit := processEntity("node", node.ID(), node.Tags(), coords, queryLower, params, conf, ont, geosCtx, hasRadiusFilter, hasBboxFilter); hit != nil {
+		if hit := processEntity(
+			"node",
+			node.ID(),
+			node.Tags(),
+			coords,
+			queryLower,
+			params,
+			conf,
+			ont,
+			geosCtx,
+			hasRadiusFilter,
+			hasBboxFilter,
+		); hit != nil {
 			res.Hits = append(res.Hits, hit)
 			res.Total++
 			if len(res.Hits) >= params.Limit && params.Limit > 0 {
@@ -123,11 +149,35 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 			firstLat := nanodegree(coords[0][1])
 			firstLon := nanodegree(coords[0][0])
 
-			if !matchesSpatialFilter(firstLat, firstLon, hasRadiusFilter, hasBboxFilter, minLatNano, maxLatNano, minLonNano, maxLonNano, params, radiusMeters) {
+			if !matchesSpatialFilter(
+				firstLat,
+				firstLon,
+				hasRadiusFilter,
+				hasBboxFilter,
+				minLatNano,
+				maxLatNano,
+				minLonNano,
+				maxLonNano,
+				params,
+				radiusMeters,
+			) {
+
 				continue
 			}
 
-			if hit := processEntity("way", way.ID(), way.Tags(), coords, queryLower, params, conf, ont, geosCtx, hasRadiusFilter, hasBboxFilter); hit != nil {
+			if hit := processEntity(
+				"way",
+				way.ID(),
+				way.Tags(),
+				coords,
+				queryLower,
+				params,
+				conf,
+				ont,
+				geosCtx,
+				hasRadiusFilter,
+				hasBboxFilter,
+			); hit != nil {
 				res.Hits = append(res.Hits, hit)
 				res.Total++
 				if len(res.Hits) >= params.Limit && params.Limit > 0 {
@@ -148,11 +198,35 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 			firstLat := nanodegree(coords[0][1])
 			firstLon := nanodegree(coords[0][0])
 
-			if !matchesSpatialFilter(firstLat, firstLon, hasRadiusFilter, hasBboxFilter, minLatNano, maxLatNano, minLonNano, maxLonNano, params, radiusMeters) {
+			if !matchesSpatialFilter(
+				firstLat,
+				firstLon,
+				hasRadiusFilter,
+				hasBboxFilter,
+				minLatNano,
+				maxLatNano,
+				minLonNano,
+				maxLonNano,
+				params,
+				radiusMeters,
+			) {
+
 				continue
 			}
 
-			if hit := processEntity("relation", relation.ID(), relation.Tags(), coords, queryLower, params, conf, ont, geosCtx, hasRadiusFilter, hasBboxFilter); hit != nil {
+			if hit := processEntity(
+				"relation",
+				relation.ID(),
+				relation.Tags(),
+				coords,
+				queryLower,
+				params,
+				conf,
+				ont,
+				geosCtx,
+				hasRadiusFilter,
+				hasBboxFilter,
+			); hit != nil {
 				res.Hits = append(res.Hits, hit)
 				res.Total++
 				if len(res.Hits) >= params.Limit && params.Limit > 0 {
@@ -166,7 +240,13 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 }
 
 // matchesSpatialFilter checks if coordinates match the spatial filter (radius or bbox)
-func matchesSpatialFilter(latNano, lonNano int64, hasRadiusFilter, hasBboxFilter bool, minLatNano, maxLatNano, minLonNano, maxLonNano int64, params search.SearchParams, radiusMeters int) bool {
+func matchesSpatialFilter(
+	latNano, lonNano int64,
+	hasRadiusFilter, hasBboxFilter bool,
+	minLatNano, maxLatNano, minLonNano, maxLonNano int64,
+	params search.SearchParams,
+	radiusMeters int,
+) bool {
 	if !hasRadiusFilter && !hasBboxFilter {
 		return true
 	}
@@ -174,6 +254,7 @@ func matchesSpatialFilter(latNano, lonNano int64, hasRadiusFilter, hasBboxFilter
 	// Coarse bbox check
 	if latNano < minLatNano || latNano > maxLatNano ||
 		lonNano < minLonNano || lonNano > maxLonNano {
+
 		return false
 	}
 
@@ -194,7 +275,18 @@ func matchesSpatialFilter(latNano, lonNano int64, hasRadiusFilter, hasBboxFilter
 }
 
 // processEntity checks if an entity matches the search criteria and creates a DocumentMatch
-func processEntity(entityType string, id int64, tags map[string]string, coords [][]float64, queryLower string, params search.SearchParams, conf *config.Config, ont *PlaceTypeOntology, geosCtx *geos.Context, hasRadiusFilter, hasBboxFilter bool) *bleveSearch.DocumentMatch {
+func processEntity(
+	entityType string,
+	id int64,
+	tags map[string]string,
+	coords [][]float64,
+	queryLower string,
+	params search.SearchParams,
+	conf *config.Config,
+	ont *PlaceTypeOntology,
+	geosCtx *geos.Context,
+	hasRadiusFilter, hasBboxFilter bool,
+) *bleveSearch.DocumentMatch {
 	classifications := ClassifyMulti(tags, &conf.Importance, ont)
 	if len(classifications) == 0 {
 		return nil

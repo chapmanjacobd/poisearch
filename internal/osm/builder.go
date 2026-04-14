@@ -1,6 +1,7 @@
 package osm
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -34,11 +35,11 @@ func truncate(f float64) float64 {
 	return math.Floor(f*shift+0.5) / shift
 }
 
-func representativePoint(g *geos.Geom, ctx *geos.Context) (*geos.Geom, bool, error) {
+func representativePoint(g *geos.Geom) (*geos.Geom, bool, error) {
 	switch g.TypeID() {
 	case geos.TypeIDPoint:
 		return g, true, nil
-	case geos.TypeIDLineString:
+	case geos.TypeIDLineString, geos.TypeIDLinearRing:
 		return g.InterpolateNormalized(0.5), false, nil
 	case geos.TypeIDMultiLineString:
 		pt, err := midpointOfLongestLine(g)
@@ -49,6 +50,8 @@ func representativePoint(g *geos.Geom, ctx *geos.Context) (*geos.Geom, bool, err
 			return centroid, false, nil
 		}
 		return g.PointOnSurface(), false, nil
+	case geos.TypeIDMultiPoint, geos.TypeIDGeometryCollection:
+		return g.PointOnSurface(), false, nil
 	default:
 		return g.PointOnSurface(), false, nil
 	}
@@ -57,7 +60,7 @@ func representativePoint(g *geos.Geom, ctx *geos.Context) (*geos.Geom, bool, err
 func midpointOfLongestLine(multi *geos.Geom) (*geos.Geom, error) {
 	n := multi.NumGeometries()
 	if n == 0 {
-		return nil, fmt.Errorf("empty geometry collection")
+		return nil, errors.New("empty geometry collection")
 	}
 
 	var longest *geos.Geom
@@ -73,7 +76,7 @@ func midpointOfLongestLine(multi *geos.Geom) (*geos.Geom, error) {
 	}
 
 	if longest == nil {
-		return nil, fmt.Errorf("no valid components in multiline")
+		return nil, errors.New("no valid components in multiline")
 	}
 
 	return longest.InterpolateNormalized(0.5), nil
@@ -86,7 +89,7 @@ func geomToGeoJSON(g *geos.Geom) map[string]any {
 			"type":        "point",
 			"coordinates": []float64{truncate(g.X()), truncate(g.Y())},
 		}
-	case geos.TypeIDLineString:
+	case geos.TypeIDLineString, geos.TypeIDLinearRing:
 		coords := g.CoordSeq().ToCoords()
 		for i := range coords {
 			coords[i][0] = truncate(coords[i][0])
@@ -106,6 +109,61 @@ func geomToGeoJSON(g *geos.Geom) map[string]any {
 		return map[string]any{
 			"type":        "polygon",
 			"coordinates": [][][]float64{coords},
+		}
+	case geos.TypeIDMultiPoint:
+		n := g.NumGeometries()
+		coords := make([][]float64, 0, n)
+		for i := range n {
+			comp := g.Geometry(i)
+			coords = append(coords, []float64{truncate(comp.X()), truncate(comp.Y())})
+		}
+		return map[string]any{
+			"type":        "multipoint",
+			"coordinates": coords,
+		}
+	case geos.TypeIDMultiLineString:
+		n := g.NumGeometries()
+		coords := make([][][]float64, 0, n)
+		for i := range n {
+			comp := g.Geometry(i)
+			lineCoords := comp.CoordSeq().ToCoords()
+			for j := range lineCoords {
+				lineCoords[j][0] = truncate(lineCoords[j][0])
+				lineCoords[j][1] = truncate(lineCoords[j][1])
+			}
+			coords = append(coords, lineCoords)
+		}
+		return map[string]any{
+			"type":        "multilinestring",
+			"coordinates": coords,
+		}
+	case geos.TypeIDMultiPolygon:
+		n := g.NumGeometries()
+		coords := make([][][][]float64, 0, n)
+		for i := range n {
+			comp := g.Geometry(i)
+			ring := comp.ExteriorRing()
+			ringCoords := ring.CoordSeq().ToCoords()
+			for j := range ringCoords {
+				ringCoords[j][0] = truncate(ringCoords[j][0])
+				ringCoords[j][1] = truncate(ringCoords[j][1])
+			}
+			coords = append(coords, [][][]float64{ringCoords})
+		}
+		return map[string]any{
+			"type":        "multipolygon",
+			"coordinates": coords,
+		}
+	case geos.TypeIDGeometryCollection:
+		n := g.NumGeometries()
+		geometries := make([]map[string]any, 0, n)
+		for i := range n {
+			comp := g.Geometry(i)
+			geometries = append(geometries, geomToGeoJSON(comp))
+		}
+		return map[string]any{
+			"type":         "geometrycollection",
+			"geometries":   geometries,
 		}
 	default:
 		centroid := g.Centroid()
@@ -153,6 +211,7 @@ func buildTagFilter(weights *config.ImportanceWeights) pbf.Filter {
 // BuildIndex builds a Bleve index from an OSM PBF file using the codesoap/pbf library.
 // This leverages vtprotobuf optimization, object pooling, and parallel blob decoding
 // for significantly better performance than standard PBF parsers.
+// nolint:cyclop // Index building requires coordinating multiple components, complexity is inherent
 func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error {
 	slog.Info("building index", "path", conf.IndexPath, "input", inputPath)
 
@@ -203,26 +262,22 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 	batchSize := 1000
 	geoMode := GeometryMode(conf.GeometryMode)
 
-	// Process nodes
-	for _, node := range entities.Nodes {
-		lat, lon := node.Coords()
-		feature, shouldIndex, err := buildFeature("node", node.ID(), node.Tags(), [][]float64{{
-			nanodegreeToFloat(lon),
-			nanodegreeToFloat(lat),
-		}}, conf, wdLookup, ont, geosCtx, geoMode)
+	// processEntity is a helper function to index a single entity
+	processEntity := func(entityType string, id int64, tags map[string]string, coords [][]float64) error {
+		feature, shouldIndex, err := buildFeature(entityType, id, tags, coords, conf, wdLookup, ont, geosCtx, geoMode)
 		if err != nil {
-			slog.Debug("skipping node", "id", node.ID(), "error", err)
+			slog.Debug("skipping "+entityType, "id", id, "error", err)
 			skipped++
-			continue
+			return nil
 		}
 		if !shouldIndex {
 			skipped++
-			continue
+			return nil
 		}
 
 		if err := batch.Index(feature.ID, search.FeatureToMap(feature)); err != nil {
 			slog.Error("error indexing feature", "id", feature.ID, "error", err)
-			continue
+			return nil
 		}
 
 		count++
@@ -234,6 +289,18 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 			if count%10000 == 0 {
 				slog.Info("indexed features", "count", count)
 			}
+		}
+		return nil
+	}
+
+	// Process nodes
+	for _, node := range entities.Nodes {
+		lat, lon := node.Coords()
+		if err := processEntity("node", node.ID(), node.Tags(), [][]float64{{
+			nanodegreeToFloat(lon),
+			nanodegreeToFloat(lat),
+		}}); err != nil {
+			return err
 		}
 	}
 
@@ -247,31 +314,8 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 				continue
 			}
 
-			feature, shouldIndex, err := buildFeature("way", way.ID(), way.Tags(), coords, conf, wdLookup, ont, geosCtx, geoMode)
-			if err != nil {
-				slog.Debug("skipping way", "id", way.ID(), "error", err)
-				skipped++
-				continue
-			}
-			if !shouldIndex {
-				skipped++
-				continue
-			}
-
-			if err := batch.Index(feature.ID, search.FeatureToMap(feature)); err != nil {
-				slog.Error("error indexing feature", "id", feature.ID, "error", err)
-				continue
-			}
-
-			count++
-			if count%batchSize == 0 {
-				if err := index.Batch(batch); err != nil {
-					return err
-				}
-				batch = index.NewBatch()
-				if count%10000 == 0 {
-					slog.Info("indexed features", "count", count)
-				}
+			if err := processEntity("way", way.ID(), way.Tags(), coords); err != nil {
+				return err
 			}
 		}
 	}
@@ -286,31 +330,8 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 				continue
 			}
 
-			feature, shouldIndex, err := buildFeature("relation", relation.ID(), relation.Tags(), coords, conf, wdLookup, ont, geosCtx, geoMode)
-			if err != nil {
-				slog.Debug("skipping relation", "id", relation.ID(), "error", err)
-				skipped++
-				continue
-			}
-			if !shouldIndex {
-				skipped++
-				continue
-			}
-
-			if err := batch.Index(feature.ID, search.FeatureToMap(feature)); err != nil {
-				slog.Error("error indexing feature", "id", feature.ID, "error", err)
-				continue
-			}
-
-			count++
-			if count%batchSize == 0 {
-				if err := index.Batch(batch); err != nil {
-					return err
-				}
-				batch = index.NewBatch()
-				if count%10000 == 0 {
-					slog.Info("indexed features", "count", count)
-				}
+			if err := processEntity("relation", relation.ID(), relation.Tags(), coords); err != nil {
+				return err
 			}
 		}
 	}
@@ -326,8 +347,19 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 	return nil
 }
 
-// buildFeature creates a search.Feature from OSM entity data
-func buildFeature(entityType string, id int64, tags map[string]string, coords [][]float64, conf *config.Config, wdLookup *WikidataLookup, ont *PlaceTypeOntology, geosCtx *geos.Context, geoMode GeometryMode) (*search.Feature, bool, error) {
+// buildFeature creates a search.Feature from OSM entity data.
+// nolint:cyclop // Feature building requires handling many classification and geometry cases
+func buildFeature(
+	entityType string,
+	id int64,
+	tags map[string]string,
+	coords [][]float64,
+	conf *config.Config,
+	wdLookup *WikidataLookup,
+	ont *PlaceTypeOntology,
+	geosCtx *geos.Context,
+	geoMode GeometryMode,
+) (*search.Feature, bool, error) {
 	if len(tags) == 0 {
 		return nil, false, nil
 	}
@@ -446,7 +478,7 @@ func buildFeature(entityType string, id int64, tags map[string]string, coords []
 func wayCoordinates(way pbf.Way, nodes map[int64]pbf.Node) ([][]float64, error) {
 	nodeIDs := way.Nodes()
 	if len(nodeIDs) == 0 {
-		return nil, fmt.Errorf("way has no nodes")
+		return nil, errors.New("way has no nodes")
 	}
 
 	coords := make([][]float64, 0, len(nodeIDs))
@@ -464,7 +496,7 @@ func wayCoordinates(way pbf.Way, nodes map[int64]pbf.Node) ([][]float64, error) 
 	}
 
 	if len(coords) < 2 {
-		return nil, fmt.Errorf("way has fewer than 2 nodes with coordinates")
+		return nil, errors.New("way has fewer than 2 nodes with coordinates")
 	}
 
 	return coords, nil
@@ -484,13 +516,18 @@ func relationCoordinates(relation pbf.Relation, nodes map[int64]pbf.Node) ([][]f
 		}}, nil
 	}
 
-	return nil, fmt.Errorf("relation has no member nodes with coordinates")
+	return nil, errors.New("relation has no member nodes with coordinates")
 }
 
 // createGeometryFromCoords creates a geometry from coordinates based on the geometry mode
-func createGeometryFromCoords(coords [][]float64, mode GeometryMode, tolerance float64, ctx *geos.Context) (any, error) {
+func createGeometryFromCoords(
+	coords [][]float64,
+	mode GeometryMode,
+	tolerance float64,
+	ctx *geos.Context,
+) (any, error) {
 	if len(coords) == 0 {
-		return nil, fmt.Errorf("no coordinates provided")
+		return nil, errors.New("no coordinates provided")
 	}
 
 	var g *geos.Geom
@@ -506,7 +543,7 @@ func createGeometryFromCoords(coords [][]float64, mode GeometryMode, tolerance f
 	}
 
 	if g == nil {
-		return nil, fmt.Errorf("could not create geometry")
+		return nil, errors.New("could not create geometry")
 	}
 
 	switch mode {
@@ -516,10 +553,10 @@ func createGeometryFromCoords(coords [][]float64, mode GeometryMode, tolerance f
 		if mode == ModeGeopointCentroid {
 			pt = g.Centroid()
 		} else {
-			pt, _, err = representativePoint(g, ctx)
+			pt, _, err = representativePoint(g)
 		}
 		if err != nil || pt == nil {
-			return nil, fmt.Errorf("could not create geopoint: %v", err)
+			return nil, fmt.Errorf("could not create geopoint: %w", err)
 		}
 		return map[string]any{
 			"lat": truncate(pt.Y()),
@@ -532,10 +569,13 @@ func createGeometryFromCoords(coords [][]float64, mode GeometryMode, tolerance f
 		g = g.TopologyPreserveSimplify(tolerance)
 	case ModeGeoshapeFull:
 		// Use geometry as-is
+	case ModeNoGeo:
+		// Should not reach here since caller checks mode != ModeNoGeo
+		return nil, errors.New("unexpected ModeNoGeo in createGeometryFromCoords")
 	default:
-		pt, _, err := representativePoint(g, ctx)
+		pt, _, err := representativePoint(g)
 		if err != nil || pt == nil {
-			return nil, fmt.Errorf("could not create default geopoint: %v", err)
+			return nil, fmt.Errorf("could not create default geopoint: %w", err)
 		}
 		return map[string]any{
 			"lat": truncate(pt.Y()),

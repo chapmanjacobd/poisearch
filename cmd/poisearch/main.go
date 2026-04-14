@@ -21,7 +21,7 @@ import (
 )
 
 type BuildCmd struct {
-	Input string `arg:"" help:"Input PBF file." required:"" type:"path"`
+	Input string `help:"Input PBF file." required:"true" arg:"" type:"path"`
 }
 
 func (b *BuildCmd) Run(conf *config.Config) error {
@@ -38,6 +38,13 @@ func (b *BuildCmd) Run(conf *config.Config) error {
 }
 
 type ServeCmd struct{}
+
+//nolint:gochecknoglobals // CLI struct required by kong
+var cli struct {
+	ConfigPath string   `help:"Path to config file."      required:"true"        name:"config" type:"path"`
+	Build      BuildCmd `help:"Build the POI index."                      cmd:""`
+	Serve      ServeCmd `help:"Serve the POI search API."                 cmd:""`
+}
 
 type Server struct {
 	index     bleve.Index
@@ -56,11 +63,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *ServeCmd) Run(conf *config.Config) error {
-	slog.Info("serving", "host", conf.Server.Host, "port", conf.Server.Port, "index", conf.IndexPath, "pbf", conf.PBFPath)
+	slog.Info(
+		"serving",
+		"host",
+		conf.Server.Host,
+		"port",
+		conf.Server.Port,
+		"index",
+		conf.IndexPath,
+		"pbf",
+		conf.PBFPath,
+	)
 
 	index, err := bleve.Open(conf.IndexPath)
 	if err != nil {
-		return fmt.Errorf("could not open index: %v", err)
+		return fmt.Errorf("could not open index: %w", err)
 	}
 
 	srv := &Server{
@@ -99,7 +116,7 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 				slog.Info("shutting down")
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				httpSrv.Shutdown(ctx)
+				_ = httpSrv.Shutdown(ctx)
 				return
 			}
 		}
@@ -117,12 +134,6 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 	return nil
 }
 
-var cli struct {
-	ConfigPath string   `help:"Path to config file." required:"" type:"path" name:"config"`
-	Build      BuildCmd `cmd:"" help:"Build the POI index."`
-	Serve      ServeCmd `cmd:"" help:"Serve the POI search API."`
-}
-
 func main() {
 	ctx := kong.Parse(&cli,
 		kong.Name("poisearch"),
@@ -130,21 +141,20 @@ func main() {
 		kong.UsageOnError(),
 	)
 
-	confData, err := os.ReadFile(cli.ConfigPath)
-	if err != nil {
-		slog.Error("failed to read config file", "error", err)
+	confData, readErr := os.ReadFile(cli.ConfigPath)
+	if readErr != nil {
+		slog.Error("failed to read config file", "error", readErr)
 		os.Exit(1)
 	}
 
 	var conf config.Config
-	if err := toml.Unmarshal(confData, &conf); err != nil {
-		slog.Error("failed to parse config file", "error", err)
+	if parseErr := toml.Unmarshal(confData, &conf); parseErr != nil {
+		slog.Error("failed to parse config file", "error", parseErr)
 		os.Exit(1)
 	}
 
-	err = ctx.Run(&conf)
-	if err != nil {
-		slog.Error("command failed", "error", err)
+	if runErr := ctx.Run(&conf); runErr != nil {
+		slog.Error("command failed", "error", runErr)
 		os.Exit(1)
 	}
 }

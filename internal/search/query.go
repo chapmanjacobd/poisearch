@@ -61,7 +61,7 @@ func MatchTierBoost(tier MatchTier) float64 {
 	}
 }
 
-func addNameQuery(q string, fuzzy bool, prefix bool, field string, analyzer string) query.Query {
+func addNameQuery(q string, fuzzy, prefix bool, field, analyzer string) query.Query {
 	// For keyword analyzer: exact match only
 	if analyzer == "keyword" {
 		tq := bleve.NewTermQuery(q)
@@ -114,12 +114,13 @@ func normalizeQuery(q string) string {
 	// Remove common punctuation that doesn't aid search
 	var b strings.Builder
 	for _, r := range q {
-		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == ' ' || r == '-' || r == '_' {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == ' ', r == '-', r == '_':
 			b.WriteRune(r)
-		} else if r == '\'' || r == '"' || r == '.' || r == ',' || r == '(' || r == ')' {
+		case r == '\'' || r == '"' || r == '.' || r == ',' || r == '(' || r == ')':
 			// Skip these punctuation marks
 			continue
-		} else {
+		default:
 			b.WriteRune(r)
 		}
 	}
@@ -154,17 +155,30 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		}
 
 		// Search across multiple name fields
-		nameQueries := []query.Query{
+		nameQueries := make([]query.Query, 0, 4+4*len(params.Langs))
+		nameQueries = append(nameQueries,
 			addNameQuery(normalized, params.Fuzzy, params.Prefix, "name", analyzer),
 			addNameQuery(normalized, params.Fuzzy, params.Prefix, "alt_name", analyzer),
 			addNameQuery(normalized, params.Fuzzy, params.Prefix, "old_name", analyzer),
 			addNameQuery(normalized, params.Fuzzy, params.Prefix, "short_name", analyzer),
-		}
+		)
 		for _, lang := range params.Langs {
-			nameQueries = append(nameQueries, addNameQuery(normalized, params.Fuzzy, params.Prefix, "name:"+lang, analyzer))
-			nameQueries = append(nameQueries, addNameQuery(normalized, params.Fuzzy, params.Prefix, "alt_name:"+lang, analyzer))
-			nameQueries = append(nameQueries, addNameQuery(normalized, params.Fuzzy, params.Prefix, "old_name:"+lang, analyzer))
-			nameQueries = append(nameQueries, addNameQuery(normalized, params.Fuzzy, params.Prefix, "short_name:"+lang, analyzer))
+			nameQueries = append(
+				nameQueries,
+				addNameQuery(normalized, params.Fuzzy, params.Prefix, "name:"+lang, analyzer),
+			)
+			nameQueries = append(
+				nameQueries,
+				addNameQuery(normalized, params.Fuzzy, params.Prefix, "alt_name:"+lang, analyzer),
+			)
+			nameQueries = append(
+				nameQueries,
+				addNameQuery(normalized, params.Fuzzy, params.Prefix, "old_name:"+lang, analyzer),
+			)
+			nameQueries = append(
+				nameQueries,
+				addNameQuery(normalized, params.Fuzzy, params.Prefix, "short_name:"+lang, analyzer),
+			)
 		}
 		q = bleve.NewDisjunctionQuery(nameQueries...)
 	} else {
@@ -177,8 +191,8 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 
 	// Filter by class and subtype (multi-value, OR within each)
 	if len(params.Classes) > 0 {
-		classList := make([]string, len(params.Classes))
-		copy(classList, params.Classes)
+		classList := make([]string, 0, len(params.Classes)+1)
+		classList = append(classList, params.Classes...)
 		if classFilter != "" {
 			classList = append(classList, classFilter)
 		}
@@ -195,8 +209,8 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	}
 
 	if len(params.Subtypes) > 0 {
-		subtypeList := make([]string, len(params.Subtypes))
-		copy(subtypeList, params.Subtypes)
+		subtypeList := make([]string, 0, len(params.Subtypes)+1)
+		subtypeList = append(subtypeList, params.Subtypes...)
 		if subtypeFilter != "" {
 			subtypeList = append(subtypeList, subtypeFilter)
 		}
@@ -285,7 +299,19 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	searchRequest.SortBy([]string{"-importance", "_score"})
 
 	// Fields to return
-	fields := []string{"name", "alt_name", "old_name", "short_name", "class", "subtype", "classes", "subtypes", "importance", "geometry"}
+	fields := make([]string, 0, 10+4*len(params.Langs))
+	fields = append(fields,
+		"name",
+		"alt_name",
+		"old_name",
+		"short_name",
+		"class",
+		"subtype",
+		"classes",
+		"subtypes",
+		"importance",
+		"geometry",
+	)
 	for _, lang := range params.Langs {
 		fields = append(fields, "name:"+lang, "alt_name:"+lang, "old_name:"+lang, "short_name:"+lang)
 	}

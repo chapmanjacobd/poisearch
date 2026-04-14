@@ -1,6 +1,7 @@
 package search
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -22,13 +23,13 @@ type Feature struct {
 
 func OpenOrCreateIndex(indexPath string, m mapping.IndexMapping) (bleve.Index, error) {
 	index, err := bleve.Open(indexPath)
-	if err == bleve.ErrorIndexPathDoesNotExist {
+	if errors.Is(err, bleve.ErrorIndexPathDoesNotExist) {
 		index, err = bleve.New(indexPath, m)
 		if err != nil {
-			return nil, fmt.Errorf("could not create new index: %v", err)
+			return nil, fmt.Errorf("could not create new index: %w", err)
 		}
 	} else if err != nil {
-		return nil, fmt.Errorf("could not open existing index: %v", err)
+		return nil, fmt.Errorf("could not open existing index: %w", err)
 	}
 	return index, nil
 }

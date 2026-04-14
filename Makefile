@@ -56,16 +56,11 @@ test:
 	go test ./internal/... ./cmd/... -count=1
 
 fmt:
-	go fmt ./...
+	golangci-lint fmt
 	go fix ./...
 
 lint:
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run ./...; \
-	else \
-		echo "golangci-lint not installed. Run 'make deps' first."; \
-		exit 1; \
-	fi
+	golangci-lint run --fix ./...
 
 deps:
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest

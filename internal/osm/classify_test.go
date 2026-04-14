@@ -1,3 +1,4 @@
+//nolint:testpackage // Tests need access to internal functions
 package osm
 
 import (
@@ -59,7 +60,13 @@ func TestClassify(t *testing.T) {
 				t.Fatalf("expected %v, got nil", tt.expected)
 			}
 			if got.Class != tt.expected.Class || got.Subtype != tt.expected.Subtype {
-				t.Errorf("expected class/subtype %s/%s, got %s/%s", tt.expected.Class, tt.expected.Subtype, got.Class, got.Subtype)
+				t.Errorf(
+					"expected class/subtype %s/%s, got %s/%s",
+					tt.expected.Class,
+					tt.expected.Subtype,
+					got.Class,
+					got.Subtype,
+				)
 			}
 			if (got.Importance - tt.expected.Importance) > 0.01 {
 				t.Errorf("expected importance %f, got %f", tt.expected.Importance, got.Importance)

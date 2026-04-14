@@ -21,7 +21,7 @@ func RegisterHandlers(mux *http.ServeMux, index bleve.Index, conf *config.Config
 func RegisterHandlersWithPBF(mux *http.ServeMux, index bleve.Index, conf *config.Config, pbfPath string) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
@@ -112,7 +112,9 @@ func handlePBFSearch(w http.ResponseWriter, r *http.Request, pbfPath string, con
 		writeTextResponse(w, res, conf.Languages)
 	} else {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(res)
+		if err := json.NewEncoder(w).Encode(res); err != nil {
+			slog.Error("failed to encode JSON response", "error", err)
+		}
 	}
 }
 
@@ -198,12 +200,15 @@ func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index
 		writeTextResponse(w, res, langs)
 	} else {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(res)
+		if err := json.NewEncoder(w).Encode(res); err != nil {
+			slog.Error("failed to encode JSON response", "error", err)
+		}
 	}
 }
 
 // writeTextResponse writes search results in a simple key-value format
 // suitable for piping through UNIX tools like grep, awk, etc.
+// nolint:cyclop // Response formatting requires handling all fields, complexity is inherent
 func writeTextResponse(w http.ResponseWriter, res *bleve.SearchResult, langs []string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
