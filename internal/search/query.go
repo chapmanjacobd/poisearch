@@ -18,6 +18,7 @@ type SearchParams struct {
 	MaxLon *float64
 
 	Limit   int
+	From    int // Offset for pagination
 	Langs   []string
 	GeoMode string
 
@@ -295,6 +296,7 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	if searchRequest.Size == 0 {
 		searchRequest.Size = 10
 	}
+	searchRequest.From = params.From
 
 	searchRequest.SortBy([]string{"-importance", "_score"})
 

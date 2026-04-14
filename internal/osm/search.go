@@ -118,8 +118,11 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 				"node", int64(o.ID), o.TagMap(), [][]float64{{o.Lon, o.Lat}},
 				queryLower, params, conf, ont, geosCtx, hasRadiusFilter, hasBboxFilter,
 			); hit != nil {
-				res.Hits = append(res.Hits, hit)
 				res.Total++
+				if params.From > 0 && int64(res.Total) <= int64(params.From) {
+					continue
+				}
+				res.Hits = append(res.Hits, hit)
 				if len(res.Hits) >= params.Limit && params.Limit > 0 {
 					return res, nil
 				}
@@ -154,8 +157,11 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 				"way", int64(o.ID), o.TagMap(), coords,
 				queryLower, params, conf, ont, geosCtx, hasRadiusFilter, hasBboxFilter,
 			); hit != nil {
-				res.Hits = append(res.Hits, hit)
 				res.Total++
+				if params.From > 0 && int64(res.Total) <= int64(params.From) {
+					continue
+				}
+				res.Hits = append(res.Hits, hit)
 				if len(res.Hits) >= params.Limit && params.Limit > 0 {
 					return res, nil
 				}
@@ -196,8 +202,11 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 				"relation", int64(o.ID), o.TagMap(), coords,
 				queryLower, params, conf, ont, geosCtx, hasRadiusFilter, hasBboxFilter,
 			); hit != nil {
-				res.Hits = append(res.Hits, hit)
 				res.Total++
+				if params.From > 0 && int64(res.Total) <= int64(params.From) {
+					continue
+				}
+				res.Hits = append(res.Hits, hit)
 				if len(res.Hits) >= params.Limit && params.Limit > 0 {
 					return res, nil
 				}
@@ -343,7 +352,10 @@ func processPBFFntity(
 		},
 	}
 	if hasRadiusFilter && distMeters > 0 {
-		hit.Score = float64(distMeters)
+		// Combine importance with distance decay: importance * (1 / (1 + distance_km))
+		// This preserves importance ranking while penalizing distant results
+		hit.Score = best.Importance * (1.0 / (1.0 + float64(distMeters)/1000.0))
+		hit.Fields["distance_meters"] = distMeters
 	}
 
 	return hit

@@ -14,6 +14,45 @@ import (
 	"github.com/chapmanjacobd/poisearch/internal/search"
 )
 
+// ErrorResponse represents a structured error response.
+type ErrorResponse struct {
+	Error  string `json:"error"`
+	Code   string `json:"code"`
+	Status int    `json:"status"`
+}
+
+// SearchResponse wraps search results with pagination info.
+type SearchResponse struct {
+	Total    int64       `json:"total"`
+	From     int         `json:"from"`
+	Limit    int         `json:"limit"`
+	Hits     []SearchHit `json:"hits"`
+	Warnings []string    `json:"warnings,omitempty"`
+}
+
+// SearchHit represents a single search result hit.
+type SearchHit struct {
+	ID       string  `json:"id"`
+	Score    float64 `json:"score"`
+	Name     string  `json:"name,omitempty"`
+	Class    string  `json:"class,omitempty"`
+	Subtype  string  `json:"subtype,omitempty"`
+	Geometry any     `json:"geometry,omitempty"`
+}
+
+func writeJSONError(w http.ResponseWriter, statusCode int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	resp := ErrorResponse{
+		Error:  message,
+		Code:   code,
+		Status: statusCode,
+	}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		slog.Error("failed to encode error response", "error", err)
+	}
+}
+
 func RegisterHandlers(mux *http.ServeMux, index bleve.Index, conf *config.Config) {
 	RegisterHandlersWithPBF(mux, index, conf, "")
 }
@@ -41,6 +80,7 @@ func handlePBFSearch(w http.ResponseWriter, r *http.Request, pbfPath string, con
 	radius := r.URL.Query().Get("radius")
 	bbox := r.URL.Query().Get("bbox") // bbox=minLat,minLon,maxLat,maxLon
 	limitStr := r.URL.Query().Get("limit")
+	fromStr := r.URL.Query().Get("from")
 	class := r.URL.Query().Get("class")
 	subtype := r.URL.Query().Get("subtype")
 	format := r.URL.Query().Get("format")
@@ -85,6 +125,14 @@ func handlePBFSearch(w http.ResponseWriter, r *http.Request, pbfPath string, con
 		}
 	}
 
+	from := 0
+	if fromStr != "" {
+		f, err := strconv.Atoi(fromStr)
+		if err == nil && f >= 0 {
+			from = f
+		}
+	}
+
 	params := search.SearchParams{
 		Query:   q,
 		Lat:     lat,
@@ -95,6 +143,7 @@ func handlePBFSearch(w http.ResponseWriter, r *http.Request, pbfPath string, con
 		MinLon:  minLon,
 		MaxLon:  maxLon,
 		Limit:   limit,
+		From:    from,
 		Langs:   conf.Languages,
 		GeoMode: conf.GeometryMode,
 		Class:   class,
@@ -104,7 +153,7 @@ func handlePBFSearch(w http.ResponseWriter, r *http.Request, pbfPath string, con
 	res, err := osm.PBFSearch(pbfPath, params, conf)
 	if err != nil {
 		slog.Error("PBF search failed", "error", err, "query", q)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "search_error", "PBF search failed: "+err.Error())
 		return
 	}
 
@@ -124,6 +173,7 @@ func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index
 	lonStr := r.URL.Query().Get("lon")
 	radius := r.URL.Query().Get("radius")
 	limitStr := r.URL.Query().Get("limit")
+	fromStr := r.URL.Query().Get("from")
 	langsStr := r.URL.Query().Get("langs")
 	fuzzy := r.URL.Query().Get("fuzzy") == "1" || r.URL.Query().Get("fuzzy") == "true"
 	prefix := r.URL.Query().Get("prefix") == "1" || r.URL.Query().Get("prefix") == "true"
@@ -155,6 +205,14 @@ func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index
 		}
 	}
 
+	from := 0
+	if fromStr != "" {
+		f, err := strconv.Atoi(fromStr)
+		if err == nil && f >= 0 {
+			from = f
+		}
+	}
+
 	var langs []string
 	if langsStr != "" {
 		langs = strings.Split(langsStr, ",")
@@ -178,6 +236,7 @@ func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index
 		Lon:      lon,
 		Radius:   radius,
 		Limit:    limit,
+		From:     from,
 		Langs:    langs,
 		GeoMode:  conf.GeometryMode,
 		Fuzzy:    fuzzy,
@@ -191,7 +250,7 @@ func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index
 	res, err := search.Search(index, params)
 	if err != nil {
 		slog.Error("search failed", "error", err, "query", q)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "search_error", "Search failed: "+err.Error())
 		return
 	}
 

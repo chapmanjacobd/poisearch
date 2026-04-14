@@ -8,7 +8,6 @@ import (
 	"math"
 	"os"
 	"runtime"
-	"strings"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/chapmanjacobd/poisearch/internal/config"
@@ -174,42 +173,12 @@ func geomToGeoJSON(g *geos.Geom) map[string]any {
 	}
 }
 
-// nameSignature creates a normalized name string for deduplication.
-// POIs with identical names and similar classes in close proximity are likely duplicates.
-func nameSignature(tags map[string]string, classifications []*Classification) string {
-	name := strings.ToLower(tags["name"])
-	if name == "" {
-		// Try alternate names
-		for _, alt := range []string{"alt_name", "old_name", "short_name"} {
-			if v := tags[alt]; v != "" {
-				name = strings.ToLower(v)
-				break
-			}
-		}
-	}
-	if name == "" || len(classifications) == 0 {
-		return ""
-	}
-	// Combine name with primary class for more accurate dedup
-	return name + "|" + classifications[0].Class
-}
-
-// shouldDedup checks if an entity should be deduplicated.
-// Returns true if the entity has been seen before with similar attributes.
-// We track by name+class signature and spatial proximity to catch real-world duplicates.
-type dedupKey struct {
-	nameClass string
-	latBucket int64 // coordinate bucket for spatial proximity check
-	lonBucket int64
-}
-
 // BuildIndex builds a Bleve index from an OSM PBF file using paulmach/osm streaming scanner.
-// This approach has lower memory than bulk-extraction libraries and supports parallel decoders.
 //
-// On-the-fly deduplication: POIs with identical name+class within ~50m are treated as duplicates.
-// Only the highest-importance instance is kept.
+// Deduplication is handled by Bleve's upsert semantics: each OSM entity has a globally unique
+// ID (type/id), so re-indexing the same document ID overwrites the previous version.
 //
-//nolint:funlen,cyclop // Index building requires coordinating streaming, classification, geometry, and dedup
+//nolint:funlen,cyclop // Index building requires coordinating streaming, classification, and geometry
 func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error {
 	slog.Info("building index", "path", conf.IndexPath, "input", inputPath)
 
@@ -240,42 +209,12 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 	}
 
 	// Build node lookup for ways/relations (needed for geometry reconstruction)
-	// Streaming means we see nodes first, then ways/relations can reference them.
-	// For large files this uses memory, but it's necessary for geometry.
 	nodeCoords := make(map[int64][]float64)
 
 	geosCtx := geos.NewContext()
 	count := 0
 	skipped := 0
-	deduped := 0
 	geoMode := GeometryMode(conf.GeometryMode)
-
-	// Dedup tracking: key = name+class signature + spatial bucket, value = best importance seen
-	// Bucket size is ~0.0005 degrees (~50m at equator)
-	const bucketSize = 0.0005
-	seen := make(map[dedupKey]float64)
-
-	isDuplicate := func(sig string, lat, lon, importance float64) bool {
-		if sig == "" {
-			return false
-		}
-		latBucket := int64(lat / bucketSize)
-		lonBucket := int64(lon / bucketSize)
-		key := dedupKey{nameClass: sig, latBucket: latBucket, lonBucket: lonBucket}
-
-		if prevImportance, exists := seen[key]; exists {
-			// Already seen something similar; keep the highest importance
-			if importance <= prevImportance {
-				return true
-			}
-			// This one is better, replace
-			seen[key] = importance
-			return false
-		}
-		seen[key] = importance
-		return false
-	}
-
 	batch := index.NewBatch()
 	batchSize := 500
 
@@ -335,20 +274,6 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 			if wdImportance > 0 {
 				best.Importance += wdImportance * 10.0
 			}
-		}
-
-		// Get a representative coordinate for dedup
-		var repLat, repLon float64
-		if len(coords) > 0 {
-			repLat = coords[0][1]
-			repLon = coords[0][0]
-		}
-
-		// Check for duplicates
-		sig := nameSignature(tags, classifications)
-		if isDuplicate(sig, repLat, repLon, best.Importance) {
-			deduped++
-			return nil
 		}
 
 		// Build geometry
@@ -514,8 +439,6 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 				count,
 				"skipped",
 				skipped,
-				"deduped",
-				deduped,
 			)
 		}
 	}
@@ -531,7 +454,7 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 		}
 	}
 
-	slog.Info("Finished!", "indexed", count, "skipped", skipped, "deduped", deduped)
+	slog.Info("Finished!", "indexed", count, "skipped", skipped)
 	return nil
 }
 
