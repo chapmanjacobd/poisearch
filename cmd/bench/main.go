@@ -84,6 +84,22 @@ func getDirSize(path string) int64 {
 	return size
 }
 
+func formatDuration(d time.Duration) string {
+	if d == 0 {
+		return "0s"
+	}
+	if d >= time.Second {
+		return fmt.Sprintf("%.2fs", d.Seconds())
+	}
+	if d >= time.Millisecond {
+		return fmt.Sprintf("%.2fms", float64(d.Nanoseconds())/1e6)
+	}
+	if d >= time.Microsecond {
+		return fmt.Sprintf("%.2fµs", float64(d.Nanoseconds())/1e3)
+	}
+	return d.String()
+}
+
 func formatSize(size int64) string {
 	const unit = 1024
 	if size < unit {
@@ -184,7 +200,7 @@ func runFullBench(pbf string, conf *config.Config) {
 			}
 			buildTime = time.Since(start)
 			size = getDirSize(conf.IndexPath)
-			fmt.Printf("Build time: %v, Size: %s\n", buildTime, formatSize(size))
+			fmt.Printf("Build time: %s, Size: %s\n", formatDuration(buildTime), formatSize(size))
 		case s.PBFOnly:
 			fmt.Printf("PBF Only: No build needed. Using source: %s\n", pbf)
 			buildTime = 0
@@ -289,7 +305,7 @@ func runFullBench(pbf string, conf *config.Config) {
 		if r.Label == "Raw PBF Scan" || r.Label == "PMTiles Scan" {
 			sizeStr = "0 B (Live)"
 		}
-		fmt.Fprintf(w, "%-20s %-15s %-15v\n", r.Label, sizeStr, r.BuildTime)
+		fmt.Fprintf(w, "%-20s %-15s %-15s\n", r.Label, sizeStr, formatDuration(r.BuildTime))
 	}
 
 	fmt.Fprintln(w, "\n============================================================")
@@ -301,7 +317,7 @@ func runFullBench(pbf string, conf *config.Config) {
 	fmt.Fprintf(w, "%-20s %-25s %-15s %-10s\n", "Spatial Mode", "Scenario", "Avg Latency", "Results")
 	fmt.Fprintln(w, "--------------------------------------------------------------------------------")
 	for _, r := range allSearchResults {
-		fmt.Fprintf(w, "%-20s %-25s %-15v %-10d\n", r.ModeLabel, r.Label, r.Latency, r.Results)
+		fmt.Fprintf(w, "%-20s %-25s %-15s %-10d\n", r.ModeLabel, r.Label, formatDuration(r.Latency), r.Results)
 	}
 
 	title := fmt.Sprintf("Benchmark Results (%s, %s)", filepath.Base(pbf), formatSize(getDirSize(pbf)))
@@ -322,7 +338,7 @@ func benchmarkPMTiles(pmtilesPath, label string, params search.SearchParams, con
 		count = int(res.Total)
 	}
 	avg := time.Since(start) / time.Duration(iterations)
-	fmt.Printf("  %-25s Avg: %-10v Results: %d\n", label, avg, count)
+	fmt.Printf("  %-25s Avg: %-10s Results: %d\n", label, formatDuration(avg), count)
 	return BenchmarkResult{Label: label, Latency: avg, Results: count}
 }
 
@@ -459,7 +475,7 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 		}
 		buildTime := time.Since(start)
 		size := getDirSize(testConf.IndexPath)
-		fmt.Printf("Build time: %v, Size: %s\n", buildTime, formatSize(size))
+		fmt.Printf("Build time: %s, Size: %s\n", formatDuration(buildTime), formatSize(size))
 
 		searchResults := make([]BenchmarkResult, 0, len(searchQueries))
 		for _, sq := range searchQueries {
@@ -487,7 +503,7 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 	fmt.Fprintf(os.Stdout, "%-18s %-15s %-15s\n", "Analyzer", "Index Size", "Build Time")
 	fmt.Println("------------------------------------------------------------")
 	for _, r := range analyzerResults {
-		fmt.Fprintf(os.Stdout, "%-18s %-15s %-15v\n", r.Name, formatSize(r.Size), r.BuildTime)
+		fmt.Fprintf(os.Stdout, "%-18s %-15s %-15s\n", r.Name, formatSize(r.Size), formatDuration(r.BuildTime))
 	}
 
 	fmt.Println("\n============================================================")
@@ -542,7 +558,7 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 	)
 	fmt.Println("------------------------------------------------------------------------------------")
 	for _, a := range avgs {
-		fmt.Fprintf(os.Stdout, "%-18s %-15v %-15v %-15v %-10d\n", a.Name, a.Avg, a.Min, a.Max, a.Queries)
+		fmt.Fprintf(os.Stdout, "%-18s %-15s %-15s %-15s %-10d\n", a.Name, formatDuration(a.Avg), formatDuration(a.Min), formatDuration(a.Max), a.Queries)
 	}
 
 	// Detailed per-query comparison
@@ -551,12 +567,12 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 	fmt.Println("============================================================")
 	for i, sq := range searchQueries {
 		fmt.Printf("\n--- %s ---\n", sq.Label)
-		fmt.Fprintf(os.Stdout, "%-18s %-15v %-10s\n", "Analyzer", "Latency", "Results")
+		fmt.Fprintf(os.Stdout, "%-18s %-15s %-10s\n", "Analyzer", "Latency", "Results")
 		fmt.Println("----------------------------------------")
 		for _, ar := range analyzerResults {
 			if i < len(ar.Searches) {
 				sr := ar.Searches[i]
-				fmt.Fprintf(os.Stdout, "%-18s %-15v %-10d\n", ar.Name, sr.Latency, sr.Results)
+				fmt.Fprintf(os.Stdout, "%-18s %-15s %-10d\n", ar.Name, formatDuration(sr.Latency), sr.Results)
 			}
 		}
 	}
@@ -575,7 +591,7 @@ func benchmark(index bleve.Index, label string, params search.SearchParams) Benc
 		count = int(res.Total)
 	}
 	avg := time.Since(start) / time.Duration(iterations)
-	fmt.Printf("  %-25s Avg: %-10v Results: %d\n", label, avg, count)
+	fmt.Printf("  %-25s Avg: %-10s Results: %d\n", label, formatDuration(avg), count)
 	return BenchmarkResult{Label: label, Latency: avg, Results: count}
 }
 
@@ -592,6 +608,6 @@ func benchmarkPBF(pbfPath, label string, params search.SearchParams, conf *confi
 		count = int(res.Total)
 	}
 	avg := time.Since(start) / time.Duration(iterations)
-	fmt.Printf("  %-25s Avg: %-10v Results: %d\n", label, avg, count)
+	fmt.Printf("  %-25s Avg: %-10s Results: %d\n", label, formatDuration(avg), count)
 	return BenchmarkResult{Label: label, Latency: avg, Results: count}
 }

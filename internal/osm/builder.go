@@ -2,6 +2,7 @@ package osm
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/blevesearch/bleve/v2"
+	"github.com/blevesearch/mmap-go"
 	"github.com/chapmanjacobd/poisearch/internal/config"
 	"github.com/chapmanjacobd/poisearch/internal/search"
 	osmapi "github.com/paulmach/osm"
@@ -18,6 +20,129 @@ import (
 	"github.com/twpayne/go-geos"
 	"golang.org/x/sync/errgroup"
 )
+
+// nodeCache provides a memory-efficient lookup for node coordinates.
+type nodeCache interface {
+	Set(id int64, lon, lat float64)
+	Get(id int64) ([]float64, bool)
+	Close()
+}
+
+// mapNodeCache uses an in-memory map of packed uint64s to store coordinates.
+// It uses float32 precision to save memory.
+type mapNodeCache struct {
+	nodes map[int64]uint64
+	mu    sync.RWMutex
+}
+
+func newMapNodeCache() *mapNodeCache {
+	return &mapNodeCache{nodes: make(map[int64]uint64)}
+}
+
+func (m *mapNodeCache) Set(id int64, lon, lat float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Pack two float32s into one uint64
+	m.nodes[id] = uint64(math.Float32bits(float32(lon)))<<32 | uint64(math.Float32bits(float32(lat)))
+}
+
+func (m *mapNodeCache) Get(id int64) ([]float64, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	val, ok := m.nodes[id]
+	if !ok {
+		return nil, false
+	}
+	lon := float64(math.Float32frombits(uint32(val >> 32)))
+	lat := float64(math.Float32frombits(uint32(val)))
+	return []float64{lon, lat}, true
+}
+
+func (m *mapNodeCache) Close() {
+	m.nodes = nil
+}
+
+// mmapNodeCache uses a sparse memory-mapped file to store coordinates.
+type mmapNodeCache struct {
+	f    *os.File
+	data mmap.MMap
+}
+
+func newMmapNodeCache() (*mmapNodeCache, error) {
+	f, err := os.CreateTemp("", "poisearch-nodes-*")
+	if err != nil {
+		return nil, err
+	}
+
+	// 16 billion IDs * 8 bytes = 128 GB sparse file.
+	// This only consumes disk space for blocks actually written on filesystems supporting sparse files.
+	const maxID = 16 * 1000 * 1000 * 1000
+	const size = maxID * 8
+
+	if err := f.Truncate(size); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return nil, err
+	}
+
+	data, err := mmap.Map(f, mmap.RDWR, 0)
+	if err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return nil, err
+	}
+
+	// Initialize with NaN to distinguish from (0,0)
+	// Note: Initializing a 128GB file would be slow and break sparseness.
+	// Instead, we rely on the fact that Null Island is rarely a POI,
+	// or we accept (0,0) as a slight risk for regional extracts.
+	// For better precision, one could use a bitset.
+
+	return &mmapNodeCache{f: f, data: data}, nil
+}
+
+func (m *mmapNodeCache) Set(id int64, lon, lat float64) {
+	off := id * 8
+	if off+8 > int64(len(m.data)) {
+		return
+	}
+	// Atomic writes aren't strictly necessary if each node is processed once (true for PBF)
+	binary.LittleEndian.PutUint32(m.data[off:off+4], math.Float32bits(float32(lon)))
+	binary.LittleEndian.PutUint32(m.data[off+4:off+8], math.Float32bits(float32(lat)))
+}
+
+func (m *mmapNodeCache) Get(id int64) ([]float64, bool) {
+	off := id * 8
+	if off+8 > int64(len(m.data)) {
+		return nil, false
+	}
+	u1 := binary.LittleEndian.Uint32(m.data[off : off+4])
+	u2 := binary.LittleEndian.Uint32(m.data[off+4 : off+8])
+	if u1 == 0 && u2 == 0 {
+		return nil, false
+	}
+	return []float64{float64(math.Float32frombits(u1)), float64(math.Float32frombits(u2))}, true
+}
+
+func (m *mmapNodeCache) Close() {
+	if m.data != nil {
+		_ = m.data.Unmap()
+	}
+	if m.f != nil {
+		_ = m.f.Close()
+		_ = os.Remove(m.f.Name())
+	}
+}
+
+func newNodeCache() nodeCache {
+	cache, err := newMmapNodeCache()
+	if err != nil {
+		slog.Warn("failed to create mmap node cache, falling back to in-memory map", "error", err)
+		return newMapNodeCache()
+	}
+	slog.Info("using mmap node cache for coordinate lookup")
+	return cache
+}
 
 // GeometryMode represents the geometry mode for index building
 type GeometryMode string
@@ -196,7 +321,8 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 	wdLookup, ont := setupBuildIndex(conf)
 
 	// Build node lookup for ways/relations (needed for geometry reconstruction)
-	nodeCoords := make(map[int64][]float64)
+	nodeCoords := newNodeCache()
+	defer nodeCoords.Close()
 
 	geosCtx := geos.NewContext()
 	count := 0
@@ -242,7 +368,7 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 		switch o := obj.(type) {
 		case *osmapi.Node:
 			// Store node coordinates for way lookup
-			nodeCoords[int64(o.ID)] = []float64{o.Lon, o.Lat}
+			nodeCoords.Set(int64(o.ID), o.Lon, o.Lat)
 
 			tags := o.TagMap()
 			coords := [][]float64{{o.Lon, o.Lat}}
@@ -255,7 +381,7 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 				if node.Lon != 0 || node.Lat != 0 {
 					// Way has embedded coordinates (add-locations-to-ways)
 					coords = append(coords, []float64{node.Lon, node.Lat})
-				} else if nc, ok := nodeCoords[int64(node.ID)]; ok {
+				} else if nc, ok := nodeCoords.Get(int64(node.ID)); ok {
 					coords = append(coords, nc)
 				}
 			}
@@ -271,7 +397,7 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 			var coords [][]float64
 			for _, member := range o.Members {
 				if member.Type == osmapi.TypeNode {
-					if nc, ok := nodeCoords[member.Ref]; ok {
+					if nc, ok := nodeCoords.Get(member.Ref); ok {
 						coords = [][]float64{nc}
 						break
 					}
@@ -690,7 +816,8 @@ func buildIndexParallel(inputPath string, conf *config.Config, index bleve.Index
 
 	wdLookup, ont := setupBuildIndex(conf)
 
-	var nodeCoords sync.Map
+	nodeCoords := newNodeCache()
+	defer nodeCoords.Close()
 	workChan := make(chan *workItem, workers*100)
 	resultChan := make(chan *processedItem, workers*100)
 
@@ -719,7 +846,7 @@ func buildIndexParallel(inputPath string, conf *config.Config, index bleve.Index
 		collectorErr = runCollector(ctx, index, resultChan, cancel)
 	})
 
-	totalScanned, scannerSkipped, err := runProducer(inputPath, conf, &nodeCoords, workChan)
+	totalScanned, scannerSkipped, err := runProducer(inputPath, conf, nodeCoords, workChan)
 	close(workChan)
 
 	if err != nil {
@@ -796,7 +923,7 @@ func drainResultChan(resultChan <-chan *processedItem) {
 func runProducer(
 	inputPath string,
 	conf *config.Config,
-	nodeCoords *sync.Map,
+	nodeCoords nodeCache,
 	workChan chan<- *workItem,
 ) (scanned, skipped int, err error) {
 	file, err := os.Open(inputPath)
@@ -812,23 +939,36 @@ func runProducer(
 	}
 	defer scanner.Close()
 
+	totalScanned := 0
+	logInterval := 50000
+
 	for scanner.Scan() {
 		obj := scanner.Object()
-		scanned++
+		totalScanned++
 		item := buildWorkItem(obj, nodeCoords)
 		if item != nil {
 			workChan <- item
 		} else {
 			skipped++
 		}
+
+		if totalScanned%logInterval == 0 {
+			slog.Info(
+				"indexing progress",
+				"scanned",
+				totalScanned,
+				"skipped",
+				skipped,
+			)
+		}
 	}
-	return scanned, skipped, scanner.Err()
+	return totalScanned, skipped, scanner.Err()
 }
 
-func buildWorkItem(obj osmapi.Object, nodeCoords *sync.Map) *workItem {
+func buildWorkItem(obj osmapi.Object, nodeCoords nodeCache) *workItem {
 	switch o := obj.(type) {
 	case *osmapi.Node:
-		nodeCoords.Store(int64(o.ID), []float64{o.Lon, o.Lat})
+		nodeCoords.Set(int64(o.ID), o.Lon, o.Lat)
 		tags := o.TagMap()
 		if len(tags) == 0 {
 			return nil
@@ -864,28 +1004,24 @@ func buildWorkItem(obj osmapi.Object, nodeCoords *sync.Map) *workItem {
 	}
 }
 
-func extractWayCoords(o *osmapi.Way, nodeCoords *sync.Map) [][]float64 {
+func extractWayCoords(o *osmapi.Way, nodeCoords nodeCache) [][]float64 {
 	coords := make([][]float64, 0, len(o.Nodes))
 	for _, node := range o.Nodes {
 		if node.Lon != 0 || node.Lat != 0 {
 			coords = append(coords, []float64{node.Lon, node.Lat})
-		} else if nc, ok := nodeCoords.Load(int64(node.ID)); ok {
-			if ncVal, ok := nc.([]float64); ok {
-				coords = append(coords, ncVal)
-			}
+		} else if nc, ok := nodeCoords.Get(int64(node.ID)); ok {
+			coords = append(coords, nc)
 		}
 	}
 	return coords
 }
 
-func extractRelationCoords(o *osmapi.Relation, nodeCoords *sync.Map) [][]float64 {
+func extractRelationCoords(o *osmapi.Relation, nodeCoords nodeCache) [][]float64 {
 	for _, member := range o.Members {
 		switch member.Type {
 		case osmapi.TypeNode:
-			if nc, ok := nodeCoords.Load(member.Ref); ok {
-				if ncVal, ok := nc.([]float64); ok {
-					return [][]float64{ncVal}
-				}
+			if nc, ok := nodeCoords.Get(member.Ref); ok {
+				return [][]float64{nc}
 			}
 		case osmapi.TypeWay:
 			if member.Lat != 0 || member.Lon != 0 {
