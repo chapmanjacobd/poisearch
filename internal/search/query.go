@@ -1,8 +1,6 @@
 package search
 
 import (
-	"strings"
-
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/search/query"
 )
@@ -35,6 +33,22 @@ type SearchParams struct {
 
 	// Analyzer type used during indexing (affects query strategy)
 	Analyzer string
+}
+
+// QueryFields returns the number of query fields (words) in the search query.
+// Used for word break penalty calculation.
+func (p SearchParams) QueryFields() int {
+	if p.Query == "" {
+		return 0
+	}
+	// Count space-separated words
+	count := 1
+	for i := 0; i < len(p.Query); i++ {
+		if p.Query[i] == ' ' {
+			count++
+		}
+	}
+	return count
 }
 
 // MatchTier represents the quality of a name match.
@@ -108,44 +122,27 @@ func addNameQuery(q string, fuzzy, prefix bool, field, analyzer string) query.Qu
 	return mq
 }
 
-// normalizeQuery strips punctuation, collapses whitespace, and lowercases.
-func normalizeQuery(q string) string {
-	q = strings.TrimSpace(q)
-	// Remove common punctuation that doesn't aid search
-	var b strings.Builder
-	for _, r := range q {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == ' ', r == '-', r == '_':
-			b.WriteRune(r)
-		case r == '\'' || r == '"' || r == '.' || r == ',' || r == '(' || r == ')':
-			// Skip these punctuation marks
-			continue
-		default:
-			b.WriteRune(r)
-		}
-	}
-	q = b.String()
-	// Collapse multiple spaces
-	var out strings.Builder
-	space := false
-	for _, r := range q {
-		if r == ' ' {
-			if !space {
-				out.WriteRune(' ')
-			}
-			space = true
-		} else {
-			out.WriteRune(r)
-			space = false
-		}
-	}
-	return strings.ToLower(strings.TrimSpace(out.String()))
-}
-
 // Search performs a search on the Bleve index with the given parameters.
+// If the query matches a "X near Y" pattern, it uses NearSearch automatically.
+// For multi-word queries, it may try multiple interpretations for better recall.
 //
 //nolint:revive,cyclop,funlen // Search requires handling many query type and spatial filtering cases
 func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error) {
+	// Check for "X near Y" pattern and handle it via NearSearch
+	if params.Query != "" && isNearQuery(params.Query) {
+		category, referencePlace, _, _ := parseNearQuery(params.Query)
+		nearResult, err := NearSearch(index, params, category, referencePlace)
+		if err != nil {
+			return nil, err
+		}
+		return nearResult.Results, nil
+	}
+
+	// Check if we should use multi-interpretation for better recall
+	if params.Query != "" && shouldUseMultiInterpretation(params) {
+		return executeInterpretations(index, params)
+	}
+
 	var q query.Query
 
 	if params.Query != "" {

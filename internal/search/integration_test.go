@@ -137,17 +137,48 @@ func defaultTestConfig() *config.Config {
 	return &config.Config{
 		Languages: []string{"en", "de"},
 		Importance: config.ImportanceWeights{
-			// Use broad filters that match any value for these tag keys
-			// This ensures we extract all entities with these tags
-			Place:   map[string]float64{"city": 5.0, "town": 4.0, "village": 3.0, "hamlet": 2.0, "suburb": 2.5, "country": 6.0, "state": 5.5},
-			Amenity: map[string]float64{"restaurant": 2.0, "school": 1.5, "cafe": 1.5, "hospital": 2.0, "parking": 1.0, "bank": 1.0, "pharmacy": 1.0},
-			Shop:    map[string]float64{"supermarket": 2.0, "bakery": 1.0, "clothes": 1.0, "convenience": 1.0},
-			Highway: map[string]float64{"primary": 1.0, "secondary": 1.0, "tertiary": 1.0, "residential": 1.0},
-			Tourism: map[string]float64{"hotel": 1.5, "museum": 1.5, "attraction": 1.0},
-			Leisure: map[string]float64{"park": 1.0, "sports_centre": 1.0},
-			Historic: map[string]float64{"castle": 1.5, "monument": 1.0},
-			Natural: map[string]float64{"peak": 1.0, "water": 1.0},
-			Railway: map[string]float64{"station": 1.5, "halt": 1.0},
+			// Broad filters to match any value for these tag keys
+			Place: map[string]float64{
+				"city": 5.0, "town": 4.0, "village": 3.0, "hamlet": 2.0,
+				"suburb": 2.5, "country": 6.0, "state": 5.5,
+				"county": 3.5, "municipality": 3.0, "borough": 2.5,
+			},
+			Amenity: map[string]float64{
+				"restaurant": 2.0, "school": 1.5, "cafe": 1.5, "hospital": 2.0,
+				"parking": 1.0, "bank": 1.0, "pharmacy": 1.0, "bar": 1.5,
+				"fast_food": 1.5, "pub": 1.5, "library": 1.5, "townhall": 2.0,
+				"marketplace": 1.5, "police": 1.5, "fire_station": 1.5,
+				"post_office": 1.5, "courthouse": 1.5, "theatre": 1.5,
+				"cinema": 1.5, "museum": 1.5, "place_of_worship": 1.5,
+			},
+			Shop: map[string]float64{
+				"supermarket": 2.0, "bakery": 1.0, "clothes": 1.0,
+				"convenience": 1.0, "mall": 1.5, "department_store": 1.5,
+			},
+			Highway: map[string]float64{
+				"primary": 1.0, "secondary": 1.0, "tertiary": 1.0, "residential": 1.0,
+				"unclassified": 1.0, "service": 1.0, "footway": 1.0,
+			},
+			Tourism: map[string]float64{
+				"hotel": 1.5, "museum": 1.5, "attraction": 1.0,
+				"guest_house": 1.0, "motel": 1.0, "hostel": 1.0,
+				"information": 1.0, "viewpoint": 1.0,
+			},
+			Leisure: map[string]float64{
+				"park": 1.0, "sports_centre": 1.0, "stadium": 1.5,
+				"pitch": 1.0, "playground": 1.0,
+			},
+			Historic: map[string]float64{
+				"castle": 1.5, "monument": 1.0, "ruins": 1.0,
+				"archaeological_site": 1.0,
+			},
+			Natural: map[string]float64{
+				"peak": 1.0, "water": 1.0, "wood": 1.0,
+				"spring": 1.0,
+			},
+			Railway: map[string]float64{
+				"station": 1.5, "halt": 1.0, "tram_stop": 1.0,
+			},
 			Default: 1.0,
 		},
 	}
@@ -551,6 +582,110 @@ func BenchmarkSearch(b *testing.B) {
 			}
 		})
 	}
+}
+
+// BenchmarkNewFeatures benchmarks the new features to verify no performance regression.
+func BenchmarkNewFeatures(b *testing.B) {
+	pbfPath := filepath.Join(testDataDir, DefaultPBF)
+	if _, err := os.Stat(pbfPath); err != nil {
+		b.Skip("PBF file not available, run tests first to download")
+	}
+
+	conf := defaultTestConfig()
+	conf.NameAnalyzer = "standard"
+
+	_, idx := buildTestIndexForBenchmark(b, pbfPath, conf)
+	defer idx.Close()
+
+	b.Run("Normalization", func(b *testing.B) {
+		// Test normalization overhead
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			params := search.SearchParams{
+				Query:    "München",
+				Limit:    50,
+				GeoMode:  "geopoint-centroid",
+				Langs:    conf.Languages,
+				Analyzer: conf.NameAnalyzer,
+			}
+			_, err := search.Search(idx, params)
+			if err != nil {
+				b.Fatalf("search failed: %v", err)
+			}
+		}
+	})
+
+	b.Run("NearQuery", func(b *testing.B) {
+		// Test NearSearch overhead
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			params := search.SearchParams{
+				Query:    "restaurant near Vaduz",
+				Limit:    50,
+				GeoMode:  "geopoint-centroid",
+				Langs:    conf.Languages,
+				Analyzer: conf.NameAnalyzer,
+			}
+			_, err := search.Search(idx, params)
+			if err != nil {
+				b.Fatalf("search failed: %v", err)
+			}
+		}
+	})
+
+	b.Run("MultiInterpretation", func(b *testing.B) {
+		// Test multi-interpretation overhead
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			params := search.SearchParams{
+				Query:    "Vaduz center",
+				Limit:    50,
+				GeoMode:  "geopoint-centroid",
+				Langs:    conf.Languages,
+				Analyzer: conf.NameAnalyzer,
+			}
+			_, err := search.Search(idx, params)
+			if err != nil {
+				b.Fatalf("search failed: %v", err)
+			}
+		}
+	})
+
+	b.Run("FrequencyAware", func(b *testing.B) {
+		// Test frequency-aware optimization
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			params := search.SearchParams{
+				Query:    "the great restaurant",
+				Limit:    50,
+				GeoMode:  "geopoint-centroid",
+				Langs:    conf.Languages,
+				Analyzer: conf.NameAnalyzer,
+			}
+			_, err := search.Search(idx, params)
+			if err != nil {
+				b.Fatalf("search failed: %v", err)
+			}
+		}
+	})
+
+	b.Run("Baseline_Simple", func(b *testing.B) {
+		// Baseline: simple single-word query
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			params := search.SearchParams{
+				Query:    "Vaduz",
+				Limit:    50,
+				GeoMode:  "geopoint-centroid",
+				Langs:    conf.Languages,
+				Analyzer: conf.NameAnalyzer,
+			}
+			_, err := search.Search(idx, params)
+			if err != nil {
+				b.Fatalf("search failed: %v", err)
+			}
+		}
+	})
 }
 
 // buildTestIndexForBenchmark is like buildTestIndex but for benchmarks.
