@@ -151,7 +151,7 @@ func runFullBench(pbf string, conf *config.Config) {
 	lat, lon := 47.14, 9.52 // Vaduz
 	city := "Vaduz"
 	subtype := "town"
-	pmtiles := "naturalearth-openmaptiles.2025-12-10.full.pmtiles"
+	pmtiles := "liechtenstein.pmtiles"
 	if pbf == "taiwan-latest.osm.pbf" {
 		lat, lon = 25.03, 121.56 // Taipei
 		city = "Taipei"
@@ -286,6 +286,13 @@ func runFullBench(pbf string, conf *config.Config) {
 		var bResults []BenchmarkResult
 		for _, ss := range searchScenarios {
 			var res BenchmarkResult
+			// Inject spatial filter for PMTiles if missing, as it's required
+			if s.PMTilesOnly && ss.Params.Lat == nil && ss.Params.MinLat == nil {
+				ss.Params.Lat = &lat
+				ss.Params.Lon = &lon
+				ss.Params.Radius = radius
+			}
+
 			switch {
 			case s.PBFOnly:
 				res = benchmarkPBF(pbf, ss.Label, ss.Params, conf)

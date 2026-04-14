@@ -19,6 +19,7 @@ import (
 	"github.com/paulmach/orb/encoding/mvt"
 	"github.com/paulmach/orb/geojson"
 	"github.com/paulmach/orb/maptile"
+	"github.com/paulmach/orb/planar"
 	"github.com/protomaps/go-pmtiles/pmtiles"
 	"github.com/twpayne/go-geos"
 )
@@ -238,9 +239,7 @@ func processMVTFeature(feature *geojson.Feature, layerName string, p *processTil
 	if class, ok := tags["class"]; ok {
 		switch layerName {
 		case "place", "places":
-			if _, ok := tags["place"]; !ok {
-				tags["place"] = class
-			}
+			tags["place"] = class
 		case "pois", "poi", "point":
 			if _, ok := tags["amenity"]; !ok {
 				tags["amenity"] = class
@@ -253,45 +252,37 @@ func processMVTFeature(feature *geojson.Feature, layerName string, p *processTil
 				tags["tourism"] = class
 			}
 		case "transportation":
-			if _, ok := tags["highway"]; !ok {
-				tags["highway"] = class
-			}
+			tags["highway"] = class
 		case "water", "waterway":
 			if _, ok := tags["natural"]; !ok {
 				tags["natural"] = "water"
 			}
-			if _, ok := tags["water"]; !ok {
-				tags["water"] = class
-			}
+			tags["water"] = class
 		case "aerodrome_label":
-			if _, ok := tags["aeroway"]; !ok {
-				tags["aeroway"] = "aerodrome"
-			}
-
+			tags["aeroway"] = "aerodrome"
 		case "landuse":
-			if _, ok := tags["landuse"]; !ok {
-				tags["landuse"] = class
-			}
+			tags["landuse"] = class
 		case "building":
-			if _, ok := tags["building"]; !ok {
-				tags["building"] = "yes"
-			}
+			tags["building"] = "yes"
 		}
 	}
 
-	coords := featureToCoords(feature.Geometry)
-	if len(coords) == 0 {
-		return false
-	}
 
-	latNano := nanodegree(coords[0][1])
-	lonNano := nanodegree(coords[0][0])
+	// Use centroid for spatial filtering to be more accurate for polygons/lines
+	centroid := getCentroid(feature.Geometry)
+	latNano := nanodegree(centroid.Lat())
+	lonNano := nanodegree(centroid.Lon())
 
 	filter := computeSpatialFilter(p.params)
 	radiusMeters := parseRadiusToInt(p.params.Radius)
 	if !matchesSpatialFilter(latNano, lonNano, filter.hasRadius, filter.hasBbox,
 		filter.minLat, filter.maxLat, filter.minLon, filter.maxLon, p.params, radiusMeters) {
 
+		return false
+	}
+
+	coords := featureToCoords(feature.Geometry)
+	if len(coords) == 0 {
 		return false
 	}
 
@@ -439,4 +430,48 @@ func featureToCoords(g orb.Geometry) [][]float64 {
 		res = append(res, []float64{p.X(), p.Y()})
 	}
 	return res
+}
+
+func getCentroid(g orb.Geometry) orb.Point {
+	if g == nil {
+		return orb.Point{}
+	}
+
+	switch geom := g.(type) {
+	case orb.Point:
+		return geom
+	case orb.MultiPoint:
+		if len(geom) == 0 {
+			return orb.Point{}
+		}
+		c, _ := planar.CentroidArea(geom)
+		return c
+	case orb.LineString:
+		if len(geom) == 0 {
+			return orb.Point{}
+		}
+		c, _ := planar.CentroidArea(geom)
+		return c
+	case orb.MultiLineString:
+		if len(geom) == 0 {
+			return orb.Point{}
+		}
+		// Use the first line for centroid
+		c, _ := planar.CentroidArea(geom[0])
+		return c
+	case orb.Polygon:
+		if len(geom) == 0 {
+			return orb.Point{}
+		}
+		c, _ := planar.CentroidArea(geom)
+		return c
+	case orb.MultiPolygon:
+		if len(geom) == 0 {
+			return orb.Point{}
+		}
+		c, _ := planar.CentroidArea(geom[0])
+		return c
+	}
+
+	return orb.Point{}
 }

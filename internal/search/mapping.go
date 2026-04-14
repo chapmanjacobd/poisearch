@@ -95,7 +95,7 @@ func BuildIndexMapping(conf *config.Config) mapping.IndexMapping {
 func addNameFields(docMapping *mapping.DocumentMapping, conf *config.Config, nameAnalyzer string) {
 	nameFieldMapping := bleve.NewTextFieldMapping()
 	nameFieldMapping.Analyzer = nameAnalyzer
-	nameFieldMapping.IncludeInAll = false
+	nameFieldMapping.IncludeInAll = true
 	nameFieldMapping.IncludeTermVectors = false
 	nameFieldMapping.Store = true
 
@@ -115,7 +115,7 @@ func addNameFields(docMapping *mapping.DocumentMapping, conf *config.Config, nam
 func addClassSubtypeFields(docMapping *mapping.DocumentMapping, conf *config.Config) {
 	keywordMapping := bleve.NewTextFieldMapping()
 	keywordMapping.Analyzer = "keyword"
-	keywordMapping.IncludeInAll = false
+	keywordMapping.IncludeInAll = true
 	keywordMapping.IncludeTermVectors = false
 	keywordMapping.Store = conf.StoreMetadata
 
@@ -176,7 +176,7 @@ func addWikidataRedirectFields(docMapping *mapping.DocumentMapping, conf *config
 
 	wdRedirectMapping := bleve.NewTextFieldMapping()
 	wdRedirectMapping.Analyzer = nameAnalyzer
-	wdRedirectMapping.IncludeInAll = false
+	wdRedirectMapping.IncludeInAll = true
 	wdRedirectMapping.IncludeTermVectors = false
 	wdRedirectMapping.Store = true
 	docMapping.AddFieldMappingsAt("wikidata_redirects", wdRedirectMapping)

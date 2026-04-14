@@ -816,7 +816,11 @@ func buildIndexParallel(
 	workers int,
 	requiredNodes map[int64]struct{},
 ) error {
-	slog.Info(
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	slog.InfoContext(
+		ctx,
 		"Pass 2: building index with parallel workers",
 		"path",
 		conf.IndexPath,
@@ -832,9 +836,6 @@ func buildIndexParallel(
 	defer nodeCoords.Close()
 	workChan := make(chan *workItem, workers*100)
 	resultChan := make(chan *processedItem, workers*100)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	g, egCtx := errgroup.WithContext(ctx)
 	for range workers {
@@ -855,10 +856,10 @@ func buildIndexParallel(
 	var collectorErr error
 	var collectorWg sync.WaitGroup
 	collectorWg.Go(func() {
-		collectorErr = runCollector(ctx, index, resultChan, cancel)
+		collectorErr = runCollector(egCtx, index, resultChan, cancel)
 	})
 
-	totalScanned, scannerSkipped, err := runProducer(inputPath, conf, nodeCoords, workChan)
+	totalScanned, scannerSkipped, err := runProducer(egCtx, inputPath, conf, nodeCoords, workChan)
 	close(workChan)
 
 	if err != nil {
@@ -933,6 +934,7 @@ func drainResultChan(resultChan <-chan *processedItem) {
 }
 
 func runProducer(
+	ctx context.Context,
 	inputPath string,
 	conf *config.Config,
 	nodeCoords nodeCache,
@@ -944,7 +946,7 @@ func runProducer(
 	}
 	defer file.Close()
 
-	scanner := osmpbf.New(context.Background(), file, runtime.GOMAXPROCS(-1))
+	scanner := osmpbf.New(ctx, file, runtime.GOMAXPROCS(-1))
 	if conf.NodesOnly {
 		scanner.SkipWays = true
 		scanner.SkipRelations = true
@@ -959,13 +961,18 @@ func runProducer(
 		totalScanned++
 		item := buildWorkItem(obj, nodeCoords)
 		if item != nil {
-			workChan <- item
+			select {
+			case <-ctx.Done():
+				return totalScanned, skipped, ctx.Err()
+			case workChan <- item:
+			}
 		} else {
 			skipped++
 		}
 
 		if totalScanned%logInterval == 0 {
-			slog.Info(
+			slog.InfoContext(
+				ctx,
 				"indexing progress",
 				"scanned",
 				totalScanned,

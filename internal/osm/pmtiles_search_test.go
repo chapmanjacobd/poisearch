@@ -10,7 +10,7 @@ import (
 )
 
 func TestPMTilesSearch(t *testing.T) {
-	pmtilesPath := "../../naturalearth-openmaptiles.2025-12-10.full.pmtiles"
+	pmtilesPath := "../../liechtenstein.pmtiles"
 	if _, err := os.Stat(pmtilesPath); err != nil {
 		t.Skipf("PMTiles file not found at %s, skipping test", pmtilesPath)
 	}

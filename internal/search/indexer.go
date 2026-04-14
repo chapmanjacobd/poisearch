@@ -55,10 +55,10 @@ func FeatureToMap(f *Feature) map[string]any {
 	}
 	// Store multi-class fields for filtering
 	if len(f.Classes) > 0 {
-		m["classes"] = strings.Join(f.Classes, ",")
+		m["classes"] = f.Classes
 	}
 	if len(f.Subtypes) > 0 {
-		m["subtypes"] = strings.Join(f.Subtypes, ",")
+		m["subtypes"] = f.Subtypes
 	}
 	// Store address fields when configured
 	if len(f.Address) > 0 {
