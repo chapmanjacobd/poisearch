@@ -4,10 +4,12 @@ import (
 	"fmt"
 
 	"github.com/blevesearch/bleve/v2"
-	_ "github.com/blevesearch/bleve/v2/analysis/analyzer/custom" // Register custom analyzer
-	_ "github.com/blevesearch/bleve/v2/analysis/token/edgengram" // Register edge_ngram filter
-	_ "github.com/blevesearch/bleve/v2/analysis/token/lowercase" // Register lowercase filter
-	_ "github.com/blevesearch/bleve/v2/analysis/token/ngram"     // Register ngram filter
+	_ "github.com/blevesearch/bleve/v2/analysis/analyzer/custom"  // Register custom analyzer
+	_ "github.com/blevesearch/bleve/v2/analysis/analyzer/keyword" // Register built-in keyword analyzer
+	_ "github.com/blevesearch/bleve/v2/analysis/token/edgengram"  // Register edge_ngram filter
+	_ "github.com/blevesearch/bleve/v2/analysis/token/lowercase"  // Register lowercase filter
+	_ "github.com/blevesearch/bleve/v2/analysis/token/ngram"      // Register ngram filter
+	_ "github.com/blevesearch/bleve/v2/analysis/tokenizer/single" // Register single tokenizer (for keyword)
 	"github.com/blevesearch/bleve/v2/mapping"
 	"github.com/chapmanjacobd/poisearch/internal/config"
 )
@@ -47,6 +49,16 @@ func registerAnalyzers(m *mapping.IndexMappingImpl) error {
 		"token_filters": []string{"to_lower", "substring_ngram"},
 	}); err != nil {
 		return fmt.Errorf("register ngram analyzer: %w", err)
+	}
+
+	// Case-insensitive keyword analyzer: treats entire field as single token, lowercased
+	// Uses the 'single' tokenizer (entire input as one token) with lowercase filter
+	if err := m.AddCustomAnalyzer("keyword", map[string]any{
+		"type":          "custom",
+		"tokenizer":     "single",
+		"token_filters": []string{"to_lower"},
+	}); err != nil {
+		return fmt.Errorf("register keyword analyzer: %w", err)
 	}
 
 	return nil

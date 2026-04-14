@@ -343,11 +343,11 @@ func updateReadme(title, report string) {
 		if strings.HasPrefix(line, "## "+title) && !headerFound {
 			headerFound = true
 			newLines = append(newLines, line)
-			
+
 			// Look ahead for the code block
 			foundCodeBlock := false
 			codeBlockEnd := -1
-			
+
 			for j := i + 1; j < len(lines); j++ {
 				if strings.HasPrefix(lines[j], "```plain") {
 					// Find the end of the code block
@@ -365,7 +365,7 @@ func updateReadme(title, report string) {
 					break
 				}
 			}
-			
+
 			if foundCodeBlock {
 				// Replace the existing code block
 				newLines = append(newLines, "```plain")

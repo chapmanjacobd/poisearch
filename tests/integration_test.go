@@ -336,8 +336,8 @@ func TestAnalyzer_Keyword(t *testing.T) {
 		expectMax int
 	}{
 		{"exact: Vaduz", "Vaduz", 1, 100},
-		{"partial: vad", "vad", 0, 0},        // Should NOT match with keyword analyzer
-		{"wrong case: vaduz", "vaduz", 0, 0}, // Case-sensitive with keyword
+		{"exact lowercase: vaduz", "vaduz", 1, 100}, // Now matches (case-insensitive)
+		{"partial: vad", "vad", 0, 0},               // Should NOT match with keyword analyzer
 	}
 
 	for _, tt := range tests {

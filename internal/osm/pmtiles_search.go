@@ -2,11 +2,10 @@ package osm
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"path/filepath"
 	"strings"
@@ -23,35 +22,62 @@ import (
 	"github.com/twpayne/go-geos"
 )
 
+// pmtilesCache stores bucket and header info for opened PMTiles files
+type pmtilesCache struct {
+	bucket   *pmtiles.FileBucket
+	filename string
+	header   pmtiles.HeaderV3
+}
+
 var (
-	pmtilesServers = make(map[string]*pmtiles.Server)
-	pmtilesMu      sync.Mutex
+	pmtilesArchives = make(map[string]*pmtilesCache)
+	pmtilesMu       sync.Mutex
 )
 
-func getOrCreateServer(pmtilesPath string) (*pmtiles.Server, string, error) {
+// getOrCreateArchive opens or retrieves a cached PMTiles archive.
+func getOrCreateArchive(pmtilesPath string) (*pmtilesCache, error) {
 	pmtilesMu.Lock()
 	defer pmtilesMu.Unlock()
 
-	if s, ok := pmtilesServers[pmtilesPath]; ok {
-		return s, filepath.Base(pmtilesPath), nil
+	if cache, ok := pmtilesArchives[pmtilesPath]; ok {
+		return cache, nil
 	}
 
+	ctx := context.Background()
 	dir := filepath.Dir(pmtilesPath)
 	filename := filepath.Base(pmtilesPath)
 	bucket := pmtiles.NewFileBucket(dir)
 
-	// Create a PMTiles server
-	server, err := pmtiles.NewServerWithBucket(bucket, "", log.Default(), 1000, "")
+	// Read header
+	r, err := bucket.NewRangeReader(ctx, filename, 0, pmtiles.HeaderV3LenBytes)
 	if err != nil {
-		return nil, "", err
+		bucket.Close()
+		return nil, fmt.Errorf("reading PMTiles header: %w", err)
+	}
+	headerBytes, err := io.ReadAll(r)
+	r.Close()
+	if err != nil {
+		bucket.Close()
+		return nil, fmt.Errorf("reading PMTiles header bytes: %w", err)
 	}
 
-	pmtilesServers[pmtilesPath] = server
-	return server, filename, nil
+	header, err := pmtiles.DeserializeHeader(headerBytes)
+	if err != nil {
+		bucket.Close()
+		return nil, fmt.Errorf("deserializing PMTiles header: %w", err)
+	}
+
+	cache := &pmtilesCache{
+		bucket:   bucket,
+		filename: filename,
+		header:   header,
+	}
+	pmtilesArchives[pmtilesPath] = cache
+	return cache, nil
 }
 
 // PMTilesSearch performs a search directly on a PMTiles archive.
-// It is fast for spatial queries (radius/bbox) as it only reads intersecting tiles.
+// It reads tiles directly without the overhead of a PMTiles server.
 func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.Config) (*bleve.SearchResult, error) {
 	ctx := context.Background()
 
@@ -63,30 +89,10 @@ func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.
 		}
 	}
 
-	server, filename, err := getOrCreateServer(pmtilesPath)
+	archive, err := getOrCreateArchive(pmtilesPath)
 	if err != nil {
-		return nil, fmt.Errorf("getting PMTiles server: %w", err)
+		return nil, fmt.Errorf("opening PMTiles archive: %w", err)
 	}
-
-	// Read header once to get max zoom
-	bucket := pmtiles.NewFileBucket(filepath.Dir(pmtilesPath))
-	defer bucket.Close()
-
-	r, err := bucket.NewRangeReader(ctx, filename, 0, pmtiles.HeaderV3LenBytes)
-	if err != nil {
-		return nil, fmt.Errorf("reading PMTiles header: %w", err)
-	}
-	headerBytes, err := io.ReadAll(r)
-	r.Close()
-	if err != nil {
-		return nil, fmt.Errorf("reading PMTiles header bytes: %w", err)
-	}
-
-	header, err := pmtiles.DeserializeHeader(headerBytes)
-	if err != nil {
-		return nil, fmt.Errorf("deserializing PMTiles header: %w", err)
-	}
-	maxZoom := int(header.MaxZoom)
 
 	res := &bleve.SearchResult{
 		Hits: make(bleveSearch.DocumentMatchCollection, 0),
@@ -97,8 +103,11 @@ func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.
 
 	filter := computeSpatialFilter(params)
 	if !filter.hasRadius && !filter.hasBbox {
-		return nil, fmt.Errorf("PMTiles search requires a spatial filter (radius or bbox)")
+		return nil, errors.New("PMTiles search requires a spatial filter (radius or bbox)")
 	}
+
+	// Use the archive's max zoom level
+	maxZoom := int(archive.header.MaxZoom)
 
 	// Compute tiles at MaxZoom that intersect the search area
 	minTileX, minTileY, maxTileX, maxTileY := getTileRange(filter, maxZoom)
@@ -108,8 +117,7 @@ func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.
 		for y := minTileY; y <= maxTileY; y++ {
 			err := processTile(
 				ctx,
-				server,
-				filename,
+				archive,
 				uint32(maxZoom),
 				uint32(x),
 				uint32(y),
@@ -161,8 +169,7 @@ func lonLatToTile(lon, lat float64, zoom int) (int, int) {
 
 func processTile(
 	ctx context.Context,
-	server *pmtiles.Server,
-	filename string,
+	archive *pmtilesCache,
 	z, x, y uint32,
 	res *bleve.SearchResult,
 	params search.SearchParams,
@@ -171,31 +178,16 @@ func processTile(
 	geosCtx *geos.Context,
 	queryLower string,
 ) error {
-	// Remove .pmtiles extension if it's there
-	id := strings.TrimSuffix(filename, ".pmtiles")
-	path := fmt.Sprintf("/%s/%d/%d/%d.mvt", id, z, x, y)
-	status, _, tileData := server.Get(ctx, path)
-	if status != 200 || len(tileData) == 0 {
-		return nil
-	}
-
-	// Decompress if needed (MVTs in PMTiles are usually gzipped)
-	var r io.Reader = bytes.NewReader(tileData)
-	if len(tileData) > 2 && tileData[0] == 0x1f && tileData[1] == 0x8b {
-		gr, err := gzip.NewReader(r)
-		if err != nil {
-			return err
-		}
-		defer gr.Close()
-		r = gr
-	}
-
-	body, err := io.ReadAll(r)
+	// Read tile directly using direct access (no server overhead)
+	tileData, err := readTileDirect(ctx, archive, uint8(z), x, y)
 	if err != nil {
 		return err
 	}
+	if tileData == nil {
+		return nil // Tile not found
+	}
 
-	layers, err := mvt.Unmarshal(body)
+	layers, err := mvt.Unmarshal(tileData)
 	if err != nil {
 		return err
 	}
@@ -233,6 +225,7 @@ func processTile(
 			radiusMeters := parseRadiusToInt(params.Radius)
 			if !matchesSpatialFilter(latNano, lonNano, filter.hasRadius, filter.hasBbox,
 				filter.minLat, filter.maxLat, filter.minLon, filter.maxLon, params, radiusMeters) {
+
 				continue
 			}
 
@@ -260,6 +253,62 @@ func processTile(
 	}
 
 	return nil
+}
+
+// readTileDirect reads a tile directly from the PMTiles archive.
+// Based on the approach from pmtiles/show.go - avoids server overhead.
+func readTileDirect(
+	ctx context.Context,
+	archive *pmtilesCache,
+	z uint8,
+	x, y uint32,
+) ([]byte, error) {
+	tileID := pmtiles.ZxyToID(z, x, y)
+	dirOffset := archive.header.RootOffset
+	dirLength := archive.header.RootLength
+
+	for range 4 {
+		r, err := archive.bucket.NewRangeReader(ctx, archive.filename, int64(dirOffset), int64(dirLength))
+		if err != nil {
+			return nil, fmt.Errorf("reading directory: %w", err)
+		}
+		b, err := io.ReadAll(r)
+		r.Close()
+		if err != nil {
+			return nil, fmt.Errorf("reading directory bytes: %w", err)
+		}
+
+		directory := pmtiles.DeserializeEntries(bytes.NewBuffer(b), archive.header.InternalCompression)
+		entry, ok := pmtiles.FindTile(directory, tileID)
+		if ok {
+			if entry.RunLength > 0 {
+				// Found the tile
+				tileReader, err := archive.bucket.NewRangeReader(
+					ctx,
+					archive.filename,
+					int64(archive.header.TileDataOffset+entry.Offset),
+					int64(entry.Length),
+				)
+				if err != nil {
+					return nil, fmt.Errorf("reading tile: %w", err)
+				}
+				tileBytes, err := io.ReadAll(tileReader)
+				tileReader.Close()
+				if err != nil {
+					return nil, fmt.Errorf("reading tile bytes: %w", err)
+				}
+				return tileBytes, nil
+			}
+			// Leaf directory - continue search
+			dirOffset = archive.header.LeafDirectoryOffset + entry.Offset
+			dirLength = uint64(entry.Length)
+		} else {
+			// Tile not found
+			return nil, nil
+		}
+	}
+
+	return nil, errors.New("exceeded max directory depth")
 }
 
 func isPOILayer(name string) bool {
