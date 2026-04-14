@@ -14,11 +14,11 @@ import (
 // This is based on the wikimedia_importance.tsv.gz format from the
 // wikipedia-wikidata ETL pipeline (Nominatim's importance ranking).
 type WikidataImportance struct {
-	Language    string  // Wikipedia language code (e.g., "en", "de")
-	Type        string  // 'a' = article, 'r' = redirect
-	Title       string  // Wikipedia article title
-	Importance  float64 // Score from 0.0000000001 to 1.0
-	WikidataID  string  // QID (e.g., "Q82425")
+	Language   string  // Wikipedia language code (e.g., "en", "de")
+	Type       string  // 'a' = article, 'r' = redirect
+	Title      string  // Wikipedia article title
+	Importance float64 // Score from 0.0000000001 to 1.0
+	WikidataID string  // QID (e.g., "Q82425")
 }
 
 // WikidataLookup provides a way to look up Wikidata importance scores

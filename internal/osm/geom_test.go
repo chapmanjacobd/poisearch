@@ -27,7 +27,7 @@ func TestTruncate(t *testing.T) {
 
 func TestRepresentativePoint(t *testing.T) {
 	ctx := geos.NewContext()
-	
+
 	// Test Polygon
 	polyCoords := [][][]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}
 	poly := ctx.NewPolygon(polyCoords)

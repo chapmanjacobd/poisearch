@@ -133,7 +133,7 @@ func midpointOfLongestLine(multi *geos.Geom) (*geos.Geom, error) {
 	var longest *geos.Geom
 	var longestLen float64
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		component := multi.Geometry(i)
 		l := component.Length()
 		if longest == nil || l > longestLen {

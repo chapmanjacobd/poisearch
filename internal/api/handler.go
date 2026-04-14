@@ -104,9 +104,9 @@ func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index
 	prefix := r.URL.Query().Get("prefix") == "1" || r.URL.Query().Get("prefix") == "true"
 	class := r.URL.Query().Get("class")
 	subtype := r.URL.Query().Get("subtype")
-	classes := r.URL.Query().Get("classes")    // comma-separated multi-class
+	classes := r.URL.Query().Get("classes")   // comma-separated multi-class
 	subtypes := r.URL.Query().Get("subtypes") // comma-separated multi-subtype
-	format := r.URL.Query().Get("format")      // "json" (default) or "text"
+	format := r.URL.Query().Get("format")     // "json" (default) or "text"
 
 	var lat, lon *float64
 	if latStr != "" {
@@ -228,7 +228,7 @@ func writeTextResponse(w http.ResponseWriter, res *bleve.SearchResult, langs []s
 		}
 
 		// Geometry (simplified)
-		if geom, ok := hit.Fields["geometry"].(map[string]interface{}); ok {
+		if geom, ok := hit.Fields["geometry"].(map[string]any); ok {
 			if lat, ok := geom["lat"].(float64); ok {
 				fmt.Fprintf(w, "lat: %.5f\n", lat)
 			}

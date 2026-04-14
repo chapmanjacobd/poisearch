@@ -133,7 +133,7 @@ func runFullBench(pbf string, conf *config.Config) {
 			conf.DisableClassSubtype = false
 			conf.DisableImportance = false
 		}
-		
+
 		var index bleve.Index
 		var buildTime time.Duration
 		var size int64
@@ -318,7 +318,7 @@ func benchmark(index bleve.Index, label string, params search.SearchParams) Benc
 	iterations := 200
 	var count int
 
-	for i := 0; i < iterations; i++ {
+	for range iterations {
 		res, err := search.Search(index, params)
 		if err != nil {
 			log.Fatalf("Search failed for %s: %v", label, err)
@@ -335,7 +335,7 @@ func benchmarkPBF(pbfPath string, label string, params search.SearchParams, conf
 	iterations := 5
 	var count int
 
-	for i := 0; i < iterations; i++ {
+	for range iterations {
 		res, err := osm.PBFSearch(pbfPath, params, conf)
 		if err != nil {
 			log.Fatalf("PBF search failed for %s: %v", label, err)

@@ -1,22 +1,22 @@
 package config
 
 type Config struct {
-	IndexPath             string             `toml:"index_path"`
-	PBFPath               string             `toml:"pbf_path"`             // Optional: path to PBF for direct (no-index) search
-	WikidataImportance    string             `toml:"wikidata_importance"`  // Optional: path to wikimedia_importance.tsv.gz
-	OntologyPath          string             `toml:"ontology_path"`        // Optional: path to custom place type ontology CSV
-	Languages             []string           `toml:"languages"`
-	Importance            ImportanceWeights  `toml:"importance"`
-	GeometryMode          string             `toml:"geometry_mode"`           // "geopoint", "geoshape-bbox", "geoshape-simplified", "geoshape-full", "no-geo"
-	SimplificationTol     float64            `toml:"simplification_tolerance"` // tolerance for SimplifyPreserveTopology
-	Server                ServerConfig       `toml:"server"`
-	NodesOnly             bool               `toml:"nodes_only"`
-	DisableAltNames       bool               `toml:"disable_alt_names"`
-	DisableImportance     bool               `toml:"disable_importance"`
-	DisableClassSubtype   bool               `toml:"disable_class_subtype"`
-	OnlyNamed             bool               `toml:"only_named"`
-	StoreMetadata         bool               `toml:"store_metadata"`
-	StoreGeometry         bool               `toml:"store_geometry"`
+	IndexPath           string            `toml:"index_path"`
+	PBFPath             string            `toml:"pbf_path"`            // Optional: path to PBF for direct (no-index) search
+	WikidataImportance  string            `toml:"wikidata_importance"` // Optional: path to wikimedia_importance.tsv.gz
+	OntologyPath        string            `toml:"ontology_path"`       // Optional: path to custom place type ontology CSV
+	Languages           []string          `toml:"languages"`
+	Importance          ImportanceWeights `toml:"importance"`
+	GeometryMode        string            `toml:"geometry_mode"`            // "geopoint", "geoshape-bbox", "geoshape-simplified", "geoshape-full", "no-geo"
+	SimplificationTol   float64           `toml:"simplification_tolerance"` // tolerance for SimplifyPreserveTopology
+	Server              ServerConfig      `toml:"server"`
+	NodesOnly           bool              `toml:"nodes_only"`
+	DisableAltNames     bool              `toml:"disable_alt_names"`
+	DisableImportance   bool              `toml:"disable_importance"`
+	DisableClassSubtype bool              `toml:"disable_class_subtype"`
+	OnlyNamed           bool              `toml:"only_named"`
+	StoreMetadata       bool              `toml:"store_metadata"`
+	StoreGeometry       bool              `toml:"store_geometry"`
 }
 
 type ImportanceWeights struct {

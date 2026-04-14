@@ -247,7 +247,7 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 		hit := &bleveSearch.DocumentMatch{
 			ID:    fmt.Sprintf("%s/%d", obj.ObjectID().Type(), id),
 			Score: best.Importance,
-			Fields: map[string]interface{}{
+			Fields: map[string]any{
 				"name":     tags["name"],
 				"class":    best.Class,
 				"subtype":  best.Subtype,

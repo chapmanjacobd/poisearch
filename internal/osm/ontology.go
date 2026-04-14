@@ -27,8 +27,8 @@ type PlaceTypeOntology struct {
 // Wikidata place types and their OSM tag equivalents.
 func DefaultOntology() *PlaceTypeOntology {
 	ont := &PlaceTypeOntology{
-		levels: make(map[string]int),
-		labels: make(map[string]string),
+		levels:    make(map[string]int),
+		labels:    make(map[string]string),
 		osmToQIDs: make(map[string][]string),
 	}
 

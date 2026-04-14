@@ -1,7 +1,25 @@
 index_path = "pois.bleve"
+# Optional: path to PBF for direct (no-index) search via ?mode=pbf
+# pbf_path = "processed.osm.pbf"
+# Optional: path to wikimedia_importance TSV/CSV (tab-separated: language, type, title, importance, wikidata_id)
+# Supports .gz compression. Boosts POIs with wikidata tags based on Wikipedia link prominence.
+# wikidata_importance = "wikimedia-importance-2025-11.csv.gz"
+# Optional: path to custom place type ontology CSV (qid, level, label, osm_key, osm_value)
+# If not set, a default built-in ontology (~70 place types) is used.
+# ontology_path = "wikidata_place_types.csv"
+
 languages = ["en", "zh", "hi", "es", "ar", "fr", "bn", "pt", "ur", "ru", "de", "ja", "pcm", "arz"]
 geometry_mode = "geopoint"
 simplification_tolerance = 0.0001
+
+# Toggle optional features
+# nodes_only = false          # Index only nodes (skip ways/relations)
+# disable_alt_names = false   # Skip alt_name, old_name, short_name fields
+# disable_importance = false  # Set all importance scores to 0
+# disable_class_subtype = false # Skip class/subtype indexing
+# only_named = true           # Only index objects with a name tag
+# store_metadata = false      # Store class/subtype/importance in index (increases size)
+# store_geometry = false      # Store geometry in index (increases size)
 
 [server]
 host = "0.0.0.0"
@@ -9,9 +27,9 @@ port = 8080
 
 [importance]
 default = 1.0
-population_boost_weight = 0.2
-capital_boost = 2.0
-wikipedia_boost = 1.5
+population_boost_weight = 0.2   # importance += ln(pop+1) * weight
+capital_boost = 2.0             # Added if capital=yes
+wikipedia_boost = 1.5           # Added if wikipedia or wikidata tag present
 
 [importance.place]
 city = 5.0

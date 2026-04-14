@@ -30,17 +30,17 @@ type SearchParams struct {
 	Subtype string
 
 	// Multi-value class/subtype filters (OR within each)
-	Classes   []string
-	Subtypes  []string
+	Classes  []string
+	Subtypes []string
 }
 
 // MatchTier represents the quality of a name match.
 type MatchTier int
 
 const (
-	TierExact MatchTier = iota // Exact match (highest quality)
-	TierPrefix                 // Prefix match
-	TerFuzzy                   // Fuzzy/partial match (lowest quality)
+	TierExact  MatchTier = iota // Exact match (highest quality)
+	TierPrefix                  // Prefix match
+	TerFuzzy                    // Fuzzy/partial match (lowest quality)
 )
 
 // MatchTierBoost returns a score multiplier for the given match tier.
