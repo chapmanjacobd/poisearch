@@ -426,7 +426,7 @@ func TestHandler_Registration(t *testing.T) {
 
 	// Test RegisterHandlersWithPBF (with empty PBF path)
 	mux2 := http.NewServeMux()
-	RegisterHandlersWithPBF(mux2, index, conf, "")
+	RegisterHandlersWithPBF(mux2, index, conf, "", nil)
 
 	req2 := httptest.NewRequest(http.MethodGet, "/search?q=test", nil)
 	rec2 := httptest.NewRecorder()

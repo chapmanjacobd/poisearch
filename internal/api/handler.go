@@ -86,13 +86,19 @@ func CORSMiddleware(next http.Handler, allowedOrigins []string) http.Handler {
 }
 
 func RegisterHandlers(mux *http.ServeMux, index bleve.Index, conf *config.Config) {
-	RegisterHandlersWithPBF(mux, index, conf, "")
+	RegisterHandlersWithPBF(mux, index, conf, "", nil)
 }
 
-func RegisterHandlersWithPBF(mux *http.ServeMux, index bleve.Index, conf *config.Config, pbfPath string) {
+func RegisterHandlersWithPBF(mux *http.ServeMux, index bleve.Index, conf *config.Config, pbfPath string, cache *search.QueryCache) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("OK"))
+		if cache != nil {
+			stats := cache.Stats()
+			_, _ = w.Write([]byte(fmt.Sprintf("OK (cache: %d hits, %d misses, %.2f%% hit rate)",
+				stats.Hits, stats.Misses, stats.HitRate*100)))
+		} else {
+			_, _ = w.Write([]byte("OK"))
+		}
 	})
 
 	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +107,7 @@ func RegisterHandlersWithPBF(mux *http.ServeMux, index bleve.Index, conf *config
 			handlePBFSearch(w, r, pbfPath, conf)
 			return
 		}
-		handleIndexSearch(w, r, index, conf)
+		handleIndexSearch(w, r, index, conf, cache)
 	})
 }
 
@@ -199,7 +205,7 @@ func handlePBFSearch(w http.ResponseWriter, r *http.Request, pbfPath string, con
 	}
 }
 
-func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index, conf *config.Config) {
+func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index, conf *config.Config, cache *search.QueryCache) {
 	q := r.URL.Query().Get("q")
 	latStr := r.URL.Query().Get("lat")
 	lonStr := r.URL.Query().Get("lon")
@@ -289,6 +295,21 @@ func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index
 		Postcode:    postcode,
 		City:        city,
 		Country:     country,
+		Analyzer:    conf.NameAnalyzer,
+	}
+
+	// Try cache first (only for non-geo queries)
+	if cache != nil && !search.IsGeoQuery(params) {
+		cacheKey := search.BuildCacheKey(params)
+		if cachedResult, found := cache.Get(cacheKey); found {
+			slog.Debug("cache hit", "query", q)
+			// Return cached result directly as JSON
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(cachedResult); err != nil {
+				slog.Error("failed to encode cached response", "error", err)
+			}
+			return
+		}
 	}
 
 	res, err := search.Search(index, params)
@@ -296,6 +317,14 @@ func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index
 		slog.Error("search failed", "error", err, "query", q)
 		writeJSONError(w, http.StatusInternalServerError, "search_error", "Search failed: "+err.Error())
 		return
+	}
+
+	// Store in cache if enabled and not a geo query
+	if cache != nil && !search.IsGeoQuery(params) {
+		cacheKey := search.BuildCacheKey(params)
+		serialized := search.SerializeResult(res)
+		cache.Set(cacheKey, serialized)
+		slog.Debug("cache store", "query", q)
 	}
 
 	// Support text/plain output format (UNIX-pipe-friendly)

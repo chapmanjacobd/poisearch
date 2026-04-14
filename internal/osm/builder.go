@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"sync"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/chapmanjacobd/poisearch/internal/config"
@@ -15,6 +16,7 @@ import (
 	osmapi "github.com/paulmach/osm"
 	"github.com/paulmach/osm/osmpbf"
 	"github.com/twpayne/go-geos"
+	"golang.org/x/sync/errgroup"
 )
 
 // GeometryMode represents the geometry mode for index building
@@ -180,6 +182,18 @@ func geomToGeoJSON(g *geos.Geom) map[string]any {
 //
 //nolint:funlen,cyclop // Index building requires coordinating streaming, classification, and geometry
 func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error {
+	// Determine worker count
+	workers := conf.BuildWorkers
+	if workers <= 0 {
+		workers = config.DefaultBuildWorkers
+	}
+
+	// Use parallel version if workers > 1
+	if workers > 1 {
+		return buildIndexParallel(inputPath, conf, index, workers)
+	}
+
+	// Single-threaded version (original)
 	slog.Info("building index", "path", conf.IndexPath, "input", inputPath)
 
 	// Load Wikidata importance lookup if configured
@@ -674,4 +688,278 @@ func createGeometryFromCoords(
 	}
 
 	return geomToGeoJSON(finalGeom), nil
+}
+
+// workItem represents an OSM entity to be processed by a worker.
+type workItem struct {
+	ID     string
+	Type   string
+	Tags   map[string]string
+	Coords [][]float64
+}
+
+// processedItem represents the result of processing a work item.
+type processedItem struct {
+	ID      string
+	Feature map[string]any
+}
+
+// buildIndexParallel builds an index using multiple workers for entity processing.
+//
+//nolint:funlen,cyclop // Multi-threaded building requires coordinating channels, workers, and batching
+func buildIndexParallel(inputPath string, conf *config.Config, index bleve.Index, workers int) error {
+	slog.Info("building index with parallel workers", "path", conf.IndexPath, "input", inputPath, "workers", workers)
+
+	// Load Wikidata importance lookup if configured
+	var wdLookup *WikidataLookup
+	if conf.WikidataImportance != "" {
+		var err error
+		wdLookup, err = LoadWikidataImportance(conf.WikidataImportance)
+		if err != nil {
+			slog.Warn("failed to load wikidata importance file, continuing without it", "error", err)
+		} else {
+			slog.Info("loaded wikidata importance scores", "count", wdLookup.Size())
+		}
+	}
+
+	// Load place type ontology if configured
+	var ont *PlaceTypeOntology
+	if conf.OntologyPath != "" {
+		var err error
+		ont, err = LoadOntologyFromCSV(conf.OntologyPath)
+		if err != nil {
+			slog.Warn("failed to load ontology file, continuing without it", "error", err)
+		} else {
+			slog.Info("loaded place type ontology", "entries", len(ont.levels))
+		}
+	} else {
+		ont = DefaultOntology()
+	}
+
+	// Shared node lookup for way/relation geometry reconstruction
+	// Use sync.Map for concurrent access
+	var nodeCoords sync.Map
+
+	// Channels for work distribution
+	// Buffer size = workers * 100 to provide adequate pipeline depth
+	workChan := make(chan *workItem, workers*100)
+	resultChan := make(chan *processedItem, 500)
+
+	// Create a cancellable context for workers
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start worker goroutines
+	g, ctx := errgroup.WithContext(ctx)
+
+	for i := range workers {
+		workerID := i
+		g.Go(func() error {
+			// Each worker gets its own GEOS context for thread safety
+			workerGeosCtx := geos.NewContext()
+
+			workerEctx := &entityContext{
+				conf:      conf,
+				index:     index,
+				wdLookup:  wdLookup,
+				ont:       ont,
+				geosCtx:   workerGeosCtx,
+				batch:     nil, // Workers don't use batches directly
+				geoMode:   GeometryMode(conf.GeometryMode),
+				batchSize: 0,
+			}
+
+			for {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case item, ok := <-workChan:
+					if !ok {
+						return nil // Channel closed, worker exits
+					}
+
+					// Process entity - workers index directly into a thread-local batch
+					// For simplicity in this initial implementation, workers use their own batches
+					localBatch := index.NewBatch()
+					workerEctx.batch = localBatch
+
+					ok, err := processEntity(workerEctx, item.Type, parseEntityID(item.ID), item.Tags, item.Coords)
+					if err != nil {
+						return fmt.Errorf("worker %d error processing %s: %w", workerID, item.ID, err)
+					}
+
+					if ok {
+						// Flush worker's batch to index
+						if localBatch.Size() > 0 {
+							if err := index.Batch(localBatch); err != nil {
+								return fmt.Errorf("worker %d batch write error: %w", workerID, err)
+							}
+						}
+						resultChan <- &processedItem{ID: item.ID}
+					}
+				}
+			}
+		})
+	}
+
+	// Start result counter goroutine
+	var processedCount int64
+	var countMu sync.Mutex
+	go func() {
+		for range resultChan {
+			countMu.Lock()
+			processedCount++
+			countMu.Unlock()
+		}
+	}()
+
+	// Open PBF with parallel decoders
+	file, err := os.Open(inputPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	scanner := osmpbf.New(context.Background(), file, runtime.GOMAXPROCS(-1))
+	if conf.NodesOnly {
+		scanner.SkipWays = true
+		scanner.SkipRelations = true
+	}
+	defer scanner.Close()
+
+	// Producer: scan objects and distribute to workers
+	totalScanned := 0
+	skipped := 0
+	logInterval := 50000
+
+	for scanner.Scan() {
+		obj := scanner.Object()
+		totalScanned++
+
+		var item *workItem
+
+		switch o := obj.(type) {
+		case *osmapi.Node:
+			// Store node coordinates for way lookup
+			nodeCoords.Store(int64(o.ID), []float64{o.Lon, o.Lat})
+
+			tags := o.TagMap()
+			if len(tags) == 0 {
+				skipped++
+				continue
+			}
+			item = &workItem{
+				ID:     fmt.Sprintf("node/%d", int64(o.ID)),
+				Type:   "node",
+				Tags:   tags,
+				Coords: [][]float64{{o.Lon, o.Lat}},
+			}
+
+		case *osmapi.Way:
+			tags := o.TagMap()
+			if len(tags) == 0 {
+				skipped++
+				continue
+			}
+			coords := make([][]float64, 0, len(o.Nodes))
+			for _, node := range o.Nodes {
+				if node.Lon != 0 || node.Lat != 0 {
+					coords = append(coords, []float64{node.Lon, node.Lat})
+				} else if nc, ok := nodeCoords.Load(int64(node.ID)); ok {
+					coords = append(coords, nc.([]float64))
+				}
+			}
+			if len(coords) < 2 {
+				skipped++
+				continue
+			}
+			item = &workItem{
+				ID:     fmt.Sprintf("way/%d", int64(o.ID)),
+				Type:   "way",
+				Tags:   tags,
+				Coords: coords,
+			}
+
+		case *osmapi.Relation:
+			tags := o.TagMap()
+			if len(tags) == 0 {
+				skipped++
+				continue
+			}
+			// Get first member node coordinate as representative point
+			var coords [][]float64
+			for _, member := range o.Members {
+				if member.Type == osmapi.TypeNode {
+					if nc, ok := nodeCoords.Load(member.Ref); ok {
+						coords = [][]float64{nc.([]float64)}
+						break
+					}
+				} else if member.Type == osmapi.TypeWay {
+					if member.Lat != 0 || member.Lon != 0 {
+						coords = [][]float64{{member.Lon, member.Lat}}
+						break
+					}
+				}
+			}
+			if len(coords) == 0 {
+				skipped++
+				continue
+			}
+			item = &workItem{
+				ID:     fmt.Sprintf("relation/%d", int64(o.ID)),
+				Type:   "relation",
+				Tags:   tags,
+				Coords: coords,
+			}
+		}
+
+		if item != nil {
+			workChan <- item
+		} else {
+			skipped++
+		}
+
+		if totalScanned%logInterval == 0 {
+			countMu.Lock()
+			pCount := processedCount
+			countMu.Unlock()
+			slog.Info(
+				"indexing progress",
+				"scanned",
+				totalScanned,
+				"processed",
+				pCount,
+				"skipped",
+				skipped,
+			)
+		}
+	}
+
+	// Close work channel to signal workers to exit
+	close(workChan)
+
+	// Wait for workers to finish
+	if err := g.Wait(); err != nil {
+		cancel()
+		return err
+	}
+
+	// Close result channel to signal counter to exit
+	close(resultChan)
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("PBF scan error: %w", err)
+	}
+
+	countMu.Lock()
+	defer countMu.Unlock()
+	slog.Info("Finished!", "processed", processedCount, "skipped", skipped)
+	return nil
+}
+
+func parseEntityID(id string) int64 {
+	// Extract numeric ID from "type/id" format
+	var n int64
+	_, _ = fmt.Sscanf(id, "%*[^/]/%d", &n)
+	return n
 }

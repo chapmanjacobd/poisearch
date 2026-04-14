@@ -27,12 +27,11 @@ func TestRoundToMeterAccuracy(t *testing.T) {
 }
 
 func TestRepresentativePoint(t *testing.T) {
-	ctx := geos.NewContext()
-
 	// Test Polygon
 	polyCoords := [][][]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}
+	ctx := geos.NewContext()
 	poly := ctx.NewPolygon(polyCoords)
-	pt, isPt, err := representativePoint(poly, ctx)
+	pt, isPt, err := representativePoint(poly)
 	if err != nil {
 		t.Fatalf("representativePoint failed: %v", err)
 	}
@@ -46,7 +45,7 @@ func TestRepresentativePoint(t *testing.T) {
 	// Test LineString
 	lineCoords := [][]float64{{0, 0}, {10, 0}}
 	line := ctx.NewLineString(lineCoords)
-	pt, _, _ = representativePoint(line, ctx)
+	pt, _, _ = representativePoint(line)
 	if pt.X() != 5 || pt.Y() != 0 {
 		t.Errorf("expected midpoint at (5,0), got (%f,%f)", pt.X(), pt.Y())
 	}

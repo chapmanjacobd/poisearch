@@ -41,6 +41,24 @@ func TestClassify(t *testing.T) {
 			},
 		},
 		{
+			name: "Restaurant with cuisine",
+			tags: map[string]string{"amenity": "restaurant", "cuisine": "italian"},
+			expected: &Classification{
+				Class:      "amenity",
+				Subtype:    "restaurant",
+				Importance: 2.0,
+			},
+		},
+		{
+			name: "Just cuisine (e.g. food court stall)",
+			tags: map[string]string{"cuisine": "italian"},
+			expected: &Classification{
+				Class:      "cuisine",
+				Subtype:    "italian",
+				Importance: 1.5,
+			},
+		},
+		{
 			name:     "Unknown",
 			tags:     map[string]string{"foo": "bar"},
 			expected: nil,

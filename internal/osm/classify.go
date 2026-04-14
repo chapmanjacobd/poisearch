@@ -29,7 +29,19 @@ func ClassifyMulti(
 	classifiableKeys := []string{
 		"place", "amenity", "shop", "tourism", "leisure",
 		"historic", "natural", "railway", "aeroway", "highway",
-		"boundary", "landuse",
+		"boundary", "landuse", "building", "office", "man_made",
+		"craft", "military", "healthcare", "public_transport",
+		"power", "industrial", "emergency", "aerialway", "bridge",
+		"club", "government", "information", "junction", "parking",
+		"playground", "ruins", "social_facility", "sport", "studio",
+		"traffic_calming", "cuisine", "religion", "attraction",
+		"brewery", "castle_type", "consulate", "crossing",
+		"denomination", "denotation", "diplomatic", "garden:type",
+		"harbour:category", "healthcare:speciality", "military_service",
+		"operator:type", "power_supply", "recycling_type", "residential",
+		"sanitary_dump_station", "service", "shelter_type",
+		"social_facility:for", "surface", "theatre:type",
+		"toilets:access", "tower:type", "aerodrome:type",
 	}
 
 	var results []*Classification
@@ -97,6 +109,46 @@ func ClassifyMulti(
 			}
 		case "railway":
 			if w, ok := weights.Railway[v]; ok {
+				importance = w
+				foundWeight = true
+			}
+		case "building":
+			if w, ok := weights.Building[v]; ok {
+				importance = w
+				foundWeight = true
+			}
+		case "office":
+			if w, ok := weights.Office[v]; ok {
+				importance = w
+				foundWeight = true
+			}
+		case "man_made":
+			if w, ok := weights.ManMade[v]; ok {
+				importance = w
+				foundWeight = true
+			}
+		case "craft":
+			if w, ok := weights.Craft[v]; ok {
+				importance = w
+				foundWeight = true
+			}
+		case "military":
+			if w, ok := weights.Military[v]; ok {
+				importance = w
+				foundWeight = true
+			}
+		case "healthcare":
+			if w, ok := weights.Healthcare[v]; ok {
+				importance = w
+				foundWeight = true
+			}
+		case "cuisine":
+			if w, ok := weights.Cuisine[v]; ok {
+				importance = w
+				foundWeight = true
+			}
+		case "religion":
+			if w, ok := weights.Religion[v]; ok {
 				importance = w
 				foundWeight = true
 			}
@@ -236,6 +288,16 @@ func getTypeDefaultImportance(key, value string) float64 {
 		return 1.5
 	case "boundary":
 		return 2.0
+	case "building", "office", "man_made", "craft", "military", "healthcare", "cuisine", "religion":
+		return 1.5
+	case "public_transport", "power", "industrial", "emergency", "attraction", "brewery", "consulate":
+		return 1.2
+	case "aerialway", "bridge", "club", "government", "information", "junction", "residential":
+		return 1.0
+	case "parking", "playground", "ruins", "social_facility", "sport", "studio", "traffic_calming":
+		return 1.0
+	case "castle_type", "crossing", "denomination", "denotation", "diplomatic", "garden:type", "harbour:category", "healthcare:speciality", "military_service", "operator:type", "power_supply", "recycling_type", "sanitary_dump_station", "service", "shelter_type", "social_facility:for", "surface", "theatre:type", "toilets:access", "tower:type", "aerodrome:type":
+		return 0.8
 	default:
 		return 0.5
 	}

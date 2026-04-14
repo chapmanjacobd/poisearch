@@ -31,6 +31,15 @@ name_analyzer = "standard"
 # store_geometry = false      # Store geometry in index (increases size)
 # index_wikidata_redirects = false # Index Wikipedia redirect titles as alternate names (increases size)
 
+# Build optimization (optional, defaults shown)
+# build_workers = 1           # Parallel workers for index building (1-8, default: 1)
+# geo_batch_size = 200        # Batch size for geometry operations (50-1000, default: 200)
+
+# Query cache (optional, disabled by default)
+# cache_enabled = false       # Enable query result caching
+# cache_size = 1000           # Cache capacity in entries (default: 1000)
+# cache_ttl = "5m"            # Cache entry TTL, e.g. "5m", "1h" (default: 5m)
+
 [server]
 host = "0.0.0.0"
 port = 9889

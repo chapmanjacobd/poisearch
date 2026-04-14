@@ -5,9 +5,11 @@ go 1.26.1
 require (
 	github.com/alecthomas/kong v1.15.0
 	github.com/blevesearch/bleve/v2 v2.5.7
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/paulmach/osm v0.9.0
 	github.com/pelletier/go-toml/v2 v2.3.0
 	github.com/twpayne/go-geos v0.20.3
+	golang.org/x/sync v0.20.0
 )
 
 require (

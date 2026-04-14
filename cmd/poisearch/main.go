@@ -51,6 +51,7 @@ type Server struct {
 	indexLock sync.RWMutex
 	conf      *config.Config
 	pbfPath   string
+	cache     *search.QueryCache
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +59,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer s.indexLock.RUnlock()
 
 	mux := http.NewServeMux()
-	api.RegisterHandlersWithPBF(mux, s.index, s.conf, s.pbfPath)
+	api.RegisterHandlersWithPBF(mux, s.index, s.conf, s.pbfPath, s.cache)
 
 	handler := api.CORSMiddleware(mux, s.conf.Server.AllowedOrigins)
 	handler.ServeHTTP(w, r)
@@ -82,10 +83,32 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 		return fmt.Errorf("could not open index: %w", err)
 	}
 
+	// Initialize query cache if enabled
+	var cache *search.QueryCache
+	if conf.CacheEnabled {
+		cacheSize := conf.CacheSize
+		if cacheSize <= 0 {
+			cacheSize = config.DefaultCacheSize
+		}
+		cacheTTL := conf.CacheTTL
+		if cacheTTL <= 0 {
+			cacheTTL = config.DefaultCacheTTL
+		}
+
+		cache, err = search.NewQueryCache(cacheSize, cacheTTL)
+		if err != nil {
+			slog.Warn("failed to create query cache, continuing without it", "error", err)
+			cache = nil
+		} else {
+			slog.Info("query cache initialized", "size", cacheSize, "ttl", cacheTTL)
+		}
+	}
+
 	srv := &Server{
 		index:   index,
 		conf:    conf,
 		pbfPath: conf.PBFPath,
+		cache:   cache,
 	}
 
 	addr := fmt.Sprintf("%s:%d", conf.Server.Host, conf.Server.Port)
@@ -111,6 +134,11 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 				srv.indexLock.Lock()
 				oldIndex := srv.index
 				srv.index = newIndex
+				// Clear cache on index reload
+				if srv.cache != nil {
+					srv.cache.Clear()
+					slog.Info("query cache cleared on index reload")
+				}
 				srv.indexLock.Unlock()
 				oldIndex.Close()
 				slog.Info("index reloaded")
