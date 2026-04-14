@@ -558,7 +558,15 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 	)
 	fmt.Println("------------------------------------------------------------------------------------")
 	for _, a := range avgs {
-		fmt.Fprintf(os.Stdout, "%-18s %-15s %-15s %-15s %-10d\n", a.Name, formatDuration(a.Avg), formatDuration(a.Min), formatDuration(a.Max), a.Queries)
+		fmt.Fprintf(
+			os.Stdout,
+			"%-18s %-15s %-15s %-15s %-10d\n",
+			a.Name,
+			formatDuration(a.Avg),
+			formatDuration(a.Min),
+			formatDuration(a.Max),
+			a.Queries,
+		)
 	}
 
 	// Detailed per-query comparison

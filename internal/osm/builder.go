@@ -2,7 +2,6 @@ package osm
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,9 +9,9 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/blevesearch/bleve/v2"
-	"github.com/blevesearch/mmap-go"
 	"github.com/chapmanjacobd/poisearch/internal/config"
 	"github.com/chapmanjacobd/poisearch/internal/search"
 	osmapi "github.com/paulmach/osm"
@@ -28,25 +27,34 @@ type nodeCache interface {
 	Close()
 }
 
-// mapNodeCache uses an in-memory map of packed uint64s to store coordinates.
-// It uses float32 precision to save memory.
-type mapNodeCache struct {
-	nodes map[int64]uint64
-	mu    sync.RWMutex
+// filteredNodeCache uses an in-memory map of packed uint64s to store coordinates.
+// It only stores coordinates for nodes that were identified as "required" in a pre-pass.
+type filteredNodeCache struct {
+	required map[int64]struct{}
+	nodes    map[int64]uint64
+	mu       sync.RWMutex
 }
 
-func newMapNodeCache() *mapNodeCache {
-	return &mapNodeCache{nodes: make(map[int64]uint64)}
+func newFilteredNodeCache(required map[int64]struct{}) *filteredNodeCache {
+	return &filteredNodeCache{
+		required: required,
+		nodes:    make(map[int64]uint64),
+	}
 }
 
-func (m *mapNodeCache) Set(id int64, lon, lat float64) {
+func (m *filteredNodeCache) Set(id int64, lon, lat float64) {
+	if m.required != nil {
+		if _, ok := m.required[id]; !ok {
+			return
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// Pack two float32s into one uint64
+	// Pack two float32s into one uint64 to save memory
 	m.nodes[id] = uint64(math.Float32bits(float32(lon)))<<32 | uint64(math.Float32bits(float32(lat)))
 }
 
-func (m *mapNodeCache) Get(id int64) ([]float64, bool) {
+func (m *filteredNodeCache) Get(id int64) ([]float64, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	val, ok := m.nodes[id]
@@ -58,90 +66,57 @@ func (m *mapNodeCache) Get(id int64) ([]float64, bool) {
 	return []float64{lon, lat}, true
 }
 
-func (m *mapNodeCache) Close() {
+func (m *filteredNodeCache) Close() {
 	m.nodes = nil
+	m.required = nil
 }
 
-// mmapNodeCache uses a sparse memory-mapped file to store coordinates.
-type mmapNodeCache struct {
-	f    *os.File
-	data mmap.MMap
-}
+// collectRequiredNodes scans the PBF once to find all node IDs used by ways and relations.
+func collectRequiredNodes(inputPath string) (map[int64]struct{}, error) {
+	slog.Info("Pass 1: collecting required node IDs from ways and relations...", "input", inputPath)
+	start := time.Now()
 
-func newMmapNodeCache() (*mmapNodeCache, error) {
-	f, err := os.CreateTemp("", "poisearch-nodes-*")
+	f, err := os.Open(inputPath)
 	if err != nil {
 		return nil, err
 	}
+	defer f.Close()
 
-	// 16 billion IDs * 8 bytes = 128 GB sparse file.
-	// This only consumes disk space for blocks actually written on filesystems supporting sparse files.
-	const maxID = 16 * 1000 * 1000 * 1000
-	const size = maxID * 8
+	// Skip nodes for speed; we only need to look at ways and relations to see what nodes they reference.
+	scanner := osmpbf.New(context.Background(), f, runtime.GOMAXPROCS(-1))
+	scanner.SkipNodes = true
+	defer scanner.Close()
 
-	if err := f.Truncate(size); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return nil, err
+	required := make(map[int64]struct{})
+	count := 0
+	for scanner.Scan() {
+		obj := scanner.Object()
+		switch o := obj.(type) {
+		case *osmapi.Way:
+			for _, n := range o.Nodes {
+				if n.Lon == 0 && n.Lat == 0 { // Only if not already localized
+					required[int64(n.ID)] = struct{}{}
+				}
+			}
+		case *osmapi.Relation:
+			for _, m := range o.Members {
+				if m.Type == osmapi.TypeNode {
+					required[m.Ref] = struct{}{}
+				}
+			}
+		}
+		count++
+		if count%500000 == 0 {
+			slog.Debug("Pass 1 progress", "objects", count, "required_nodes", len(required))
+		}
 	}
 
-	data, err := mmap.Map(f, mmap.RDWR, 0)
-	if err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return nil, err
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("pass 1 scan error: %w", err)
 	}
 
-	// Initialize with NaN to distinguish from (0,0)
-	// Note: Initializing a 128GB file would be slow and break sparseness.
-	// Instead, we rely on the fact that Null Island is rarely a POI,
-	// or we accept (0,0) as a slight risk for regional extracts.
-	// For better precision, one could use a bitset.
-
-	return &mmapNodeCache{f: f, data: data}, nil
-}
-
-func (m *mmapNodeCache) Set(id int64, lon, lat float64) {
-	off := id * 8
-	if off+8 > int64(len(m.data)) {
-		return
-	}
-	// Atomic writes aren't strictly necessary if each node is processed once (true for PBF)
-	binary.LittleEndian.PutUint32(m.data[off:off+4], math.Float32bits(float32(lon)))
-	binary.LittleEndian.PutUint32(m.data[off+4:off+8], math.Float32bits(float32(lat)))
-}
-
-func (m *mmapNodeCache) Get(id int64) ([]float64, bool) {
-	off := id * 8
-	if off+8 > int64(len(m.data)) {
-		return nil, false
-	}
-	u1 := binary.LittleEndian.Uint32(m.data[off : off+4])
-	u2 := binary.LittleEndian.Uint32(m.data[off+4 : off+8])
-	if u1 == 0 && u2 == 0 {
-		return nil, false
-	}
-	return []float64{float64(math.Float32frombits(u1)), float64(math.Float32frombits(u2))}, true
-}
-
-func (m *mmapNodeCache) Close() {
-	if m.data != nil {
-		_ = m.data.Unmap()
-	}
-	if m.f != nil {
-		_ = m.f.Close()
-		_ = os.Remove(m.f.Name())
-	}
-}
-
-func newNodeCache() nodeCache {
-	cache, err := newMmapNodeCache()
-	if err != nil {
-		slog.Warn("failed to create mmap node cache, falling back to in-memory map", "error", err)
-		return newMapNodeCache()
-	}
-	slog.Info("using mmap node cache for coordinate lookup")
-	return cache
+	slog.Info("Pass 1 finished", "required_nodes", len(required), "duration", time.Since(start))
+	return required, nil
 }
 
 // GeometryMode represents the geometry mode for index building
@@ -310,18 +285,24 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 		workers = config.DefaultBuildWorkers
 	}
 
+	// Pass 1: Collect required node IDs
+	requiredNodes, err := collectRequiredNodes(inputPath)
+	if err != nil {
+		slog.Warn("Pass 1 failed, will cache all nodes (high memory usage)", "error", err)
+	}
+
 	// Use parallel version if workers > 1
 	if workers > 1 {
-		return buildIndexParallel(inputPath, conf, index, workers)
+		return buildIndexParallel(inputPath, conf, index, workers, requiredNodes)
 	}
 
 	// Single-threaded version (original)
-	slog.Info("building index", "path", conf.IndexPath, "input", inputPath)
+	slog.Info("Pass 2: building index", "path", conf.IndexPath, "input", inputPath)
 
 	wdLookup, ont := setupBuildIndex(conf)
 
 	// Build node lookup for ways/relations (needed for geometry reconstruction)
-	nodeCoords := newNodeCache()
+	nodeCoords := newFilteredNodeCache(requiredNodes)
 	defer nodeCoords.Close()
 
 	geosCtx := geos.NewContext()
@@ -811,12 +792,26 @@ type processedItem struct {
 }
 
 // buildIndexParallel builds an index using multiple workers for entity processing.
-func buildIndexParallel(inputPath string, conf *config.Config, index bleve.Index, workers int) error {
-	slog.Info("building index with parallel workers", "path", conf.IndexPath, "input", inputPath, "workers", workers)
+func buildIndexParallel(
+	inputPath string,
+	conf *config.Config,
+	index bleve.Index,
+	workers int,
+	requiredNodes map[int64]struct{},
+) error {
+	slog.Info(
+		"Pass 2: building index with parallel workers",
+		"path",
+		conf.IndexPath,
+		"input",
+		inputPath,
+		"workers",
+		workers,
+	)
 
 	wdLookup, ont := setupBuildIndex(conf)
 
-	nodeCoords := newNodeCache()
+	nodeCoords := newFilteredNodeCache(requiredNodes)
 	defer nodeCoords.Close()
 	workChan := make(chan *workItem, workers*100)
 	resultChan := make(chan *processedItem, workers*100)

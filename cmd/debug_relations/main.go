@@ -38,10 +38,10 @@ func main() {
 	ont := osm.DefaultOntology()
 
 	type stats struct {
-		count          int
-		uniqueNames    int // Relations with a name/ref not likely on nodes
-		totalMembers   int
-		routeTypes     map[string]int
+		count        int
+		uniqueNames  int // Relations with a name/ref not likely on nodes
+		totalMembers int
+		routeTypes   map[string]int
 	}
 
 	routeStats := &stats{routeTypes: make(map[string]int)}
@@ -69,12 +69,13 @@ func main() {
 
 		// Determine category
 		var s *stats
-		if tags["route"] != "" {
+		switch {
+		case tags["route"] != "":
 			s = routeStats
 			routeStats.routeTypes[tags["route"]]++
-		} else if tags["boundary"] == "administrative" {
+		case tags["boundary"] == "administrative":
 			s = boundaryStats
-		} else {
+		default:
 			s = otherStats
 		}
 
@@ -83,7 +84,7 @@ func main() {
 
 		name := tags["name"]
 		ref := tags["ref"]
-		
+
 		// Heuristic for "unique value":
 		// Transit routes usually have a 'ref' (line number) which is rarely on the stops themselves
 		// (Stops are named "Main St", routes are "Line 513")
