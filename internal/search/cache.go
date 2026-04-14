@@ -204,10 +204,13 @@ func SerializeResult(result *bleve.SearchResult) *SerializedResult {
 		hits = append(hits, sHit)
 	}
 
-	return &SerializedResult{
+	sr := &SerializedResult{
 		Total: int64(result.Total),
-		From:  result.Request.From,
-		Limit: result.Request.Size,
 		Hits:  hits,
 	}
+	if result.Request != nil {
+		sr.From = result.Request.From
+		sr.Limit = result.Request.Size
+	}
+	return sr
 }

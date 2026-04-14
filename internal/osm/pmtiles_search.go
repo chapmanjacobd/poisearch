@@ -198,7 +198,11 @@ func processTile(ctx context.Context, p *processTileOptions) error {
 
 	layers, err := mvt.Unmarshal(tileData)
 	if err != nil {
-		return err
+		// Try gzipped (some PMTiles archives use gzip compression for tiles)
+		layers, err = mvt.UnmarshalGzipped(tileData)
+		if err != nil {
+			return err
+		}
 	}
 
 	tile := maptile.New(p.x, p.y, maptile.Zoom(p.z))
@@ -212,7 +216,7 @@ func processTile(ctx context.Context, p *processTileOptions) error {
 		layer.ProjectToWGS84(tile)
 
 		for _, feature := range layer.Features {
-			if done := processMVTFeature(feature, p); done {
+			if done := processMVTFeature(feature, layer.Name, p); done {
 				return nil
 			}
 		}
@@ -221,15 +225,58 @@ func processTile(ctx context.Context, p *processTileOptions) error {
 	return nil
 }
 
-func processMVTFeature(feature *geojson.Feature, p *processTileOptions) bool {
+//nolint:revive // feature processing is always complex
+func processMVTFeature(feature *geojson.Feature, layerName string, p *processTileOptions) bool {
 	tags := make(map[string]string)
 	for k, v := range feature.Properties {
 		tags[k] = fmt.Sprint(v)
 	}
 
-	// Normalize MVT tags to OSM tags
-	if _, ok := tags["name"]; !ok && tags["name:en"] != "" {
-		tags["name"] = tags["name:en"]
+	NormalizeNameTag(tags, p.conf.Languages)
+
+	// Map OpenMapTiles 'class' to OSM-style tags for classification
+	if class, ok := tags["class"]; ok {
+		switch layerName {
+		case "place", "places":
+			if _, ok := tags["place"]; !ok {
+				tags["place"] = class
+			}
+		case "pois", "poi", "point":
+			if _, ok := tags["amenity"]; !ok {
+				tags["amenity"] = class
+			}
+			// Map to other common keys too just in case
+			if _, ok := tags["shop"]; !ok {
+				tags["shop"] = class
+			}
+			if _, ok := tags["tourism"]; !ok {
+				tags["tourism"] = class
+			}
+		case "transportation":
+			if _, ok := tags["highway"]; !ok {
+				tags["highway"] = class
+			}
+		case "water", "waterway":
+			if _, ok := tags["natural"]; !ok {
+				tags["natural"] = "water"
+			}
+			if _, ok := tags["water"]; !ok {
+				tags["water"] = class
+			}
+		case "aerodrome_label":
+			if _, ok := tags["aeroway"]; !ok {
+				tags["aeroway"] = "aerodrome"
+			}
+
+		case "landuse":
+			if _, ok := tags["landuse"]; !ok {
+				tags["landuse"] = class
+			}
+		case "building":
+			if _, ok := tags["building"]; !ok {
+				tags["building"] = "yes"
+			}
+		}
 	}
 
 	coords := featureToCoords(feature.Geometry)
@@ -262,7 +309,7 @@ func processMVTFeature(feature *geojson.Feature, p *processTileOptions) bool {
 		}
 	}
 
-	if hit := processPBFFntity("pmtiles", id, tags, coords,
+	if hit := processPBFEntity("pmtiles", id, tags, coords,
 		p.queryLower, p.params, p.conf, p.ont, p.geosCtx); hit != nil {
 		if collectHit(p.res, hit, p.params) {
 			return true // Limit reached
@@ -343,7 +390,18 @@ func readTileData(ctx context.Context, archive *pmtilesCache, entry pmtiles.Entr
 
 func isPOILayer(name string) bool {
 	switch name {
-	case "pois", "place", "places", "transportation", "water", "landuse", "point":
+	case "pois",
+		"poi",
+		"place",
+		"places",
+		"transportation",
+		"water",
+		"landuse",
+		"point",
+		"building",
+		"water_name",
+		"waterway",
+		"aerodrome_label":
 		return true
 	}
 	return false

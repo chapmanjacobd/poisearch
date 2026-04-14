@@ -534,6 +534,22 @@ func processEntity(
 	return true
 }
 
+func NormalizeNameTag(tags map[string]string, languages []string) {
+	if tags["name"] != "" {
+		return
+	}
+	for _, lang := range languages {
+		if val, ok := tags["name:"+lang]; ok && val != "" {
+			tags["name"] = val
+			break
+		}
+	}
+	// Final fallback to English if no match in preferred languages
+	if tags["name"] == "" && tags["name:en"] != "" {
+		tags["name"] = tags["name:en"]
+	}
+}
+
 func hasAnyName(tags map[string]string, languages []string) bool {
 	if tags["name"] != "" {
 		return true
@@ -604,6 +620,7 @@ type featureParams struct {
 }
 
 func buildFeatureFromTags(p featureParams) *search.Feature {
+	NormalizeNameTag(p.tags, p.conf.Languages)
 	feature := &search.Feature{
 		ID:         fmt.Sprintf("%s/%d", p.entityType, p.id),
 		Name:       p.tags["name"],

@@ -72,7 +72,7 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 				continue
 			}
 
-			if hit := processPBFFntity("node", int64(o.ID), o.TagMap(), [][]float64{{o.Lon, o.Lat}},
+			if hit := processPBFEntity("node", int64(o.ID), o.TagMap(), [][]float64{{o.Lon, o.Lat}},
 				queryLower, params, conf, ont, geosCtx); hit != nil {
 				if collectHit(res, hit, params) {
 					return res, nil
@@ -104,7 +104,7 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 				continue
 			}
 
-			if hit := processPBFFntity("way", int64(o.ID), o.TagMap(), coords,
+			if hit := processPBFEntity("way", int64(o.ID), o.TagMap(), coords,
 				queryLower, params, conf, ont, geosCtx); hit != nil {
 				if collectHit(res, hit, params) {
 					return res, nil
@@ -136,7 +136,7 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 				continue
 			}
 
-			if hit := processPBFFntity("relation", int64(o.ID), o.TagMap(), coords,
+			if hit := processPBFEntity("relation", int64(o.ID), o.TagMap(), coords,
 				queryLower, params, conf, ont, geosCtx); hit != nil {
 				if collectHit(res, hit, params) {
 					return res, nil
@@ -300,10 +300,10 @@ func matchesSpatialFilter(
 	return true
 }
 
-// processPBFFntity processes an OSM entity and creates a search result match.
+// processPBFEntity processes an OSM entity and creates a search result match.
 //
 //nolint:revive // Processing entities requires handling many cases
-func processPBFFntity(
+func processPBFEntity(
 	entityType string,
 	id int64,
 	tags map[string]string,
@@ -318,6 +318,8 @@ func processPBFFntity(
 	if len(classifications) == 0 {
 		return nil
 	}
+
+	NormalizeNameTag(tags, conf.Languages)
 
 	if !matchFilters(classifications, tags, params, queryLower) {
 		return nil

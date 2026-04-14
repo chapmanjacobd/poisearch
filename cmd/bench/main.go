@@ -122,21 +122,27 @@ func runFullBench(pbf string, conf *config.Config) {
 
 	// Then run the full geometry mode benchmark
 	scenarios := []struct {
-		Label       string
-		Mode        string
-		NodesOnly   bool
-		Lean        bool
-		PBFOnly     bool
-		PMTilesOnly bool
+		Label         string
+		Mode          string
+		NodesOnly     bool
+		Lean          bool
+		PBFOnly       bool
+		PMTilesOnly   bool
+		StoreAddress  bool
+		WikiRedirects bool
+		CacheEnabled  bool
 	}{
-		{"Leanest Mode", "no-geo", true, true, false, false},
-		{"No Geo", "no-geo", false, false, false, false},
-		{"Nodes Only", "geopoint", true, false, false, false},
-		{"Centroids (Simple)", "geopoint-centroid", false, false, false, false},
-		{"Representative Pts", "geopoint", false, false, false, false},
-		{"Bounding Boxes", "geoshape-bbox", false, false, false, false},
-		{"Raw PBF Scan", "no-geo", false, false, true, false},
-		{"PMTiles Scan", "geopoint", false, false, false, true},
+		{"Leanest Mode", "no-geo", true, true, false, false, false, false, false},
+		{"No Geo", "no-geo", false, false, false, false, false, false, false},
+		{"Nodes Only", "geopoint", true, false, false, false, false, false, false},
+		{"Centroids (Simple)", "geopoint-centroid", false, false, false, false, false, false, false},
+		{"Representative Pts", "geopoint", false, false, false, false, false, false, false},
+		{"Bounding Boxes", "geoshape-bbox", false, false, false, false, false, false, false},
+		{"Raw PBF Scan", "no-geo", false, false, true, false, false, false, false},
+		{"PMTiles Scan", "geopoint", false, false, false, true, false, false, false},
+		{"Addresses", "geopoint-centroid", false, false, false, false, true, false, false},
+		{"Wiki Redirects", "geopoint-centroid", false, false, false, false, false, true, false},
+		{"Cached Searches", "geopoint-centroid", false, false, false, false, false, false, true},
 	}
 
 	modeResults := make([]ModeResult, 0, len(scenarios))
@@ -164,6 +170,9 @@ func runFullBench(pbf string, conf *config.Config) {
 		conf.StoreMetadata = true
 		conf.StoreGeometry = true
 		conf.OnlyNamed = false
+		conf.StoreAddress = s.StoreAddress
+		conf.IndexWikidataRedirects = s.WikiRedirects
+		conf.CacheEnabled = s.CacheEnabled
 
 		if s.Lean {
 			conf.DisableAltNames = true
@@ -261,6 +270,19 @@ func runFullBench(pbf string, conf *config.Config) {
 			)
 		}
 
+		if s.StoreAddress {
+			street := "Herrengasse"
+			if city == "Taipei" {
+				street = "Xinyi Road"
+			}
+			searchScenarios = append(searchScenarios,
+				struct {
+					Label  string
+					Params search.SearchParams
+				}{"Address Match", search.SearchParams{Street: street, City: city, GeoMode: s.Mode, Limit: 50}},
+			)
+		}
+
 		var bResults []BenchmarkResult
 		for _, ss := range searchScenarios {
 			var res BenchmarkResult
@@ -270,7 +292,7 @@ func runFullBench(pbf string, conf *config.Config) {
 			case s.PMTilesOnly:
 				res = benchmarkPMTiles(pmtiles, ss.Label, ss.Params, conf)
 			default:
-				res = benchmark(index, ss.Label, ss.Params)
+				res = benchmark(index, ss.Label, ss.Params, conf)
 			}
 			res.ModeLabel = s.Label
 			bResults = append(bResults, res)
@@ -481,7 +503,7 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 		for _, sq := range searchQueries {
 			sq.Params.GeoMode = testConf.GeometryMode
 			sq.Params.Analyzer = analyzer
-			res := benchmark(idx, sq.Label, sq.Params)
+			res := benchmark(idx, sq.Label, sq.Params, &testConf)
 			res.ModeLabel = analyzer
 			searchResults = append(searchResults, res)
 		}
@@ -586,17 +608,37 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 	}
 }
 
-func benchmark(index bleve.Index, label string, params search.SearchParams) BenchmarkResult {
+func benchmark(index bleve.Index, label string, params search.SearchParams, conf *config.Config) BenchmarkResult {
 	start := time.Now()
 	iterations := 200
 	var count int
 
+	var cache *search.QueryCache
+	if conf.CacheEnabled {
+		// Fresh cache for each benchmark query type to measure first-miss-then-hit avg
+		cache, _ = search.NewQueryCache(config.DefaultCacheSize, config.DefaultCacheTTL)
+	}
+
 	for range iterations {
-		res, err := search.Search(index, params)
-		if err != nil {
-			log.Fatalf("Search failed for %s: %v", label, err)
+		if cache != nil {
+			key := search.BuildCacheKey(params)
+			if cached, ok := cache.Get(key); ok {
+				count = int(cached.Total)
+				continue
+			}
+			res, err := search.Search(index, params)
+			if err != nil {
+				log.Fatalf("Search failed for %s: %v", label, err)
+			}
+			cache.Set(key, search.SerializeResult(res))
+			count = int(res.Total)
+		} else {
+			res, err := search.Search(index, params)
+			if err != nil {
+				log.Fatalf("Search failed for %s: %v", label, err)
+			}
+			count = int(res.Total)
 		}
-		count = int(res.Total)
 	}
 	avg := time.Since(start) / time.Duration(iterations)
 	fmt.Printf("  %-25s Avg: %-10s Results: %d\n", label, formatDuration(avg), count)
