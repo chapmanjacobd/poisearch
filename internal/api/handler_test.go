@@ -425,9 +425,9 @@ func TestHandler_Registration(t *testing.T) {
 		t.Errorf("expected health endpoint to return 200, got %d", rec.Code)
 	}
 
-	// Test RegisterHandlersWithPBF (with empty PBF path)
+	// Test RegisterHandlersWithPBF (with empty PBF/PMTiles paths)
 	mux2 := http.NewServeMux()
-	api.RegisterHandlersWithPBF(mux2, index, conf, "", nil)
+	api.RegisterHandlersWithPBF(mux2, index, conf, "", "", nil)
 
 	req2 := httptest.NewRequest(http.MethodGet, "/search?q=test", nil)
 	rec2 := httptest.NewRecorder()

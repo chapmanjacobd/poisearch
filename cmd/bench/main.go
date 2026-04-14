@@ -303,7 +303,8 @@ func runFullBench(pbf string, conf *config.Config) {
 		fmt.Fprintf(w, "%-20s %-25s %-15v %-10d\n", r.ModeLabel, r.Label, r.Latency, r.Results)
 	}
 
-	updateReadme(buf.String())
+	title := fmt.Sprintf("Benchmark Results (%s, %s)", filepath.Base(pbf), formatSize(getDirSize(pbf)))
+	updateReadme(title, buf.String())
 }
 
 func benchmarkPMTiles(pmtilesPath, label string, params search.SearchParams, conf *config.Config) BenchmarkResult {
@@ -324,7 +325,7 @@ func benchmarkPMTiles(pmtilesPath, label string, params search.SearchParams, con
 	return BenchmarkResult{Label: label, Latency: avg, Results: count}
 }
 
-func updateReadme(report string) {
+func updateReadme(title, report string) {
 	const readmeFile = "README.md"
 	content, err := os.ReadFile(readmeFile)
 	if err != nil {
@@ -334,33 +335,62 @@ func updateReadme(report string) {
 
 	lines := strings.Split(string(content), "\n")
 	newLines := []string{}
-	found := false
-	for i, line := range lines {
-		if strings.HasPrefix(line, "```plain") {
-			for j := i; j < len(lines); j++ {
-				if strings.HasPrefix(lines[j], "```") && j > i {
-					found = true
-					newLines = append(newLines, "```plain")
-					newLines = append(newLines, strings.TrimSpace(report))
-					newLines = append(newLines, "```")
-					lines = lines[j+1:]
+	headerFound := false
+	i := 0
+
+	for i < len(lines) {
+		line := lines[i]
+		if strings.HasPrefix(line, "## "+title) && !headerFound {
+			headerFound = true
+			newLines = append(newLines, line)
+			
+			// Look ahead for the code block
+			foundCodeBlock := false
+			codeBlockEnd := -1
+			
+			for j := i + 1; j < len(lines); j++ {
+				if strings.HasPrefix(lines[j], "```plain") {
+					// Find the end of the code block
+					for k := j + 1; k < len(lines); k++ {
+						if strings.HasPrefix(lines[k], "```") {
+							codeBlockEnd = k
+							break
+						}
+					}
+					foundCodeBlock = true
+					break
+				}
+				// Stop if we hit another header or non-blank line
+				if strings.HasPrefix(lines[j], "## ") {
 					break
 				}
 			}
-			if found {
-				break
+			
+			if foundCodeBlock {
+				// Replace the existing code block
+				newLines = append(newLines, "```plain")
+				newLines = append(newLines, strings.TrimSpace(report))
+				newLines = append(newLines, "```")
+				// Skip the old lines including the code block
+				i = codeBlockEnd + 1
+			} else {
+				// No code block found, insert one right after the header
+				newLines = append(newLines, "```plain")
+				newLines = append(newLines, strings.TrimSpace(report))
+				newLines = append(newLines, "```")
+				i++
 			}
+		} else {
+			newLines = append(newLines, line)
+			i++
 		}
-		newLines = append(newLines, line)
 	}
 
-	if !found {
-		newLines = append(newLines, "\n## Benchmark Results\n")
+	if !headerFound {
+		newLines = append(newLines, "## "+title)
 		newLines = append(newLines, "```plain")
 		newLines = append(newLines, strings.TrimSpace(report))
 		newLines = append(newLines, "```")
-	} else {
-		newLines = append(newLines, lines...)
 	}
 
 	err = os.WriteFile(readmeFile, []byte(strings.Join(newLines, "\n")), 0o644)

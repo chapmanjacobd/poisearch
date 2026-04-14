@@ -6,9 +6,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"math"
-	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/blevesearch/bleve/v2"
 	bleveSearch "github.com/blevesearch/bleve/v2/search"
@@ -16,13 +18,43 @@ import (
 	"github.com/chapmanjacobd/poisearch/internal/search"
 	"github.com/paulmach/orb"
 	"github.com/paulmach/orb/encoding/mvt"
+	"github.com/paulmach/orb/maptile"
 	"github.com/protomaps/go-pmtiles/pmtiles"
 	"github.com/twpayne/go-geos"
 )
 
+var (
+	pmtilesServers = make(map[string]*pmtiles.Server)
+	pmtilesMu      sync.Mutex
+)
+
+func getOrCreateServer(pmtilesPath string) (*pmtiles.Server, string, error) {
+	pmtilesMu.Lock()
+	defer pmtilesMu.Unlock()
+
+	if s, ok := pmtilesServers[pmtilesPath]; ok {
+		return s, filepath.Base(pmtilesPath), nil
+	}
+
+	dir := filepath.Dir(pmtilesPath)
+	filename := filepath.Base(pmtilesPath)
+	bucket := pmtiles.NewFileBucket(dir)
+
+	// Create a PMTiles server
+	server, err := pmtiles.NewServerWithBucket(bucket, "", log.Default(), 1000, "")
+	if err != nil {
+		return nil, "", err
+	}
+
+	pmtilesServers[pmtilesPath] = server
+	return server, filename, nil
+}
+
 // PMTilesSearch performs a search directly on a PMTiles archive.
 // It is fast for spatial queries (radius/bbox) as it only reads intersecting tiles.
 func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.Config) (*bleve.SearchResult, error) {
+	ctx := context.Background()
+
 	// Load ontology for classification
 	ont := DefaultOntology()
 	if conf.OntologyPath != "" {
@@ -31,18 +63,29 @@ func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.
 		}
 	}
 
-	file, err := os.Open(pmtilesPath)
+	server, filename, err := getOrCreateServer(pmtilesPath)
 	if err != nil {
-		return nil, fmt.Errorf("opening PMTiles file: %w", err)
-	}
-	defer file.Close()
-
-	reader, err := pmtiles.NewReader(file)
-	if err != nil {
-		return nil, fmt.Errorf("creating PMTiles reader: %w", err)
+		return nil, fmt.Errorf("getting PMTiles server: %w", err)
 	}
 
-	header := reader.Header()
+	// Read header once to get max zoom
+	bucket := pmtiles.NewFileBucket(filepath.Dir(pmtilesPath))
+	defer bucket.Close()
+
+	r, err := bucket.NewRangeReader(ctx, filename, 0, pmtiles.HeaderV3LenBytes)
+	if err != nil {
+		return nil, fmt.Errorf("reading PMTiles header: %w", err)
+	}
+	headerBytes, err := io.ReadAll(r)
+	r.Close()
+	if err != nil {
+		return nil, fmt.Errorf("reading PMTiles header bytes: %w", err)
+	}
+
+	header, err := pmtiles.DeserializeHeader(headerBytes)
+	if err != nil {
+		return nil, fmt.Errorf("deserializing PMTiles header: %w", err)
+	}
 	maxZoom := int(header.MaxZoom)
 
 	res := &bleve.SearchResult{
@@ -54,8 +97,6 @@ func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.
 
 	filter := computeSpatialFilter(params)
 	if !filter.hasRadius && !filter.hasBbox {
-		// If no spatial filter, PMTiles search is not ideal but we can't easily scan everything efficiently.
-		// For now, return an error or empty result to avoid accidental full-archive scans.
 		return nil, fmt.Errorf("PMTiles search requires a spatial filter (radius or bbox)")
 	}
 
@@ -65,10 +106,22 @@ func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.
 	// Fetch tiles and search features
 	for x := minTileX; x <= maxTileX; x++ {
 		for y := minTileY; y <= maxTileY; y++ {
-			err := processTile(reader, uint8(maxZoom), uint32(x), uint32(y), res, params, conf, ont, geosCtx, queryLower)
+			err := processTile(
+				ctx,
+				server,
+				filename,
+				uint32(maxZoom),
+				uint32(x),
+				uint32(y),
+				res,
+				params,
+				conf,
+				ont,
+				geosCtx,
+				queryLower,
+			)
 			if err != nil {
-				// Log error but continue with other tiles
-				fmt.Fprintf(os.Stderr, "Error processing tile %d/%d/%d: %v\n", maxZoom, x, y, err)
+				// Continue with other tiles
 				continue
 			}
 			if params.Limit > 0 && len(res.Hits) >= params.Limit {
@@ -86,7 +139,7 @@ func getTileRange(f spatialFilter, zoom int) (minX, minY, maxX, maxY int) {
 	minLon := float64(f.minLon) / 1_000_000_000
 	maxLon := float64(f.maxLon) / 1_000_000_000
 
-	minX, minY = lonLatToTile(minLon, maxLat, zoom) // Note: maxY is lower latitude in tile coordinates
+	minX, minY = lonLatToTile(minLon, maxLat, zoom)
 	maxX, maxY = lonLatToTile(maxLon, minLat, zoom)
 
 	if minX > maxX {
@@ -96,7 +149,7 @@ func getTileRange(f spatialFilter, zoom int) (minX, minY, maxX, maxY int) {
 		minY, maxY = maxY, minY
 	}
 
-	return
+	return minX, minY, maxX, maxY
 }
 
 func lonLatToTile(lon, lat float64, zoom int) (int, int) {
@@ -107,8 +160,10 @@ func lonLatToTile(lon, lat float64, zoom int) (int, int) {
 }
 
 func processTile(
-	reader *pmtiles.Reader,
-	z uint8, x, y uint32,
+	ctx context.Context,
+	server *pmtiles.Server,
+	filename string,
+	z, x, y uint32,
 	res *bleve.SearchResult,
 	params search.SearchParams,
 	conf *config.Config,
@@ -116,14 +171,11 @@ func processTile(
 	geosCtx *geos.Context,
 	queryLower string,
 ) error {
-	tileData, err := reader.GetTile(context.Background(), z, x, y)
-	if err != nil {
-		if err == io.EOF {
-			return nil // Tile doesn't exist in archive
-		}
-		return err
-	}
-	if tileData == nil {
+	// Remove .pmtiles extension if it's there
+	id := strings.TrimSuffix(filename, ".pmtiles")
+	path := fmt.Sprintf("/%s/%d/%d/%d.mvt", id, z, x, y)
+	status, _, tileData := server.Get(ctx, path)
+	if status != 200 || len(tileData) == 0 {
 		return nil
 	}
 
@@ -148,14 +200,15 @@ func processTile(
 		return err
 	}
 
-	// Calculate tile boundaries for coordinate projection
-	tileBBox := tileToBBox(int(x), int(y), int(z))
+	tile := maptile.New(x, y, maptile.Zoom(z))
 
 	for _, layer := range layers {
-		// Only search layers likely to contain POIs
 		if !isPOILayer(layer.Name) {
 			continue
 		}
+
+		// Project all features in the layer to WGS84
+		layer.ProjectToWGS84(tile)
 
 		for _, feature := range layer.Features {
 			tags := make(map[string]string)
@@ -163,13 +216,12 @@ func processTile(
 				tags[k] = fmt.Sprint(v)
 			}
 
-			// Normalize some MVT-specific tags to OSM tags if needed
+			// Normalize MVT tags to OSM tags
 			if _, ok := tags["name"]; !ok && tags["name:en"] != "" {
 				tags["name"] = tags["name:en"]
 			}
 
-			// Convert geometry to WGS84 coords
-			coords := featureToCoords(feature, layer.Extent, tileBBox)
+			coords := featureToCoords(feature.Geometry)
 			if len(coords) == 0 {
 				continue
 			}
@@ -177,7 +229,6 @@ func processTile(
 			latNano := nanodegree(coords[0][1])
 			lonNano := nanodegree(coords[0][0])
 
-			// Reuse the spatial filter check from PBF search
 			filter := computeSpatialFilter(params)
 			radiusMeters := parseRadiusToInt(params.Radius)
 			if !matchesSpatialFilter(latNano, lonNano, filter.hasRadius, filter.hasBbox,
@@ -185,7 +236,21 @@ func processTile(
 				continue
 			}
 
-			if hit := processPBFFntity("pmtiles", int64(feature.ID), tags, coords,
+			id := int64(0)
+			if feature.ID != nil {
+				switch v := feature.ID.(type) {
+				case int64:
+					id = v
+				case uint64:
+					id = int64(v)
+				case float64:
+					id = int64(v)
+				case int:
+					id = int64(v)
+				}
+			}
+
+			if hit := processPBFFntity("pmtiles", id, tags, coords,
 				queryLower, params, conf, ont, geosCtx); hit != nil {
 				if collectHit(res, hit, params) {
 					return nil // Limit reached
@@ -205,31 +270,26 @@ func isPOILayer(name string) bool {
 	return false
 }
 
-func featureToCoords(f *mvt.Feature, extent uint32, tileBBox orb.Bound) [][]float64 {
-	// This is a simplified unprojection. For more accuracy, use orb's projection helpers.
-	// We'll treat all geometries as points for simplicity in this initial implementation,
-	// or unproject each point if it's a line/polygon.
-	
-	// Get the center or the first point for now
+func featureToCoords(g orb.Geometry) [][]float64 {
 	var pts []orb.Point
-	switch g := f.Geometry.(type) {
+	switch geom := g.(type) {
 	case orb.Point:
-		pts = []orb.Point{g}
+		pts = []orb.Point{geom}
 	case orb.MultiPoint:
-		pts = g
+		pts = geom
 	case orb.LineString:
-		pts = g
+		pts = geom
 	case orb.MultiLineString:
-		if len(g) > 0 {
-			pts = g[0]
+		if len(geom) > 0 {
+			pts = geom[0]
 		}
 	case orb.Polygon:
-		if len(g) > 0 {
-			pts = g[0]
+		if len(geom) > 0 {
+			pts = geom[0]
 		}
 	case orb.MultiPolygon:
-		if len(g) > 0 && len(g[0]) > 0 {
-			pts = g[0][0]
+		if len(geom) > 0 && len(geom[0]) > 0 {
+			pts = geom[0][0]
 		}
 	}
 
@@ -239,27 +299,7 @@ func featureToCoords(f *mvt.Feature, extent uint32, tileBBox orb.Bound) [][]floa
 
 	res := make([][]float64, 0, len(pts))
 	for _, p := range pts {
-		lon := tileBBox.Min[0] + (p[0]/float64(extent))*(tileBBox.Max[0]-tileBBox.Min[0])
-		// Mercator Y is not linear, but for small tiles it's close enough? 
-		// Actually, we should use a proper Mercator unprojection.
-		lat := yToLat(tileBBox.Min[1] + (1.0 - p[1]/float64(extent))*(tileBBox.Max[1]-tileBBox.Min[1]))
-		res = append(res, []float64{lon, lat})
+		res = append(res, []float64{p.X(), p.Y()})
 	}
 	return res
-}
-
-func tileToBBox(x, y, z int) orb.Bound {
-	n := math.Pow(2, float64(z))
-	minLon := float64(x)/n*360.0 - 180.0
-	maxLon := float64(x+1)/n*360.0 - 180.0
-	
-	// These are in "Web Mercator" space [0, 1]
-	minY := float64(y) / n
-	maxY := float64(y+1) / n
-	
-	return orb.Bound{Min: orb.Point{minLon, minY}, Max: orb.Point{maxLon, maxY}}
-}
-
-func yToLat(y float64) float64 {
-	return math.Atan(math.Sinh(math.Pi*(1.0-2.0*y))) * 180.0 / math.Pi
 }

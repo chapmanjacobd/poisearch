@@ -64,7 +64,7 @@ Spatial search example:
 curl "http://localhost:9889/search?q=Restaurant&lat=52.52&lon=13.40&radius=1000m"
 ```
 
-## Benchmark Results
+## Benchmark Results (taiwan-latest.osm.pbf, 315.5 MB)
 
 ```plain
 ============================================================
