@@ -32,6 +32,9 @@ type SearchParams struct {
 	// Multi-value class/subtype filters (OR within each)
 	Classes  []string
 	Subtypes []string
+
+	// Analyzer type used during indexing (affects query strategy)
+	Analyzer string
 }
 
 // MatchTier represents the quality of a name match.
@@ -58,7 +61,35 @@ func MatchTierBoost(tier MatchTier) float64 {
 	}
 }
 
-func addNameQuery(q string, fuzzy bool, prefix bool, field string) query.Query {
+func addNameQuery(q string, fuzzy bool, prefix bool, field string, analyzer string) query.Query {
+	// For keyword analyzer: exact match only
+	if analyzer == "keyword" {
+		tq := bleve.NewTermQuery(q)
+		tq.SetField(field)
+		tq.SetBoost(MatchTierBoost(TierExact))
+		return tq
+	}
+
+	// For edge_ngram analyzer: indexed tokens are prefixes,
+	// so a MatchQuery will match on prefix tokens automatically.
+	// We don't need the Prefix flag - just use MatchQuery.
+	if analyzer == "edge_ngram" {
+		mq := bleve.NewMatchQuery(q)
+		mq.SetField(field)
+		mq.SetBoost(MatchTierBoost(TierExact))
+		return mq
+	}
+
+	// For ngram analyzer: indexed tokens are substrings,
+	// so a MatchQuery will match on substring tokens automatically.
+	if analyzer == "ngram" {
+		mq := bleve.NewMatchQuery(q)
+		mq.SetField(field)
+		mq.SetBoost(MatchTierBoost(TierExact))
+		return mq
+	}
+
+	// Default: standard analyzer behavior
 	if prefix {
 		pq := bleve.NewPrefixQuery(q)
 		pq.SetField(field)
@@ -117,18 +148,23 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		// Normalize the query for consistent matching
 		normalized := normalizeQuery(params.Query)
 
+		analyzer := params.Analyzer
+		if analyzer == "" {
+			analyzer = "standard"
+		}
+
 		// Search across multiple name fields
 		nameQueries := []query.Query{
-			addNameQuery(normalized, params.Fuzzy, params.Prefix, "name"),
-			addNameQuery(normalized, params.Fuzzy, params.Prefix, "alt_name"),
-			addNameQuery(normalized, params.Fuzzy, params.Prefix, "old_name"),
-			addNameQuery(normalized, params.Fuzzy, params.Prefix, "short_name"),
+			addNameQuery(normalized, params.Fuzzy, params.Prefix, "name", analyzer),
+			addNameQuery(normalized, params.Fuzzy, params.Prefix, "alt_name", analyzer),
+			addNameQuery(normalized, params.Fuzzy, params.Prefix, "old_name", analyzer),
+			addNameQuery(normalized, params.Fuzzy, params.Prefix, "short_name", analyzer),
 		}
 		for _, lang := range params.Langs {
-			nameQueries = append(nameQueries, addNameQuery(normalized, params.Fuzzy, params.Prefix, "name:"+lang))
-			nameQueries = append(nameQueries, addNameQuery(normalized, params.Fuzzy, params.Prefix, "alt_name:"+lang))
-			nameQueries = append(nameQueries, addNameQuery(normalized, params.Fuzzy, params.Prefix, "old_name:"+lang))
-			nameQueries = append(nameQueries, addNameQuery(normalized, params.Fuzzy, params.Prefix, "short_name:"+lang))
+			nameQueries = append(nameQueries, addNameQuery(normalized, params.Fuzzy, params.Prefix, "name:"+lang, analyzer))
+			nameQueries = append(nameQueries, addNameQuery(normalized, params.Fuzzy, params.Prefix, "alt_name:"+lang, analyzer))
+			nameQueries = append(nameQueries, addNameQuery(normalized, params.Fuzzy, params.Prefix, "old_name:"+lang, analyzer))
+			nameQueries = append(nameQueries, addNameQuery(normalized, params.Fuzzy, params.Prefix, "short_name:"+lang, analyzer))
 		}
 		q = bleve.NewDisjunctionQuery(nameQueries...)
 	} else {

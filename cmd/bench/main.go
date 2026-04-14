@@ -86,6 +86,10 @@ func formatSize(size int64) string {
 }
 
 func runFullBench(pbf string, conf *config.Config) {
+	// First run analyzer comparison benchmark
+	runAnalyzerBench(pbf, conf)
+
+	// Then run the full geometry mode benchmark
 	scenarios := []struct {
 		Label     string
 		Mode      string
@@ -310,6 +314,154 @@ func updateReadme(report string) {
 	err = os.WriteFile(readmeFile, []byte(strings.Join(newLines, "\n")), 0644)
 	if err != nil {
 		log.Printf("failed to write README.md: %v", err)
+	}
+}
+
+func runAnalyzerBench(pbf string, conf *config.Config) {
+	fmt.Println("\n============================================================")
+	fmt.Println("ANALYZER COMPARISON BENCHMARK")
+	fmt.Println("============================================================")
+
+	analyzers := []string{"standard", "edge_ngram", "ngram", "keyword"}
+
+	type AnalyzerResult struct {
+		Name      string
+		BuildTime time.Duration
+		Size      int64
+		Searches  []BenchmarkResult
+	}
+
+	var analyzerResults []AnalyzerResult
+
+	lat, lon := 47.14, 9.52 // Vaduz
+
+	searchQueries := []struct {
+		Label  string
+		Params search.SearchParams
+	}{
+		{"Exact: Vaduz", search.SearchParams{Query: "Vaduz", Limit: 50}},
+		{"Prefix: vad", search.SearchParams{Query: "vad", Limit: 50}},
+		{"Partial: vadu", search.SearchParams{Query: "vadu", Limit: 50}},
+		{"Autocomplete: rest", search.SearchParams{Query: "rest", Limit: 50}},
+		{"Short: va", search.SearchParams{Query: "va", Limit: 50}},
+		{"Geo + Text", search.SearchParams{Query: "Vaduz", Lat: &lat, Lon: &lon, Radius: "500m", Limit: 50}},
+	}
+
+	for _, analyzer := range analyzers {
+		fmt.Printf("\n--- Analyzer: %s ---\n", analyzer)
+
+		testConf := *conf
+		testConf.NameAnalyzer = analyzer
+		testConf.IndexPath = fmt.Sprintf("bench_analyzer_%s.bleve", analyzer)
+		testConf.GeometryMode = "geopoint-centroid"
+		testConf.StoreMetadata = false
+		testConf.StoreGeometry = false
+		os.RemoveAll(testConf.IndexPath)
+
+		start := time.Now()
+		m := search.BuildIndexMapping(&testConf)
+		idx, err := search.OpenOrCreateIndex(testConf.IndexPath, m)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = osm.BuildIndex(pbf, &testConf, idx)
+		if err != nil {
+			log.Fatal(err)
+		}
+		buildTime := time.Since(start)
+		size := getDirSize(testConf.IndexPath)
+		fmt.Printf("Build time: %v, Size: %s\n", buildTime, formatSize(size))
+
+		var searchResults []BenchmarkResult
+		for _, sq := range searchQueries {
+			sq.Params.GeoMode = testConf.GeometryMode
+			sq.Params.Analyzer = analyzer
+			res := benchmark(idx, sq.Label, sq.Params)
+			res.ModeLabel = analyzer
+			searchResults = append(searchResults, res)
+		}
+
+		analyzerResults = append(analyzerResults, AnalyzerResult{
+			Name:      analyzer,
+			BuildTime: buildTime,
+			Size:      size,
+			Searches:  searchResults,
+		})
+
+		idx.Close()
+	}
+
+	// Print comparison table
+	fmt.Println("\n============================================================")
+	fmt.Println("ANALYZER SIZE COMPARISON")
+	fmt.Println("============================================================")
+	fmt.Fprintf(os.Stdout, "%-18s %-15s %-15s\n", "Analyzer", "Index Size", "Build Time")
+	fmt.Println("------------------------------------------------------------")
+	for _, r := range analyzerResults {
+		fmt.Fprintf(os.Stdout, "%-18s %-15s %-15v\n", r.Name, formatSize(r.Size), r.BuildTime)
+	}
+
+	fmt.Println("\n============================================================")
+	fmt.Println("ANALYZER SEARCH LATENCY (sorted by average)")
+	fmt.Println("============================================================")
+
+	// Collect all search results and compute average per analyzer
+	type AnalyzerAvg struct {
+		Name    string
+		Avg     time.Duration
+		Min     time.Duration
+		Max     time.Duration
+		Queries int
+	}
+
+	var avgs []AnalyzerAvg
+	for _, ar := range analyzerResults {
+		var total time.Duration
+		minLat := ar.Searches[0].Latency
+		maxLat := ar.Searches[0].Latency
+		for _, s := range ar.Searches {
+			total += s.Latency
+			if s.Latency < minLat {
+				minLat = s.Latency
+			}
+			if s.Latency > maxLat {
+				maxLat = s.Latency
+			}
+		}
+		avg := total / time.Duration(len(ar.Searches))
+		avgs = append(avgs, AnalyzerAvg{
+			Name:    ar.Name,
+			Avg:     avg,
+			Min:     minLat,
+			Max:     maxLat,
+			Queries: len(ar.Searches),
+		})
+	}
+
+	sort.Slice(avgs, func(i, j int) bool {
+		return avgs[i].Avg < avgs[j].Avg
+	})
+
+	fmt.Fprintf(os.Stdout, "%-18s %-15s %-15s %-15s %-10s\n", "Analyzer", "Avg Latency", "Min Latency", "Max Latency", "Queries")
+	fmt.Println("------------------------------------------------------------------------------------")
+	for _, a := range avgs {
+		fmt.Fprintf(os.Stdout, "%-18s %-15v %-15v %-15v %-10d\n", a.Name, a.Avg, a.Min, a.Max, a.Queries)
+	}
+
+	// Detailed per-query comparison
+	fmt.Println("\n============================================================")
+	fmt.Println("DETAILED PER-QUERY COMPARISON")
+	fmt.Println("============================================================")
+	for i, sq := range searchQueries {
+		fmt.Printf("\n--- %s ---\n", sq.Label)
+		fmt.Fprintf(os.Stdout, "%-18s %-15v %-10s\n", "Analyzer", "Latency", "Results")
+		fmt.Println("----------------------------------------")
+		for _, ar := range analyzerResults {
+			if i < len(ar.Searches) {
+				sr := ar.Searches[i]
+				fmt.Fprintf(os.Stdout, "%-18s %-15v %-10d\n", ar.Name, sr.Latency, sr.Results)
+			}
+		}
 	}
 }
 

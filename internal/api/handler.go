@@ -39,6 +39,7 @@ func handlePBFSearch(w http.ResponseWriter, r *http.Request, pbfPath string, con
 	latStr := r.URL.Query().Get("lat")
 	lonStr := r.URL.Query().Get("lon")
 	radius := r.URL.Query().Get("radius")
+	bbox := r.URL.Query().Get("bbox") // bbox=minLat,minLon,maxLat,maxLon
 	limitStr := r.URL.Query().Get("limit")
 	class := r.URL.Query().Get("class")
 	subtype := r.URL.Query().Get("subtype")
@@ -58,6 +59,24 @@ func handlePBFSearch(w http.ResponseWriter, r *http.Request, pbfPath string, con
 		}
 	}
 
+	// Parse bbox parameter
+	var minLat, maxLat, minLon, maxLon *float64
+	if bbox != "" {
+		parts := strings.Split(bbox, ",")
+		if len(parts) == 4 {
+			minLatVal, err1 := strconv.ParseFloat(parts[0], 64)
+			minLonVal, err2 := strconv.ParseFloat(parts[1], 64)
+			maxLatVal, err3 := strconv.ParseFloat(parts[2], 64)
+			maxLonVal, err4 := strconv.ParseFloat(parts[3], 64)
+			if err1 == nil && err2 == nil && err3 == nil && err4 == nil {
+				minLat = &minLatVal
+				minLon = &minLonVal
+				maxLat = &maxLatVal
+				maxLon = &maxLonVal
+			}
+		}
+	}
+
 	limit := 10
 	if limitStr != "" {
 		l, err := strconv.Atoi(limitStr)
@@ -71,6 +90,10 @@ func handlePBFSearch(w http.ResponseWriter, r *http.Request, pbfPath string, con
 		Lat:     lat,
 		Lon:     lon,
 		Radius:  radius,
+		MinLat:  minLat,
+		MaxLat:  maxLat,
+		MinLon:  minLon,
+		MaxLon:  maxLon,
 		Limit:   limit,
 		Langs:   conf.Languages,
 		GeoMode: conf.GeometryMode,

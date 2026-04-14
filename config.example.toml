@@ -12,6 +12,15 @@ languages = ["en", "zh", "hi", "es", "ar", "fr", "bn", "pt", "ur", "ru", "de", "
 geometry_mode = "geopoint"
 simplification_tolerance = 0.0001
 
+# Name analyzer controls how text is tokenized for search:
+#   - "standard"   : Tokenizes on word boundaries (default). Use with fuzzy/prefix flags.
+#   - "edge_ngram" : Prefix tokens (e.g., "restaurant" -> "r", "re", "res", ...).
+#                    Great for autocomplete - matches partial input without fuzzy flag.
+#   - "ngram"      : Substring tokens (e.g., "matrix" -> "ma", "at", "tr", "mat", ...).
+#                    Enables substring matching but increases index size significantly.
+#   - "keyword"    : No tokenization. Exact match only. Fastest, least flexible.
+name_analyzer = "standard"
+
 # Toggle optional features
 # nodes_only = false          # Index only nodes (skip ways/relations)
 # disable_alt_names = false   # Skip alt_name, old_name, short_name fields

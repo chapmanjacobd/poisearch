@@ -1,5 +1,6 @@
 index_path = "pois.bleve"
 languages = ["en"]
+# name_analyzer = "standard"  # "standard", "edge_ngram", "ngram", "keyword"
 # geometry_mode = "geopoint" # Comment out to disable spatial indexing if desired
 
 [server]

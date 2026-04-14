@@ -9,6 +9,7 @@ type Config struct {
 	Importance          ImportanceWeights `toml:"importance"`
 	GeometryMode        string            `toml:"geometry_mode"`            // "geopoint", "geoshape-bbox", "geoshape-simplified", "geoshape-full", "no-geo"
 	SimplificationTol   float64           `toml:"simplification_tolerance"` // tolerance for SimplifyPreserveTopology
+	NameAnalyzer        string            `toml:"name_analyzer"`            // "standard", "edge_ngram", "ngram", "keyword"
 	Server              ServerConfig      `toml:"server"`
 	NodesOnly           bool              `toml:"nodes_only"`
 	DisableAltNames     bool              `toml:"disable_alt_names"`
