@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/chapmanjacobd/poisearch/internal/config"
 	"github.com/chapmanjacobd/poisearch/internal/osm"
@@ -36,74 +37,81 @@ func main() {
 	}
 	ont := osm.DefaultOntology()
 
-	unresolvable := 0
-	resolvableWithWays := 0
-	totalRelations := 0
-	taggedRelations := 0
+	type stats struct {
+		count          int
+		uniqueNames    int // Relations with a name/ref not likely on nodes
+		totalMembers   int
+		routeTypes     map[string]int
+	}
 
-	fmt.Printf("Analyzing relations in %s...\n", pbfPath)
+	routeStats := &stats{routeTypes: make(map[string]int)}
+	boundaryStats := &stats{routeTypes: make(map[string]int)}
+	otherStats := &stats{routeTypes: make(map[string]int)}
+
+	fmt.Printf("Analyzing unique value of relations in %s...\n", pbfPath)
 
 	for scanner.Scan() {
 		obj := scanner.Object()
-		if rel, ok := obj.(*osmapi.Relation); ok {
-			totalRelations++
-			tags := rel.TagMap()
-			if len(tags) == 0 {
-				continue
-			}
+		rel, ok := obj.(*osmapi.Relation)
+		if !ok {
+			continue
+		}
 
-			// We only care about relations that would actually be indexed (ClassifyMulti returns something)
-			classifications := osm.ClassifyMulti(tags, &conf.Importance, ont)
-			if len(classifications) == 0 {
-				continue
-			}
+		tags := rel.TagMap()
+		if len(tags) == 0 {
+			continue
+		}
 
-			taggedRelations++
+		classifications := osm.ClassifyMulti(tags, &conf.Importance, ont)
+		if len(classifications) == 0 {
+			continue
+		}
 
-			hasWayLocation := false
-			hasNodeMember := false
-			for _, member := range rel.Members {
-				if member.Type == osmapi.TypeWay {
-					if member.Lat != 0 || member.Lon != 0 {
-						hasWayLocation = true
-						break
-					}
-				}
-				if member.Type == osmapi.TypeNode {
-					hasNodeMember = true
-				}
-			}
+		// Determine category
+		var s *stats
+		if tags["route"] != "" {
+			s = routeStats
+			routeStats.routeTypes[tags["route"]]++
+		} else if tags["boundary"] == "administrative" {
+			s = boundaryStats
+		} else {
+			s = otherStats
+		}
 
-			if hasWayLocation {
-				resolvableWithWays++
-			} else if hasNodeMember {
-				unresolvable++
-				if unresolvable <= 20 {
-					fmt.Printf("\nUnresolvable Relation %d:\n", rel.ID)
-					fmt.Printf("  Tags: %v\n", tags)
-					fmt.Printf("  Members: %d total\n", len(rel.Members))
-					nodeCount := 0
-					wayCount := 0
-					for _, m := range rel.Members {
-						if m.Type == osmapi.TypeNode {
-							nodeCount++
-						} else if m.Type == osmapi.TypeWay {
-							wayCount++
-						}
-					}
-					fmt.Printf("  Nodes: %d, Ways: %d\n", nodeCount, wayCount)
-				}
-			}
+		s.count++
+		s.totalMembers += len(rel.Members)
+
+		name := tags["name"]
+		ref := tags["ref"]
+		
+		// Heuristic for "unique value":
+		// Transit routes usually have a 'ref' (line number) which is rarely on the stops themselves
+		// (Stops are named "Main St", routes are "Line 513")
+		if ref != "" || (name != "" && !strings.Contains(strings.ToLower(name), "stop")) {
+			s.uniqueNames++
+		}
+
+		// Print first few transit routes for inspection
+		if tags["route"] != "" && routeStats.count <= 10 {
+			fmt.Printf("\nTransit Relation %d (%s):\n", rel.ID, tags["route"])
+			fmt.Printf("  Name: %s\n", name)
+			fmt.Printf("  Ref:  %s\n", ref)
+			fmt.Printf("  Operator: %s\n", tags["operator"])
+			fmt.Printf("  Search terms: If I search '%s', will I find any nodes?\n", ref)
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		log.Fatal(err)
-	}
+	fmt.Printf("\n--- Route Relations (Transit, etc) ---\n")
+	fmt.Printf("  Count: %d\n", routeStats.count)
+	fmt.Printf("  With Unique Name/Ref: %d\n", routeStats.uniqueNames)
+	fmt.Printf("  Avg Members: %.1f\n", float64(routeStats.totalMembers)/float64(routeStats.count))
+	fmt.Printf("  Types: %v\n", routeStats.routeTypes)
 
-	fmt.Printf("\nSummary:\n")
-	fmt.Printf("Total Relations:      %d\n", totalRelations)
-	fmt.Printf("Tagged/POI Relations: %d\n", taggedRelations)
-	fmt.Printf("Resolvable via Ways:  %d\n", resolvableWithWays)
-	fmt.Printf("Unresolvable (Nodes): %d\n", unresolvable)
+	fmt.Printf("\n--- Boundary Relations (Admin) ---\n")
+	fmt.Printf("  Count: %d\n", boundaryStats.count)
+	fmt.Printf("  With Unique Name: %d\n", boundaryStats.uniqueNames)
+
+	fmt.Printf("\n--- Other POI Relations ---\n")
+	fmt.Printf("  Count: %d\n", otherStats.count)
+	fmt.Printf("  With Unique Name: %d\n", otherStats.uniqueNames)
 }
