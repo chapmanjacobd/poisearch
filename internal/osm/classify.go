@@ -104,7 +104,8 @@ func ClassifyMulti(
 
 		// Apply global boosts
 		if !foundWeight {
-			importance = weights.Default
+			// Use type-based default importance when no explicit weight is configured
+			importance = getTypeDefaultImportance(k, v)
 		}
 
 		// Population boost: importance += ln(pop+1) * factor
@@ -203,4 +204,57 @@ func ParseSubtypes(s string) []string {
 		}
 	}
 	return result
+}
+
+// getTypeDefaultImportance returns a sensible default importance based on OSM key/value
+// when no explicit weight is configured in the config file.
+// This provides reasonable defaults for common place types.
+func getTypeDefaultImportance(key, value string) float64 {
+	switch key {
+	case "place":
+		switch value {
+		case "city", "town":
+			return 4.0
+		case "village", "hamlet":
+			return 3.0
+		case "suburb", "quarter", "neighbourhood":
+			return 2.5
+		default:
+			return 2.0
+		}
+	case "amenity":
+		return 2.0
+	case "shop":
+		return 1.5
+	case "tourism", "leisure":
+		return 1.5
+	case "highway":
+		return 1.0
+	case "historic", "natural":
+		return 1.5
+	case "railway":
+		return 1.5
+	case "boundary":
+		return 2.0
+	default:
+		return 0.5
+	}
+}
+
+// parsePopulation extracts population value from tags for tie-breaking.
+func parsePopulation(tags map[string]string) int {
+	if popStr, ok := tags["population"]; ok {
+		if pop, err := strconv.Atoi(popStr); err == nil {
+			return pop
+		}
+	}
+	return 0
+}
+
+// parsePopulationForClassification is a placeholder for classification-specific population.
+// Currently uses the same population tag since OSM doesn't have per-class populations.
+func parsePopulationForClassification(class, subtype string, tags map[string]string) int {
+	_ = class // Currently unused, reserved for future per-class population logic
+	_ = subtype
+	return parsePopulation(tags)
 }

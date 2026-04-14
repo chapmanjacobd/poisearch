@@ -260,17 +260,47 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 			}
 		}
 
-		// Find best classification by importance
+		// Find best classification by importance with tie-breaking
 		best := classifications[0]
 		for _, c := range classifications[1:] {
 			if c.Importance > best.Importance {
 				best = c
+			} else if c.Importance == best.Importance {
+				// Tie-breaking: prefer finer granularity (higher ontological level)
+				if c.OntLevel > best.OntLevel {
+					best = c
+				} else if c.OntLevel == best.OntLevel {
+					// Tie-break by population (higher wins)
+					cPop := parsePopulation(tags)
+					bestPop := parsePopulationForClassification(best.Class, best.Subtype, tags)
+					if cPop > bestPop {
+						best = c
+					}
+				}
 			}
 		}
 
-		// Apply Wikidata importance boost
+		// Apply Wikidata importance boost (language-aware)
 		if wdLookup != nil && tags["wikidata"] != "" {
-			wdImportance := wdLookup.GetImportance(tags["wikidata"])
+			// Detect primary language from tags (prefer name:XX tags, fallback to config)
+			primaryLang := ""
+			if len(conf.Languages) > 0 {
+				primaryLang = conf.Languages[0]
+			}
+			// Check if entity has language-specific name tags
+			for _, lang := range conf.Languages {
+				if _, ok := tags["name:"+lang]; ok {
+					primaryLang = lang
+					break
+				}
+			}
+			// Use language-aware lookup if we have a language, otherwise use highest score
+			var wdImportance float64
+			if primaryLang != "" {
+				wdImportance = wdLookup.GetImportanceForLang(tags["wikidata"], primaryLang)
+			} else {
+				wdImportance = wdLookup.GetImportance(tags["wikidata"])
+			}
 			if wdImportance > 0 {
 				best.Importance += wdImportance * 10.0
 			}
@@ -333,6 +363,21 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 			for _, lang := range conf.Languages {
 				if name, ok := tags["name:"+lang]; ok {
 					feature.Names["name:"+lang] = name
+				}
+			}
+		}
+
+		// Extract address fields when configured
+		if conf.StoreAddress {
+			feature.Address = make(map[string]string)
+			addrKeys := []string{
+				"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
+				"addr:country", "addr:state", "addr:district", "addr:suburb",
+				"addr:neighbourhood",
+			}
+			for _, k := range addrKeys {
+				if val, ok := tags[k]; ok {
+					feature.Address[k] = val
 				}
 			}
 		}

@@ -34,6 +34,13 @@ type SearchParams struct {
 
 	// Analyzer type used during indexing (affects query strategy)
 	Analyzer string
+
+	// Address search fields
+	Street      string
+	HouseNumber string
+	Postcode    string
+	City        string
+	Country     string
 }
 
 // QueryFields returns the number of query fields (words) in the search query.
@@ -291,6 +298,37 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		}
 	}
 
+	// Address filters
+	if params.Street != "" || params.HouseNumber != "" || params.Postcode != "" || params.City != "" || params.Country != "" {
+		conjunctions := []query.Query{q}
+		if params.Street != "" {
+			sq := bleve.NewTermQuery(params.Street)
+			sq.SetField("addr:street")
+			conjunctions = append(conjunctions, sq)
+		}
+		if params.HouseNumber != "" {
+			sq := bleve.NewTermQuery(params.HouseNumber)
+			sq.SetField("addr:housenumber")
+			conjunctions = append(conjunctions, sq)
+		}
+		if params.Postcode != "" {
+			sq := bleve.NewTermQuery(params.Postcode)
+			sq.SetField("addr:postcode")
+			conjunctions = append(conjunctions, sq)
+		}
+		if params.City != "" {
+			sq := bleve.NewTermQuery(params.City)
+			sq.SetField("addr:city")
+			conjunctions = append(conjunctions, sq)
+		}
+		if params.Country != "" {
+			sq := bleve.NewTermQuery(params.Country)
+			sq.SetField("addr:country")
+			conjunctions = append(conjunctions, sq)
+		}
+		q = bleve.NewConjunctionQuery(conjunctions...)
+	}
+
 	searchRequest := bleve.NewSearchRequest(q)
 	searchRequest.Size = params.Limit
 	if searchRequest.Size == 0 {
@@ -313,7 +351,16 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		"subtypes",
 		"importance",
 		"geometry",
+		"distance_meters",
 	)
+	// Add address fields when any address filter is used
+	if params.Street != "" || params.HouseNumber != "" || params.Postcode != "" || params.City != "" || params.Country != "" {
+		fields = append(fields,
+			"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
+			"addr:country", "addr:state", "addr:district", "addr:suburb",
+			"addr:neighbourhood",
+		)
+	}
 	for _, lang := range params.Langs {
 		fields = append(fields, "name:"+lang, "alt_name:"+lang, "old_name:"+lang, "short_name:"+lang)
 	}

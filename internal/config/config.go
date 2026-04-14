@@ -25,6 +25,7 @@ type Config struct {
 	OnlyNamed           bool              `toml:"only_named"`
 	StoreMetadata       bool              `toml:"store_metadata"`
 	StoreGeometry       bool              `toml:"store_geometry"`
+	StoreAddress        bool              `toml:"store_address"` // Opt-in: index addr:* tags for address search
 }
 
 type ImportanceWeights struct {

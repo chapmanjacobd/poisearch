@@ -131,6 +131,23 @@ func BuildIndexMapping(conf *config.Config) mapping.IndexMapping {
 		}
 	}
 
+	// Address fields (opt-in via config)
+	if conf.StoreAddress {
+		addrMapping := bleve.NewTextFieldMapping()
+		addrMapping.Analyzer = "keyword"
+		addrMapping.IncludeInAll = false
+		addrMapping.Store = true
+		docMapping.AddFieldMappingsAt("addr:housenumber", addrMapping)
+		docMapping.AddFieldMappingsAt("addr:street", addrMapping)
+		docMapping.AddFieldMappingsAt("addr:city", addrMapping)
+		docMapping.AddFieldMappingsAt("addr:postcode", addrMapping)
+		docMapping.AddFieldMappingsAt("addr:country", addrMapping)
+		docMapping.AddFieldMappingsAt("addr:state", addrMapping)
+		docMapping.AddFieldMappingsAt("addr:district", addrMapping)
+		docMapping.AddFieldMappingsAt("addr:suburb", addrMapping)
+		docMapping.AddFieldMappingsAt("addr:neighbourhood", addrMapping)
+	}
+
 	indexMapping.DefaultMapping = docMapping
 	return indexMapping
 }

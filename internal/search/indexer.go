@@ -19,6 +19,7 @@ type Feature struct {
 	Subtypes   []string          `json:"subtypes,omitempty"` // multi-class support
 	Importance float64           `json:"importance"`
 	Geometry   any               `json:"geometry"`
+	Address    map[string]string `json:"address,omitempty"` // addr:housenumber, addr:street, etc.
 }
 
 func OpenOrCreateIndex(indexPath string, m mapping.IndexMapping) (bleve.Index, error) {
@@ -57,6 +58,12 @@ func FeatureToMap(f *Feature) map[string]any {
 	}
 	if len(f.Subtypes) > 0 {
 		m["subtypes"] = strings.Join(f.Subtypes, ",")
+	}
+	// Store address fields when configured
+	if len(f.Address) > 0 {
+		for k, v := range f.Address {
+			m[k] = v
+		}
 	}
 	return m
 }

@@ -183,6 +183,13 @@ func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index
 	subtypes := r.URL.Query().Get("subtypes") // comma-separated multi-subtype
 	format := r.URL.Query().Get("format")     // "json" (default) or "text"
 
+	// Address search params
+	street := r.URL.Query().Get("street")
+	housenumber := r.URL.Query().Get("housenumber")
+	postcode := r.URL.Query().Get("postcode")
+	city := r.URL.Query().Get("city")
+	country := r.URL.Query().Get("country")
+
 	var lat, lon *float64
 	if latStr != "" {
 		l, err := strconv.ParseFloat(latStr, 64)
@@ -231,20 +238,25 @@ func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index
 	}
 
 	params := search.SearchParams{
-		Query:    q,
-		Lat:      lat,
-		Lon:      lon,
-		Radius:   radius,
-		Limit:    limit,
-		From:     from,
-		Langs:    langs,
-		GeoMode:  conf.GeometryMode,
-		Fuzzy:    fuzzy,
-		Prefix:   prefix,
-		Class:    class,
-		Subtype:  subtype,
-		Classes:  classList,
-		Subtypes: subtypeList,
+		Query:       q,
+		Lat:         lat,
+		Lon:         lon,
+		Radius:      radius,
+		Limit:       limit,
+		From:        from,
+		Langs:       langs,
+		GeoMode:     conf.GeometryMode,
+		Fuzzy:       fuzzy,
+		Prefix:      prefix,
+		Class:       class,
+		Subtype:     subtype,
+		Classes:     classList,
+		Subtypes:    subtypeList,
+		Street:      street,
+		HouseNumber: housenumber,
+		Postcode:    postcode,
+		City:        city,
+		Country:     country,
 	}
 
 	res, err := search.Search(index, params)
@@ -323,6 +335,18 @@ func writeTextResponse(w http.ResponseWriter, res *bleve.SearchResult, langs []s
 			if lon, ok := geom["lon"].(float64); ok {
 				fmt.Fprintf(w, "lon: %.5f\n", lon)
 			}
+		}
+
+		// Address fields
+		for _, addrKey := range []string{"addr:housenumber", "addr:street", "addr:city", "addr:postcode", "addr:country", "addr:state", "addr:district", "addr:suburb", "addr:neighbourhood"} {
+			if val, ok := hit.Fields[addrKey].(string); ok && val != "" {
+				fmt.Fprintf(w, "%s: %s\n", addrKey, val)
+			}
+		}
+
+		// Distance (if radius search was used)
+		if dist, ok := hit.Fields["distance_meters"].(int); ok {
+			fmt.Fprintf(w, "distance_meters: %d\n", dist)
 		}
 	}
 

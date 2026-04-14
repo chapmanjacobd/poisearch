@@ -24,8 +24,10 @@ type WikidataImportance struct {
 // WikidataLookup provides a way to look up Wikidata importance scores
 // for OSM objects based on their wikidata tag value.
 type WikidataLookup struct {
-	// qid -> importance score (highest score if multiple entries)
+	// qid -> highest importance score (backward compatible)
 	scores map[string]float64
+	// qid -> lang -> max importance score for that language
+	langScores map[string]map[string]float64
 }
 
 // LoadWikidataImportance loads Wikidata importance scores from a TSV file.
@@ -53,7 +55,8 @@ func LoadWikidataImportance(path string) (*WikidataLookup, error) {
 	}
 
 	lookup := &WikidataLookup{
-		scores: make(map[string]float64),
+		scores:     make(map[string]float64),
+		langScores: make(map[string]map[string]float64),
 	}
 
 	scanner := bufio.NewScanner(reader)
@@ -71,6 +74,7 @@ func LoadWikidataImportance(path string) (*WikidataLookup, error) {
 		}
 
 		// Parse the line
+		lang := strings.TrimSpace(parts[0])
 		wikidataID := strings.TrimSpace(parts[4])
 		if !strings.HasPrefix(wikidataID, "Q") {
 			continue // Skip non-QID entries
@@ -79,9 +83,17 @@ func LoadWikidataImportance(path string) (*WikidataLookup, error) {
 		var importance float64
 		_, _ = fmt.Sscanf(parts[3], "%f", &importance)
 
-		// Store the highest importance for each QID
+		// Store the highest importance for each QID (backward compatible)
 		if existing, ok := lookup.scores[wikidataID]; !ok || importance > existing {
 			lookup.scores[wikidataID] = importance
+		}
+
+		// Store per-language scores
+		if _, ok := lookup.langScores[wikidataID]; !ok {
+			lookup.langScores[wikidataID] = make(map[string]float64)
+		}
+		if existing, ok := lookup.langScores[wikidataID][lang]; !ok || importance > existing {
+			lookup.langScores[wikidataID][lang] = importance
 		}
 	}
 
@@ -102,6 +114,23 @@ func (w *WikidataLookup) GetImportance(qid string) float64 {
 		return score
 	}
 	return 0
+}
+
+// GetImportanceForLang returns the Wikidata importance score for a given QID,
+// preferring the score for the specified language. Falls back to the highest
+// score if the language-specific score is not found.
+func (w *WikidataLookup) GetImportanceForLang(qid, lang string) float64 {
+	if w == nil || w.langScores == nil {
+		return 0
+	}
+	// Try language-specific score first
+	if langScores, ok := w.langScores[qid]; ok {
+		if score, ok := langScores[lang]; ok {
+			return score
+		}
+	}
+	// Fall back to highest score
+	return w.GetImportance(qid)
 }
 
 // Size returns the number of QIDs in the lookup table.
