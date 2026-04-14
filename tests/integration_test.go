@@ -1,4 +1,4 @@
-package search_test
+package tests_test
 
 import (
 	"compress/gzip"
@@ -18,7 +18,7 @@ import (
 )
 
 // Test data directory (shared across tests to avoid re-downloading)
-const testDataDir = "../.."
+const testDataDir = ".."
 
 // DefaultPBF is the default PBF filename used for testing.
 const DefaultPBF = config.DefaultPBF
@@ -85,7 +85,7 @@ func downloadPBF(t *testing.T) string {
 func loadWikidataImportance(t *testing.T) string {
 	t.Helper()
 
-	path := "../../wikimedia-importance-2025-11.csv.gz"
+	path := "../wikimedia-importance-2025-11.csv.gz"
 	if _, err := os.Stat(path); err != nil {
 		t.Logf("wikimedia importance file not found at %s, skipping", path)
 		return ""

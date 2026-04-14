@@ -1,4 +1,4 @@
-package osm_test
+package tests_test
 
 import (
 	"fmt"
@@ -13,14 +13,10 @@ import (
 )
 
 // BenchmarkBuildIndex benchmarks index building with different worker counts.
-// Run with: go test -bench=BenchmarkBuildIndex -benchmem ./internal/osm/
+// Run with: go test -bench=BenchmarkBuildIndex -benchmem ./tests/
 // Each configuration builds a fresh index and reports timing + doc count.
 func BenchmarkBuildIndex(b *testing.B) {
-	// Use Taiwan PBF if available, otherwise fall back to Liechtenstein
-	pbfPath := "../../taiwan-latest.osm.pbf"
-	if _, err := os.Stat(pbfPath); os.IsNotExist(err) {
-		pbfPath = "../../liechtenstein-latest.osm.pbf"
-	}
+	pbfPath := "../liechtenstein-latest.osm.pbf"
 	if _, err := os.Stat(pbfPath); os.IsNotExist(err) {
 		b.Skip("test PBF file not found, skipping")
 	}
@@ -72,7 +68,7 @@ func BenchmarkBuildIndex(b *testing.B) {
 // Run with: go test -race -run TestBuildIndex_ParallelWorkers
 func TestBuildIndex_ParallelWorkers(t *testing.T) {
 	// Skip if test PBF doesn't exist
-	pbfPath := "../../liechtenstein-latest.osm.pbf"
+	pbfPath := "../liechtenstein-latest.osm.pbf"
 	if _, err := os.Stat(pbfPath); os.IsNotExist(err) {
 		t.Skip("test PBF file not found, skipping")
 	}
@@ -120,7 +116,7 @@ func TestBuildIndex_ParallelWorkers(t *testing.T) {
 // and verifies they produce equivalent results.
 func TestBuildIndex_ParallelVsSingle(t *testing.T) {
 	// Skip if test PBF doesn't exist
-	pbfPath := "../../liechtenstein-latest.osm.pbf"
+	pbfPath := "../liechtenstein-latest.osm.pbf"
 	if _, err := os.Stat(pbfPath); os.IsNotExist(err) {
 		t.Skip("test PBF file not found, skipping")
 	}
@@ -186,7 +182,7 @@ func TestBuildIndex_ParallelVsSingle(t *testing.T) {
 // are searchable and return correct results.
 func TestBuildIndex_Parallel_Search(t *testing.T) {
 	// Skip if test PBF doesn't exist
-	pbfPath := "../../liechtenstein-latest.osm.pbf"
+	pbfPath := "../liechtenstein-latest.osm.pbf"
 	if _, err := os.Stat(pbfPath); os.IsNotExist(err) {
 		t.Skip("test PBF file not found, skipping")
 	}

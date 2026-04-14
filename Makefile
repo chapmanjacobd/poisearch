@@ -7,7 +7,7 @@ LIMIT?=10
 
 # Phony targets
 .PHONY: help build install clean \
-        test fmt lint deps \
+        test test-integration fmt lint deps \
         build-index serve search \
         bench bench-spatial bench-text bench-full \
         open clean-index
@@ -22,7 +22,8 @@ help:
 	@echo "  clean              Remove build artifacts"
 	@echo ""
 	@echo "Development:"
-	@echo "  test               Run all unit tests"
+	@echo "  test               Run all unit tests (fast)"
+	@echo "  test-integration   Run integration tests (slow)"
 	@echo "  fmt                Format code and auto-fix issues"
 	@echo "  lint               Run linter"
 	@echo "  deps               Install dev tooling"
@@ -54,6 +55,9 @@ clean:
 # Development
 test:
 	go test ./internal/... ./cmd/... -count=1
+
+test-integration:
+	go test ./tests/... -count=1 -v
 
 fmt:
 	golangci-lint fmt
@@ -107,3 +111,6 @@ bench-text:
 
 bench-full:
 	go run ./cmd/bench -full
+
+bench-slow:
+	go run ./cmd/bench -slow

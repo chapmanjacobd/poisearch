@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -33,6 +34,9 @@ type ModeResult struct {
 }
 
 func main() {
+	slow := flag.Bool("slow", false, "Use larger Taiwan PBF for benchmarking")
+	flag.Parse()
+
 	conf := &config.Config{
 		Languages: []string{"en"},
 		Importance: config.ImportanceWeights{
@@ -51,7 +55,7 @@ func main() {
 
 	// Check if PBF file exists
 	pbf := conf.PBFPath
-	if _, err := os.Stat("taiwan-latest.osm.pbf"); err == nil {
+	if *slow {
 		pbf = "taiwan-latest.osm.pbf"
 		fmt.Printf("Using Taiwan PBF for benchmarking: %s\n", pbf)
 	}

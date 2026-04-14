@@ -92,7 +92,7 @@ func createTestIndexForQuery(t *testing.T) bleve.Index {
 			"class":      doc.class,
 			"subtype":    doc.subtype,
 			"importance": doc.importance,
-			"geometry":   map[string]float64{"lat": doc.lat, "lon": doc.lon},
+			"geometry":   []float64{doc.lon, doc.lat},
 		}
 		if doc.street != "" {
 			data["addr:housenumber"] = doc.housenum
