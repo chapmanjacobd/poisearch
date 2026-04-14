@@ -116,7 +116,7 @@ func TestBuildIndex_ParallelWorkers(t *testing.T) {
 // and verifies they produce equivalent results.
 func TestBuildIndex_ParallelVsSingle(t *testing.T) {
 	// Skip if test PBF doesn't exist
-	pbfPath := "../liechtenstein-latest.osm.pbf"
+	pbfPath := "../taiwan-latest.osm.pbf"
 	if _, err := os.Stat(pbfPath); os.IsNotExist(err) {
 		t.Skip("test PBF file not found, skipping")
 	}

@@ -7,9 +7,9 @@ LIMIT?=10
 
 # Phony targets
 .PHONY: help build install clean \
-        test test-integration fmt lint deps \
+        test integration fmt lint deps \
         build-index serve search \
-        bench bench-spatial bench-text bench-full \
+        bench bench-slow \
         open clean-index
 
 # Default target
@@ -23,7 +23,7 @@ help:
 	@echo ""
 	@echo "Development:"
 	@echo "  test               Run all unit tests (fast)"
-	@echo "  test-integration   Run integration tests (slow)"
+	@echo "  integration        Run integration tests (slow)"
 	@echo "  fmt                Format code and auto-fix issues"
 	@echo "  lint               Run linter"
 	@echo "  deps               Install dev tooling"
@@ -36,10 +36,8 @@ help:
 	@echo "  clean-index        Remove the index directory"
 	@echo ""
 	@echo "Benchmarks:"
-	@echo "  bench              Run all benchmarks"
-	@echo "  bench-spatial      Run spatial search benchmarks"
-	@echo "  bench-text         Run text search benchmarks"
-	@echo "  bench-full         Run full benchmark (build + search)"
+	@echo "  bench              Run benchmarks (analyzer + geometry modes)"
+	@echo "  bench-slow         Run benchmarks with a larger dataset"
 
 # Build & Install
 build:
@@ -56,7 +54,7 @@ clean:
 test:
 	go test ./internal/... ./cmd/... -count=1
 
-test-integration:
+integration:
 	go test ./tests/... -count=1 -v
 
 fmt:
@@ -102,15 +100,6 @@ clean-index:
 # Benchmarks
 bench:
 	go run ./cmd/bench
-
-bench-spatial:
-	go run ./cmd/bench -spatial
-
-bench-text:
-	go run ./cmd/bench -text
-
-bench-full:
-	go run ./cmd/bench -full
 
 bench-slow:
 	go run ./cmd/bench -slow

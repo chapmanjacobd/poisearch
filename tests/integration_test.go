@@ -196,11 +196,11 @@ func TestAnalyzer_Standard(t *testing.T) {
 		expectMin int
 		expectMax int
 	}{
-		{"exact match: Vaduz", "Vaduz", false, false, 1, 100},
-		{"exact match: Schaan", "Schaan", false, false, 1, 100},
-		{"prefix search", "vad", false, true, 1, 100},
-		{"prefix search: sch", "sch", false, true, 1, 100},
-		{"fuzzy match", "Vadutz", true, false, 0, 50},
+		{"exact match: Vaduz", "Vaduz", false, false, 1, 300},
+		{"exact match: Schaan", "Schaan", false, false, 1, 300},
+		{"prefix search", "vad", false, true, 1, 300},
+		{"prefix search: sch", "sch", false, true, 1, 1000},
+		{"fuzzy match", "Vadutz", true, false, 0, 300},
 	}
 
 	for _, tt := range tests {

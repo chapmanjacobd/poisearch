@@ -118,8 +118,7 @@ func runFullBench(pbf string, conf *config.Config) {
 		{"Nodes Only", "geopoint", true, false, false, false},
 		{"Centroids (Simple)", "geopoint-centroid", false, false, false, false},
 		{"Representative Pts", "geopoint", false, false, false, false},
-		{"Simplified Shapes", "geoshape-simplified", false, false, false, false},
-		{"Raw Shapes", "geoshape-full", false, false, false, false},
+		{"Bounding Boxes", "geoshape-bbox", false, false, false, false},
 		{"Raw PBF Scan", "no-geo", false, false, true, false},
 		{"PMTiles Scan", "geopoint", false, false, false, true},
 	}
@@ -136,7 +135,7 @@ func runFullBench(pbf string, conf *config.Config) {
 		city = "Taipei"
 		subtype = "city"
 	}
-	radius := "500m"
+	radius := "1000m"
 	dLat := 0.0045
 	dLon := 0.0066
 	minLat, maxLat := lat-dLat, lat+dLat
@@ -407,7 +406,7 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 	fmt.Println("ANALYZER COMPARISON BENCHMARK")
 	fmt.Println("============================================================")
 
-	analyzers := []string{"standard", "edge_ngram", "ngram", "keyword"}
+	analyzers := []string{"standard", "edge_ngram", "ngram"}
 
 	type AnalyzerResult struct {
 		Name      string
@@ -434,7 +433,7 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 		{"Partial: " + city[:len(city)-1], search.SearchParams{Query: city[:len(city)-1], Limit: 50}},
 		{"Autocomplete: rest", search.SearchParams{Query: "rest", Limit: 50}},
 		{"Short: " + strings.ToLower(city[:2]), search.SearchParams{Query: strings.ToLower(city[:2]), Limit: 50}},
-		{"Geo + Text", search.SearchParams{Query: city, Lat: &lat, Lon: &lon, Radius: "500m", Limit: 50}},
+		{"Geo + Text", search.SearchParams{Query: city, Lat: &lat, Lon: &lon, Radius: "1000m", Limit: 50}},
 	}
 
 	for _, analyzer := range analyzers {
