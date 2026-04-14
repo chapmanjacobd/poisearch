@@ -250,11 +250,11 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 		ont = DefaultOntology()
 	}
 
-	// Build tag filter from config weights for early filtering
-	filter := buildTagFilter(&conf.Importance)
-
 	// Extract entities using codesoap/pbf (optimized with vtprotobuf + parallel decoding)
-	entities, err := pbf.ExtractEntities(inputPath, filter)
+	// Note: We don't use a tag filter here because pbf.Filter uses AND logic across
+	// multiple tag keys, which would exclude all entities. Instead, we extract all
+	// entities and filter them during indexing in buildFeature().
+	entities, err := pbf.ExtractEntities(inputPath, pbf.Filter{})
 	if err != nil {
 		return fmt.Errorf("extracting entities from PBF: %w", err)
 	}
