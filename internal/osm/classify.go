@@ -42,6 +42,9 @@ func ClassifyMulti(
 		"sanitary_dump_station", "service", "shelter_type",
 		"social_facility:for", "surface", "theatre:type",
 		"toilets:access", "tower:type", "aerodrome:type",
+		"vending", "waterway", "water", "artwork_type",
+		"building:use", "clothes", "fuel", "route", "waste",
+		"internet_access", "wheelchair",
 	}
 
 	var results []*Classification
@@ -109,6 +112,16 @@ func ClassifyMulti(
 			}
 		case "railway":
 			if w, ok := weights.Railway[v]; ok {
+				importance = w
+				foundWeight = true
+			}
+		case "waterway":
+			if w, ok := weights.Waterway[v]; ok {
+				importance = w
+				foundWeight = true
+			}
+		case "water":
+			if w, ok := weights.Water[v]; ok {
 				importance = w
 				foundWeight = true
 			}
@@ -282,7 +295,7 @@ func getTypeDefaultImportance(key, value string) float64 {
 		return 1.5
 	case "highway":
 		return 1.0
-	case "historic", "natural":
+	case "historic", "natural", "waterway", "water":
 		return 1.5
 	case "railway":
 		return 1.5
@@ -290,11 +303,11 @@ func getTypeDefaultImportance(key, value string) float64 {
 		return 2.0
 	case "building", "office", "man_made", "craft", "military", "healthcare", "cuisine", "religion":
 		return 1.5
-	case "public_transport", "power", "industrial", "emergency", "attraction", "brewery", "consulate":
+	case "public_transport", "power", "industrial", "emergency", "attraction", "brewery", "consulate", "route", "artwork_type":
 		return 1.2
 	case "aerialway", "bridge", "club", "government", "information", "junction", "residential":
 		return 1.0
-	case "parking", "playground", "ruins", "social_facility", "sport", "studio", "traffic_calming":
+	case "parking", "playground", "ruins", "social_facility", "sport", "studio", "traffic_calming", "vending", "building:use", "clothes", "fuel", "waste", "internet_access", "wheelchair":
 		return 1.0
 	case "castle_type", "crossing", "denomination", "denotation", "diplomatic", "garden:type", "harbour:category", "healthcare:speciality", "military_service", "operator:type", "power_supply", "recycling_type", "sanitary_dump_station", "service", "shelter_type", "social_facility:for", "surface", "theatre:type", "toilets:access", "tower:type", "aerodrome:type":
 		return 0.8

@@ -90,6 +90,8 @@ func BuildIndexMapping(conf *config.Config) mapping.IndexMapping {
 	docMapping.AddFieldMappingsAt("alt_name", nameFieldMapping)
 	docMapping.AddFieldMappingsAt("old_name", nameFieldMapping)
 	docMapping.AddFieldMappingsAt("short_name", nameFieldMapping)
+	docMapping.AddFieldMappingsAt("brand", nameFieldMapping)
+	docMapping.AddFieldMappingsAt("operator", nameFieldMapping)
 
 	for _, lang := range conf.Languages {
 		docMapping.AddFieldMappingsAt("name:"+lang, nameFieldMapping)

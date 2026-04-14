@@ -58,6 +58,8 @@ type ImportanceWeights struct {
 	Historic map[string]float64 `toml:"historic"`
 	Natural  map[string]float64 `toml:"natural"`
 	Railway  map[string]float64 `toml:"railway"`
+	Waterway map[string]float64 `toml:"waterway"`
+	Water    map[string]float64 `toml:"water"`
 	Building map[string]float64 `toml:"building"`
 	Office   map[string]float64 `toml:"office"`
 	ManMade  map[string]float64 `toml:"man_made"`

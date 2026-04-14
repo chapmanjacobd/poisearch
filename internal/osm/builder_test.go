@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/blevesearch/bleve/v2"
 	"github.com/chapmanjacobd/poisearch/internal/config"
 	"github.com/chapmanjacobd/poisearch/internal/search"
 )

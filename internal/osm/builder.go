@@ -495,7 +495,7 @@ func processEntity(
 	}
 
 	if !ctx.conf.DisableAltNames {
-		for _, alt := range []string{"alt_name", "old_name", "short_name"} {
+		for _, alt := range []string{"alt_name", "old_name", "short_name", "brand", "operator"} {
 			if val, ok := tags[alt]; ok {
 				feature.Names[alt] = val
 			}
@@ -706,6 +706,12 @@ type processedItem struct {
 
 // buildIndexParallel builds an index using multiple workers for entity processing.
 //
+// Architecture:
+//   Producer (PBF scanner) → workChan → Workers (classify + geometry) → resultChan → Collector (batch writes to index)
+//
+// Each worker gets its own GEOS context for thread safety. The collector is the ONLY
+// goroutine that writes to the Bleve index, avoiding concurrency issues.
+//
 //nolint:funlen,cyclop // Multi-threaded building requires coordinating channels, workers, and batching
 func buildIndexParallel(inputPath string, conf *config.Config, index bleve.Index, workers int) error {
 	slog.Info("building index with parallel workers", "path", conf.IndexPath, "input", inputPath, "workers", workers)
@@ -743,7 +749,7 @@ func buildIndexParallel(inputPath string, conf *config.Config, index bleve.Index
 	// Channels for work distribution
 	// Buffer size = workers * 100 to provide adequate pipeline depth
 	workChan := make(chan *workItem, workers*100)
-	resultChan := make(chan *processedItem, 500)
+	resultChan := make(chan *processedItem, workers*100)
 
 	// Create a cancellable context for workers
 	ctx, cancel := context.WithCancel(context.Background())
@@ -758,58 +764,61 @@ func buildIndexParallel(inputPath string, conf *config.Config, index bleve.Index
 			// Each worker gets its own GEOS context for thread safety
 			workerGeosCtx := geos.NewContext()
 
-			workerEctx := &entityContext{
-				conf:      conf,
-				index:     index,
-				wdLookup:  wdLookup,
-				ont:       ont,
-				geosCtx:   workerGeosCtx,
-				batch:     nil, // Workers don't use batches directly
-				geoMode:   GeometryMode(conf.GeometryMode),
-				batchSize: 0,
-			}
-
-			for {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case item, ok := <-workChan:
-					if !ok {
-						return nil // Channel closed, worker exits
-					}
-
-					// Process entity - workers index directly into a thread-local batch
-					// For simplicity in this initial implementation, workers use their own batches
-					localBatch := index.NewBatch()
-					workerEctx.batch = localBatch
-
-					ok, err := processEntity(workerEctx, item.Type, parseEntityID(item.ID), item.Tags, item.Coords)
-					if err != nil {
-						return fmt.Errorf("worker %d error processing %s: %w", workerID, item.ID, err)
-					}
-
-					if ok {
-						// Flush worker's batch to index
-						if localBatch.Size() > 0 {
-							if err := index.Batch(localBatch); err != nil {
-								return fmt.Errorf("worker %d batch write error: %w", workerID, err)
-							}
-						}
-						resultChan <- &processedItem{ID: item.ID}
-					}
-				}
-			}
+			// Workers return feature data, they DO NOT write to the index directly
+			// (Bleve is not thread-safe for concurrent writes)
+			return processWorker(ctx, workerID, workChan, resultChan, conf, wdLookup, ont, workerGeosCtx)
 		})
 	}
 
-	// Start result counter goroutine
-	var processedCount int64
-	var countMu sync.Mutex
+	// Start collector goroutine (SINGLE writer to the index)
+	var collectorErr error
+	var collectorMu sync.Mutex
+	var collectorWg sync.WaitGroup
+	collectorWg.Add(1)
+
 	go func() {
-		for range resultChan {
-			countMu.Lock()
-			processedCount++
-			countMu.Unlock()
+		defer collectorWg.Done()
+
+		batch := index.NewBatch()
+		batchSize := 500
+		count := 0
+		skipped := 0
+
+		for item := range resultChan {
+			if item.Feature != nil {
+				// Index the feature in the collector's batch
+				if err := batch.Index(item.ID, item.Feature); err != nil {
+					collectorMu.Lock()
+					collectorErr = fmt.Errorf("collector batch index error: %w", err)
+					collectorMu.Unlock()
+					cancel() // Cancel workers on error
+					return
+				}
+				count++
+
+				// Flush batch when it reaches the limit
+				if count%batchSize == 0 {
+					if err := index.Batch(batch); err != nil {
+						collectorMu.Lock()
+						collectorErr = fmt.Errorf("collector batch write error: %w", err)
+						collectorMu.Unlock()
+						cancel() // Cancel workers on error
+						return
+					}
+					batch = index.NewBatch()
+				}
+			} else {
+				skipped++
+			}
+		}
+
+		// Flush remaining batch
+		if batch.Size() > 0 {
+			if err := index.Batch(batch); err != nil {
+				collectorMu.Lock()
+				collectorErr = fmt.Errorf("collector final batch write error: %w", err)
+				collectorMu.Unlock()
+			}
 		}
 	}()
 
@@ -829,7 +838,7 @@ func buildIndexParallel(inputPath string, conf *config.Config, index bleve.Index
 
 	// Producer: scan objects and distribute to workers
 	totalScanned := 0
-	skipped := 0
+	scannerSkipped := 0
 	logInterval := 50000
 
 	for scanner.Scan() {
@@ -845,7 +854,7 @@ func buildIndexParallel(inputPath string, conf *config.Config, index bleve.Index
 
 			tags := o.TagMap()
 			if len(tags) == 0 {
-				skipped++
+				scannerSkipped++
 				continue
 			}
 			item = &workItem{
@@ -858,7 +867,7 @@ func buildIndexParallel(inputPath string, conf *config.Config, index bleve.Index
 		case *osmapi.Way:
 			tags := o.TagMap()
 			if len(tags) == 0 {
-				skipped++
+				scannerSkipped++
 				continue
 			}
 			coords := make([][]float64, 0, len(o.Nodes))
@@ -870,7 +879,7 @@ func buildIndexParallel(inputPath string, conf *config.Config, index bleve.Index
 				}
 			}
 			if len(coords) < 2 {
-				skipped++
+				scannerSkipped++
 				continue
 			}
 			item = &workItem{
@@ -883,7 +892,7 @@ func buildIndexParallel(inputPath string, conf *config.Config, index bleve.Index
 		case *osmapi.Relation:
 			tags := o.TagMap()
 			if len(tags) == 0 {
-				skipped++
+				scannerSkipped++
 				continue
 			}
 			// Get first member node coordinate as representative point
@@ -902,7 +911,7 @@ func buildIndexParallel(inputPath string, conf *config.Config, index bleve.Index
 				}
 			}
 			if len(coords) == 0 {
-				skipped++
+				scannerSkipped++
 				continue
 			}
 			item = &workItem{
@@ -916,21 +925,16 @@ func buildIndexParallel(inputPath string, conf *config.Config, index bleve.Index
 		if item != nil {
 			workChan <- item
 		} else {
-			skipped++
+			scannerSkipped++
 		}
 
 		if totalScanned%logInterval == 0 {
-			countMu.Lock()
-			pCount := processedCount
-			countMu.Unlock()
 			slog.Info(
 				"indexing progress",
 				"scanned",
 				totalScanned,
-				"processed",
-				pCount,
-				"skipped",
-				skipped,
+				"skipped_by_scanner",
+				scannerSkipped,
 			)
 		}
 	}
@@ -941,20 +945,223 @@ func buildIndexParallel(inputPath string, conf *config.Config, index bleve.Index
 	// Wait for workers to finish
 	if err := g.Wait(); err != nil {
 		cancel()
+		// Drain result channel to unblock collector
+		go func() { for range resultChan {} }()
 		return err
 	}
 
-	// Close result channel to signal counter to exit
+	// Close result channel to signal collector to exit
 	close(resultChan)
+
+	// Wait for collector to finish
+	collectorWg.Wait()
 
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("PBF scan error: %w", err)
 	}
 
-	countMu.Lock()
-	defer countMu.Unlock()
-	slog.Info("Finished!", "processed", processedCount, "skipped", skipped)
+	collectorMu.Lock()
+	defer collectorMu.Unlock()
+
+	if collectorErr != nil {
+		return collectorErr
+	}
+
+	slog.Info("Finished!", "scanned", totalScanned, "skipped", scannerSkipped)
 	return nil
+}
+
+// processWorker is a worker goroutine that processes entities and sends results to resultChan.
+// Each worker has its own GEOS context for thread safety.
+//
+//nolint:funlen,cyclop // Worker processing requires many entity type and classification cases
+func processWorker(
+	ctx context.Context,
+	workerID int,
+	workChan <-chan *workItem,
+	resultChan chan<- *processedItem,
+	conf *config.Config,
+	wdLookup *WikidataLookup,
+	ont *PlaceTypeOntology,
+	geosCtx *geos.Context,
+) error {
+	for {
+		select {
+		case <-ctx.Done():
+			// Drain remaining work items to unblock producer
+			go func() { for range workChan {} }()
+			return ctx.Err()
+		case item, ok := <-workChan:
+			if !ok {
+				return nil // Channel closed, worker exits
+			}
+
+			// Classify entity
+			classifications := ClassifyMulti(item.Tags, &conf.Importance, ont)
+			if len(classifications) == 0 {
+				resultChan <- &processedItem{ID: item.ID} // Signal processed but skipped
+				continue
+			}
+
+			// Check --only-named filter
+			if conf.OnlyNamed {
+				hasName := item.Tags["name"] != ""
+				if !hasName {
+					for _, alt := range []string{"alt_name", "old_name", "short_name"} {
+						if item.Tags[alt] != "" {
+							hasName = true
+							break
+						}
+					}
+					if !hasName {
+						for _, lang := range conf.Languages {
+							if item.Tags["name:"+lang] != "" {
+								hasName = true
+								break
+							}
+						}
+					}
+				}
+				if !hasName {
+					resultChan <- &processedItem{ID: item.ID} // Signal processed but skipped
+					continue
+				}
+			}
+
+			// Find best classification by importance with tie-breaking
+			best := classifications[0]
+			for _, c := range classifications[1:] {
+				if c.Importance > best.Importance {
+					best = c
+				} else if c.Importance == best.Importance {
+					if c.OntLevel > best.OntLevel {
+						best = c
+					} else if c.OntLevel == best.OntLevel {
+						cPop := parsePopulation(item.Tags)
+						bestPop := parsePopulationForClassification(best.Class, best.Subtype, item.Tags)
+						if cPop > bestPop {
+							best = c
+						}
+					}
+				}
+			}
+
+			// Apply Wikidata importance boost (language-aware)
+			if wdLookup != nil && item.Tags["wikidata"] != "" {
+				primaryLang := ""
+				if len(conf.Languages) > 0 {
+					primaryLang = conf.Languages[0]
+				}
+				for _, lang := range conf.Languages {
+					if _, ok := item.Tags["name:"+lang]; ok {
+						primaryLang = lang
+						break
+					}
+				}
+				var wdImportance float64
+				if primaryLang != "" {
+					wdImportance = wdLookup.GetImportanceForLang(item.Tags["wikidata"], primaryLang)
+				} else {
+					wdImportance = wdLookup.GetImportance(item.Tags["wikidata"])
+				}
+				if wdImportance > 0 {
+					best.Importance += wdImportance * 10.0
+				}
+			}
+
+			// Build geometry
+			var geom any
+			geoMode := GeometryMode(conf.GeometryMode)
+			if geoMode != ModeNoGeo {
+				var err error
+				geom, err = createGeometryFromCoords(item.Coords, geoMode, conf.SimplificationTol, geosCtx)
+				if err != nil {
+					slog.Debug("worker skipping entity (bad geometry)", "id", item.ID, "error", err)
+					resultChan <- &processedItem{ID: item.ID} // Signal processed but skipped
+					continue
+				}
+			}
+
+			// Build feature
+			feature := &search.Feature{
+				ID:         item.ID,
+				Name:       item.Tags["name"],
+				Names:      make(map[string]string),
+				Importance: best.Importance,
+				Geometry:   geom,
+				Class:      best.Class,
+				Subtype:    best.Subtype,
+			}
+
+			if conf.DisableImportance {
+				feature.Importance = 0
+			}
+
+			if !conf.DisableClassSubtype {
+				classes := make([]string, len(classifications))
+				subtypes := make([]string, len(classifications))
+				for i, c := range classifications {
+					classes[i] = c.Class
+					subtypes[i] = c.Subtype
+				}
+				feature.Classes = classes
+				feature.Subtypes = subtypes
+			}
+
+			if !conf.DisableAltNames {
+				for _, alt := range []string{"alt_name", "old_name", "short_name"} {
+					if val, ok := item.Tags[alt]; ok {
+						feature.Names[alt] = val
+					}
+				}
+				for _, lang := range conf.Languages {
+					if name, ok := item.Tags["name:"+lang]; ok {
+						feature.Names["name:"+lang] = name
+					}
+					for _, alt := range []string{"alt_name", "old_name", "short_name"} {
+						if val, ok := item.Tags[alt+":"+lang]; ok {
+							feature.Names[alt+":"+lang] = val
+						}
+					}
+				}
+			} else {
+				for _, lang := range conf.Languages {
+					if name, ok := item.Tags["name:"+lang]; ok {
+						feature.Names["name:"+lang] = name
+					}
+				}
+			}
+
+			// Extract address fields when configured
+			if conf.StoreAddress {
+				feature.Address = make(map[string]string)
+				addrKeys := []string{
+					"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
+					"addr:country", "addr:state", "addr:district", "addr:suburb",
+					"addr:neighbourhood",
+				}
+				for _, k := range addrKeys {
+					if val, ok := item.Tags[k]; ok {
+						feature.Address[k] = val
+					}
+				}
+			}
+
+			// Attach Wikidata redirect titles as alternate names when configured
+			if conf.IndexWikidataRedirects && wdLookup != nil && item.Tags["wikidata"] != "" {
+				redirects := wdLookup.GetRedirects(item.Tags["wikidata"])
+				if len(redirects) > 0 {
+					feature.WikidataRedirects = redirects
+				}
+			}
+
+			// Send feature to collector (single index writer)
+			resultChan <- &processedItem{
+				ID:      item.ID,
+				Feature: search.FeatureToMap(feature),
+			}
+		}
+	}
 }
 
 func parseEntityID(id string) int64 {
