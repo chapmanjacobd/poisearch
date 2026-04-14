@@ -73,86 +73,86 @@ INDEX SIZE COMPARISON
 Scenario             Index Size      Build Time     
 ------------------------------------------------------------
 Raw PBF Scan         0 B (Live)      0s             
-Leanest Mode         597.65 KB       287.44387ms    
-No Geo               8.42 MB         3.601639024s   
-Nodes Only           24.91 MB        3.674730788s   
-Centroids (Simple)   51.85 MB        8.47519133s    
-Representative Pts   51.86 MB        8.946382771s   
-Simplified Shapes    98.51 MB        16.078916108s  
-Raw Shapes           172.03 MB       28.295371387s  
+Leanest Mode         46.16 MB        49.567996263s  
+No Geo               451.21 MB       3m57.919401728s
+Nodes Only           658.99 MB       2m38.849800352s
+Centroids (Simple)   2.84 GB         10m36.071305177s
+Representative Pts   3.78 GB         10m34.130749293s
+Simplified Shapes    6.90 GB         17m19.027871599s
+Raw Shapes           11.64 GB        29m55.698060575s
 
 ============================================================
 FULL PERFORMANCE REPORT (Sorted by Latency)
 ============================================================
 Spatial Mode         Scenario                  Avg Latency     Results   
 --------------------------------------------------------------------------------
-Simplified Shapes    Subtype Filter            123.362µs       1         
-Representative Pts   Subtype Filter            128.686µs       1         
-No Geo               Subtype Filter            132.133µs       1         
-Nodes Only           Subtype Filter            134.599µs       1         
-Representative Pts   Class Filter              143.934µs       1         
-Simplified Shapes    Class Filter              154.851µs       1         
-No Geo               Class Filter              159.341µs       1         
-Centroids (Simple)   Class Filter              167.487µs       1         
-Centroids (Simple)   Subtype Filter            168.004µs       1         
-Nodes Only           Class Filter              169.668µs       1         
-Raw Shapes           Class Filter              252.157µs       1         
-Raw Shapes           Subtype Filter            296.575µs       1         
-Nodes Only           Combined (Fuzzy+Class)    443.684µs       1         
-Representative Pts   Combined (Fuzzy+Class)    466.319µs       1         
-Leanest Mode         Prefix Search             508.938µs       76        
-Centroids (Simple)   Combined (Fuzzy+Class)    559.761µs       1         
-Leanest Mode         Basic Search              575.647µs       75        
-No Geo               Combined (Fuzzy+Class)    607.555µs       1         
-Simplified Shapes    Combined (Fuzzy+Class)    695.55µs        1         
-Raw Shapes           Combined (Fuzzy+Class)    717.852µs       1         
-Nodes Only           Tourism Search            837.819µs       7         
-Leanest Mode         Fuzzy Search              844.459µs       75        
-Nodes Only           Shop Search               911.126µs       10        
-Raw Shapes           Shop Search               930.886µs       10        
-No Geo               Shop Search               1.107923ms      10        
-Representative Pts   Shop Search               1.12361ms       10        
-Centroids (Simple)   Shop Search               1.155232ms      10        
-Nodes Only           Basic Search              1.171612ms      75        
-Nodes Only           Prefix Search             1.310296ms      76        
-No Geo               Basic Search              1.337302ms      89        
-Representative Pts   Basic Search              1.442349ms      89        
-Centroids (Simple)   Basic Search              1.487313ms      89        
-Nodes Only           Fuzzy Search              1.523809ms      75        
-No Geo               Tourism Search            1.532217ms      12        
-Simplified Shapes    Shop Search               1.538597ms      10        
-Simplified Shapes    Basic Search              1.552882ms      89        
-Centroids (Simple)   Prefix Search             1.554016ms      91        
-Raw Shapes           Tourism Search            1.567485ms      12        
-Representative Pts   Prefix Search             1.661566ms      91        
-Representative Pts   Tourism Search            1.72343ms       12        
-No Geo               Prefix Search             1.725116ms      91        
-Centroids (Simple)   Tourism Search            1.737626ms      12        
-Simplified Shapes    Prefix Search             1.782176ms      91        
-Raw Shapes           Basic Search              1.792211ms      89        
-No Geo               Fuzzy Search              1.819328ms      89        
-Simplified Shapes    Tourism Search            1.860884ms      12        
-Centroids (Simple)   Fuzzy Search              1.884145ms      89        
-Representative Pts   Fuzzy Search              2.006007ms      89        
-Raw Shapes           Fuzzy Search              2.060387ms      89        
-Raw Shapes           Prefix Search             2.151269ms      91        
-Simplified Shapes    Fuzzy Search              2.274356ms      89        
-Nodes Only           BBox Search               5.826544ms      847       
-Nodes Only           Radius Search             6.131946ms      795       
-Representative Pts   Radius Search             13.179091ms     1568      
-Representative Pts   BBox Search               13.263214ms     1699      
-Centroids (Simple)   Radius Search             13.667876ms     1568      
-Centroids (Simple)   BBox Search               14.836913ms     1700      
-Raw Shapes           Radius Search             56.910012ms     795       
-Raw Shapes           BBox Search               59.127678ms     849       
-Simplified Shapes    Radius Search             62.489907ms     795       
-Simplified Shapes    BBox Search               63.567435ms     849       
-Raw PBF Scan         Fuzzy Search              93.932178ms     50        
-Raw PBF Scan         Prefix Search             96.419006ms     50        
-Raw PBF Scan         Basic Search              108.111482ms    50        
-Raw PBF Scan         Class Filter              179.138219ms    1         
-Raw PBF Scan         Combined (Fuzzy+Class)    186.359287ms    1         
-Raw PBF Scan         Tourism Search            194.737782ms    12        
-Raw PBF Scan         Shop Search               204.354257ms    10        
-Raw PBF Scan         Subtype Filter            212.331429ms    1
+No Geo               Subtype Filter            143.581µs       1         
+No Geo               Class Filter              201.333µs       1         
+Nodes Only           Subtype Filter            307.924µs       1         
+Nodes Only           Class Filter              423.251µs       1         
+Centroids (Simple)   Class Filter              753.774µs       1         
+Centroids (Simple)   Subtype Filter            853.026µs       1         
+Leanest Mode         Basic Search              1.562036ms      27        
+No Geo               Basic Search              1.852116ms      34        
+Raw Shapes           Subtype Filter            2.078714ms      1         
+Simplified Shapes    Subtype Filter            2.396946ms      1         
+No Geo               Combined (Fuzzy+Class)    2.437399ms      1         
+Nodes Only           Basic Search              2.483766ms      29        
+Representative Pts   Class Filter              2.487816ms      1         
+Simplified Shapes    Class Filter              2.688007ms      1         
+Leanest Mode         Fuzzy Search              2.778503ms      28        
+Representative Pts   Subtype Filter            2.841368ms      1         
+Nodes Only           Combined (Fuzzy+Class)    2.859872ms      1         
+Raw Shapes           Class Filter              3.337324ms      1         
+Leanest Mode         Prefix Search             3.648398ms      79        
+No Geo               Fuzzy Search              3.936231ms      35        
+Centroids (Simple)   Basic Search              4.087775ms      34        
+Centroids (Simple)   Combined (Fuzzy+Class)    4.4986ms        1         
+No Geo               Prefix Search             4.945575ms      100       
+Nodes Only           Prefix Search             5.250877ms      82        
+Nodes Only           Fuzzy Search              5.286691ms      30        
+Simplified Shapes    Combined (Fuzzy+Class)    8.053996ms      1         
+Raw Shapes           Combined (Fuzzy+Class)    8.438246ms      1         
+Centroids (Simple)   Fuzzy Search              9.605673ms      35        
+Representative Pts   Combined (Fuzzy+Class)    10.083315ms     1         
+Centroids (Simple)   Prefix Search             11.204238ms     100       
+Representative Pts   Basic Search              13.104646ms     34        
+Simplified Shapes    Basic Search              13.854146ms     34        
+Raw Shapes           Basic Search              14.756091ms     34        
+Simplified Shapes    Fuzzy Search              18.180638ms     35        
+Raw Shapes           Fuzzy Search              19.080597ms     35        
+Nodes Only           Tourism Search            21.747755ms     217       
+Representative Pts   Fuzzy Search              22.151011ms     35        
+Simplified Shapes    Prefix Search             25.266027ms     100       
+Raw Shapes           Prefix Search             25.361401ms     100       
+Representative Pts   Prefix Search             30.285847ms     100       
+Nodes Only           Shop Search               31.138671ms     1324      
+Nodes Only           Radius Search             53.149121ms     844       
+Nodes Only           BBox Search               55.72345ms      1587      
+No Geo               Tourism Search            73.602324ms     686       
+No Geo               Shop Search               74.750505ms     1372      
+Centroids (Simple)   Shop Search               74.788932ms     1372      
+Centroids (Simple)   Tourism Search            77.13065ms      686       
+Simplified Shapes    Tourism Search            78.75498ms      686       
+Raw Shapes           Tourism Search            79.475003ms     686       
+Simplified Shapes    Shop Search               81.912879ms     1372      
+Representative Pts   Shop Search               84.685353ms     1372      
+Raw Shapes           Shop Search               84.942183ms     1372      
+Representative Pts   Tourism Search            87.258609ms     686       
+Centroids (Simple)   Radius Search             141.583718ms    2123      
+Representative Pts   Radius Search             143.260187ms    2120      
+Representative Pts   BBox Search               149.006299ms    3748      
+Centroids (Simple)   BBox Search               151.724382ms    3751      
+Raw PBF Scan         Prefix Search             386.528528ms    50        
+Raw PBF Scan         Basic Search              917.914739ms    50        
+Raw PBF Scan         Fuzzy Search              945.902616ms    50        
+Raw PBF Scan         Shop Search               988.367008ms    50        
+Simplified Shapes    Radius Search             1.188982764s    851       
+Raw Shapes           Radius Search             1.192380895s    851       
+Raw Shapes           BBox Search               1.249605957s    1594      
+Simplified Shapes    BBox Search               1.294085988s    1594      
+Raw PBF Scan         Tourism Search            3.124730713s    50        
+Raw PBF Scan         Class Filter              40.904285701s   4         
+Raw PBF Scan         Combined (Fuzzy+Class)    42.035228417s   4         
+Raw PBF Scan         Subtype Filter            42.24231031s    2
 ```

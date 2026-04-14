@@ -1,4 +1,4 @@
-package api
+package api_test
 
 import (
 	"encoding/json"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/mapping"
+	"github.com/chapmanjacobd/poisearch/internal/api"
 	"github.com/chapmanjacobd/poisearch/internal/config"
 )
 
@@ -18,7 +19,7 @@ func setupTestHandler(t *testing.T, index bleve.Index, conf *config.Config) *htt
 	t.Helper()
 
 	mux := http.NewServeMux()
-	RegisterHandlers(mux, index, conf)
+	api.RegisterHandlers(mux, index, conf)
 	return httptest.NewServer(mux)
 }
 
@@ -106,31 +107,31 @@ func TestHandler_Pagination(t *testing.T) {
 	defer server.Close()
 
 	tests := []struct {
-		name         string
-		url          string
-		expectMin    int
-		expectMax    int
-		expectFrom   int
+		name       string
+		url        string
+		expectMin  int
+		expectMax  int
+		expectFrom int
 	}{
 		{
-			name:      "first page no offset",
-			url:       "/search?q=restaurant&limit=2&from=0",
-			expectMin: 0,
-			expectMax: 2,
+			name:       "first page no offset",
+			url:        "/search?q=restaurant&limit=2&from=0",
+			expectMin:  0,
+			expectMax:  2,
 			expectFrom: 0,
 		},
 		{
-			name:      "second page with offset",
-			url:       "/search?q=&limit=2&from=2",
-			expectMin: 0,
-			expectMax: 2,
+			name:       "second page with offset",
+			url:        "/search?q=&limit=2&from=2",
+			expectMin:  0,
+			expectMax:  2,
 			expectFrom: 2,
 		},
 		{
-			name:      "third page beyond results",
-			url:       "/search?q=&limit=2&from=10",
-			expectMin: 0,
-			expectMax: 0,
+			name:       "third page beyond results",
+			url:        "/search?q=&limit=2&from=10",
+			expectMin:  0,
+			expectMax:  0,
 			expectFrom: 10,
 		},
 	}
@@ -239,15 +240,15 @@ func TestHandler_AddressSearch(t *testing.T) {
 		description string
 	}{
 		{
-			name:      "search by housenumber",
-			url:       "/search?&housenumber=123",
-			expectMin: 1,
+			name:        "search by housenumber",
+			url:         "/search?&housenumber=123",
+			expectMin:   1,
 			description: "Should find 1 POI with housenumber 123",
 		},
 		{
-			name:      "search by non-existent address",
-			url:       "/search?&street=NonExistent",
-			expectMin: 0,
+			name:        "search by non-existent address",
+			url:         "/search?&street=NonExistent",
+			expectMin:   0,
 			description: "Should find 0 POIs",
 		},
 	}
@@ -345,7 +346,7 @@ func TestHandler_QueryParameterParsing(t *testing.T) {
 	}{
 		{
 			name:        "fuzzy search",
-			url:         "/search?q=resturant&fuzzy=true",
+			url:         "/search?q=restaurant&fuzzy=true",
 			description: "Should handle fuzzy=true parameter",
 		},
 		{
@@ -414,7 +415,7 @@ func TestHandler_Registration(t *testing.T) {
 
 	// Test RegisterHandlers (without PBF)
 	mux := http.NewServeMux()
-	RegisterHandlers(mux, index, conf)
+	api.RegisterHandlers(mux, index, conf)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
@@ -426,7 +427,7 @@ func TestHandler_Registration(t *testing.T) {
 
 	// Test RegisterHandlersWithPBF (with empty PBF path)
 	mux2 := http.NewServeMux()
-	RegisterHandlersWithPBF(mux2, index, conf, "", nil)
+	api.RegisterHandlersWithPBF(mux2, index, conf, "", nil)
 
 	req2 := httptest.NewRequest(http.MethodGet, "/search?q=test", nil)
 	rec2 := httptest.NewRecorder()

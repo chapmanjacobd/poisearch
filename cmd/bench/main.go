@@ -190,7 +190,10 @@ func runFullBench(pbf string, conf *config.Config) {
 		}{
 			{"Basic Search", search.SearchParams{Query: city, GeoMode: s.Mode, Limit: 50}},
 			{"Fuzzy Search", search.SearchParams{Query: city[:len(city)-1], Fuzzy: true, GeoMode: s.Mode, Limit: 50}},
-			{"Prefix Search", search.SearchParams{Query: strings.ToLower(city[:3]), Prefix: true, GeoMode: s.Mode, Limit: 50}},
+			{
+				"Prefix Search",
+				search.SearchParams{Query: strings.ToLower(city[:3]), Prefix: true, GeoMode: s.Mode, Limit: 50},
+			},
 		}
 
 		if !conf.DisableClassSubtype {

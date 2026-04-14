@@ -1,4 +1,4 @@
-package osm
+package osm_test
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/chapmanjacobd/poisearch/internal/config"
+	"github.com/chapmanjacobd/poisearch/internal/osm"
 	"github.com/chapmanjacobd/poisearch/internal/search"
 )
 
@@ -32,11 +33,11 @@ func BenchmarkBuildIndex(b *testing.B) {
 			indexPath := filepath.Join(tmpDir, "test.bleve")
 
 			conf := &config.Config{
-				IndexPath:     indexPath,
-				Languages:     []string{"en"},
-				GeometryMode:  "geopoint",
-				NameAnalyzer:  "standard",
-				BuildWorkers:  workers,
+				IndexPath:    indexPath,
+				Languages:    []string{"en"},
+				GeometryMode: "geopoint",
+				NameAnalyzer: "standard",
+				BuildWorkers: workers,
 			}
 
 			mapping := search.BuildIndexMapping(conf)
@@ -48,7 +49,7 @@ func BenchmarkBuildIndex(b *testing.B) {
 
 			start := time.Now()
 
-			err = BuildIndex(pbfPath, conf, index)
+			err = osm.BuildIndex(pbfPath, conf, index)
 			if err != nil {
 				b.Fatalf("BuildIndex failed: %v", err)
 			}
@@ -82,11 +83,11 @@ func TestBuildIndex_ParallelWorkers(t *testing.T) {
 
 	// Create index mapping
 	conf := &config.Config{
-		IndexPath:     indexPath,
-		Languages:     []string{"en"},
-		GeometryMode:  "geopoint",
-		NameAnalyzer:  "standard",
-		BuildWorkers:  2, // Use 2 workers for parallel test
+		IndexPath:    indexPath,
+		Languages:    []string{"en"},
+		GeometryMode: "geopoint",
+		NameAnalyzer: "standard",
+		BuildWorkers: 2, // Use 2 workers for parallel test
 	}
 
 	mapping := search.BuildIndexMapping(conf)
@@ -97,7 +98,7 @@ func TestBuildIndex_ParallelWorkers(t *testing.T) {
 	defer index.Close()
 
 	// Build index with parallel workers
-	err = BuildIndex(pbfPath, conf, index)
+	err = osm.BuildIndex(pbfPath, conf, index)
 	if err != nil {
 		t.Fatalf("BuildIndex failed: %v", err)
 	}
@@ -125,7 +126,7 @@ func TestBuildIndex_ParallelVsSingle(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name   string
+		name    string
 		workers int
 	}{
 		{"single_worker", 1},
@@ -141,11 +142,11 @@ func TestBuildIndex_ParallelVsSingle(t *testing.T) {
 			indexPath := filepath.Join(tmpDir, "test.bleve")
 
 			conf := &config.Config{
-				IndexPath:     indexPath,
-				Languages:     []string{"en"},
-				GeometryMode:  "geopoint",
-				NameAnalyzer:  "standard",
-				BuildWorkers:  tc.workers,
+				IndexPath:    indexPath,
+				Languages:    []string{"en"},
+				GeometryMode: "geopoint",
+				NameAnalyzer: "standard",
+				BuildWorkers: tc.workers,
 			}
 
 			mapping := search.BuildIndexMapping(conf)
@@ -155,7 +156,7 @@ func TestBuildIndex_ParallelVsSingle(t *testing.T) {
 			}
 
 			start := time.Now()
-			err = BuildIndex(pbfPath, conf, index)
+			err = osm.BuildIndex(pbfPath, conf, index)
 			elapsed := time.Since(start)
 			if err != nil {
 				index.Close()
@@ -194,11 +195,11 @@ func TestBuildIndex_Parallel_Search(t *testing.T) {
 	indexPath := filepath.Join(tmpDir, "test.bleve")
 
 	conf := &config.Config{
-		IndexPath:     indexPath,
-		Languages:     []string{"en"},
-		GeometryMode:  "geopoint",
-		NameAnalyzer:  "standard",
-		BuildWorkers:  2,
+		IndexPath:    indexPath,
+		Languages:    []string{"en"},
+		GeometryMode: "geopoint",
+		NameAnalyzer: "standard",
+		BuildWorkers: 2,
 	}
 
 	mapping := search.BuildIndexMapping(conf)
@@ -209,16 +210,16 @@ func TestBuildIndex_Parallel_Search(t *testing.T) {
 	defer index.Close()
 
 	// Build index with parallel workers
-	err = BuildIndex(pbfPath, conf, index)
+	err = osm.BuildIndex(pbfPath, conf, index)
 	if err != nil {
 		t.Fatalf("BuildIndex failed: %v", err)
 	}
 
 	// Perform a search query
 	params := search.SearchParams{
-		Query:   "Vaduz", // Capital of Liechtenstein
-		Limit:   10,
-		Langs:   []string{"en"},
+		Query: "Vaduz", // Capital of Liechtenstein
+		Limit: 10,
+		Langs: []string{"en"},
 	}
 
 	results, err := search.Search(index, params)

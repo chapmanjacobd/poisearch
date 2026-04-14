@@ -143,8 +143,8 @@ fr	r	Tour_de_Paris	0.7	Q243
 
 	// Verify specific redirects
 	expectedRedirects := map[string]bool{
-		"Berlin's_Gate":    true,
-		"Brandenberg_Gate": true,
+		"Berlin's_Gate":     true,
+		"Brandenberg_Gate":  true,
 		"Brandenburger_Tor": true,
 	}
 

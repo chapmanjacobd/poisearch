@@ -1,10 +1,6 @@
 package search
 
-import (
-	// "math" // Reserved for future use
-
-	"github.com/blevesearch/bleve/v2/search"
-)
+// "math" // Reserved for future use
 
 // ScorePenalty represents a penalty/bonus to apply to a search result's score.
 // Inspired by Nominatim's penalty-based ranking system.
@@ -129,6 +125,7 @@ func adjustScore(score float64, hit *search.DocumentMatch, params SearchParams, 
 }
 */
 
+/*
 // extractDistanceFromHit extracts the distance from a search hit.
 func extractDistanceFromHit(hit *search.DocumentMatch) float64 {
 	if hit == nil {
@@ -159,3 +156,4 @@ func extractImportanceFromHit(hit *search.DocumentMatch) float64 {
 
 	return 0
 }
+*/

@@ -17,31 +17,16 @@ import (
 	"github.com/twpayne/go-geos"
 )
 
-// nanodegree converts a float64 coordinate to int64 nanodegrees
-func nanodegree(f float64) int64 {
-	return int64(1_000_000_000 * f)
+type spatialFilter struct {
+	hasRadius, hasBbox             bool
+	radiusMeters                   int
+	minLat, maxLat, minLon, maxLon int64
 }
 
-// computeDistanceMeters returns the approximate distance in meters between two points
-func computeDistanceMeters(lat1, lon1, lat2, lon2 float64) int {
-	y := (lat2 - lat1) * 111_000
-	x := (lon2 - lon1) * 6_367_000 * math.Cos(lat1*math.Pi/180) * math.Pi / 180
-	return int(math.Sqrt(float64(y*y + x*x)))
-}
-
-// parseRadiusToInt extracts the numeric meter value from a radius string like "1000m"
-func parseRadiusToInt(radius string) int {
-	radius = strings.TrimSuffix(radius, "m")
-	radius = strings.TrimSuffix(radius, "M")
-	var result int
-	_, _ = fmt.Sscanf(radius, "%d", &result)
-	return result
-}
-
-// PBFSearch performs direct PBF search without using a pre-built index.
-// Uses paulmach/osm streaming scanner for low-memory, fast parsing.
+// PBFSearch performs a search directly on an OSM PBF file without using a Bleve index.
+// This is slower but useful for small PBF files or debugging.
 //
-//nolint:funlen,cyclop // Search requires handling many spatial filtering and classification cases
+//nolint:revive // Direct PBF searching requires coordinating streaming and filtering
 func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) (*bleve.SearchResult, error) {
 	// Load ontology for classification
 	ont := DefaultOntology()
@@ -63,34 +48,7 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 	geosCtx := geos.NewContext()
 	queryLower := strings.ToLower(params.Query)
 
-	// Pre-compute spatial filter parameters
-	var radiusMeters int
-	var minLatNano, maxLatNano, minLonNano, maxLonNano int64
-	hasRadiusFilter := params.Lat != nil && params.Lon != nil && params.Radius != ""
-	hasBboxFilter := params.MinLat != nil && params.MaxLat != nil && params.MinLon != nil && params.MaxLon != nil
-
-	if hasRadiusFilter {
-		radiusMeters = parseRadiusToInt(params.Radius)
-		latCenter := nanodegree(*params.Lat)
-		lonCenter := nanodegree(*params.Lon)
-
-		radiusLatNano := int64(1_000_000_000 * float64(radiusMeters) / 111_000)
-		radiusLonNano := int64(
-			1_000_000_000 * float64(radiusMeters) / (6_367_000 * math.Cos(*params.Lat*math.Pi/180) * math.Pi / 180),
-		)
-
-		minLatNano = latCenter - radiusLatNano
-		maxLatNano = latCenter + radiusLatNano
-		minLonNano = lonCenter - radiusLonNano
-		maxLonNano = lonCenter + radiusLonNano
-	}
-
-	if hasBboxFilter {
-		minLatNano = nanodegree(*params.MinLat)
-		maxLatNano = nanodegree(*params.MaxLat)
-		minLonNano = nanodegree(*params.MinLon)
-		maxLonNano = nanodegree(*params.MaxLon)
-	}
+	filter := computeSpatialFilter(params)
 
 	res := &bleve.SearchResult{
 		Hits: make(bleveSearch.DocumentMatchCollection, 0),
@@ -108,22 +66,15 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 			latNano := nanodegree(o.Lat)
 			lonNano := nanodegree(o.Lon)
 
-			if !matchesSpatialFilter(latNano, lonNano, hasRadiusFilter, hasBboxFilter,
-				minLatNano, maxLatNano, minLonNano, maxLonNano, params, radiusMeters) {
+			if !matchesSpatialFilter(latNano, lonNano, filter.hasRadius, filter.hasBbox,
+				filter.minLat, filter.maxLat, filter.minLon, filter.maxLon, params, filter.radiusMeters) {
 
 				continue
 			}
 
-			if hit := processPBFFntity(
-				"node", int64(o.ID), o.TagMap(), [][]float64{{o.Lon, o.Lat}},
-				queryLower, params, conf, ont, geosCtx, hasRadiusFilter, hasBboxFilter,
-			); hit != nil {
-				res.Total++
-				if params.From > 0 && int64(res.Total) <= int64(params.From) {
-					continue
-				}
-				res.Hits = append(res.Hits, hit)
-				if len(res.Hits) >= params.Limit && params.Limit > 0 {
+			if hit := processPBFFntity("node", int64(o.ID), o.TagMap(), [][]float64{{o.Lon, o.Lat}},
+				queryLower, params, conf, ont, geosCtx); hit != nil {
+				if collectHit(res, hit, params) {
 					return res, nil
 				}
 			}
@@ -132,37 +83,30 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 			if conf.NodesOnly {
 				continue
 			}
-			coords := make([][]float64, 0, len(o.Nodes))
-			for _, node := range o.Nodes {
-				if node.Lon != 0 || node.Lat != 0 {
-					coords = append(coords, []float64{node.Lon, node.Lat})
-				} else if nc, ok := nodeCoords[int64(node.ID)]; ok {
-					coords = append(coords, nc)
-				}
-			}
+			coords := wayToCoords(o, nodeCoords)
 			if len(coords) < 2 {
 				continue
 			}
 
-			firstLat := nanodegree(coords[0][1])
-			firstLon := nanodegree(coords[0][0])
-
-			if !matchesSpatialFilter(firstLat, firstLon, hasRadiusFilter, hasBboxFilter,
-				minLatNano, maxLatNano, minLonNano, maxLonNano, params, radiusMeters) {
+			if !matchesSpatialFilter(
+				nanodegree(coords[0][1]),
+				nanodegree(coords[0][0]),
+				filter.hasRadius,
+				filter.hasBbox,
+				filter.minLat,
+				filter.maxLat,
+				filter.minLon,
+				filter.maxLon,
+				params,
+				filter.radiusMeters,
+			) {
 
 				continue
 			}
 
-			if hit := processPBFFntity(
-				"way", int64(o.ID), o.TagMap(), coords,
-				queryLower, params, conf, ont, geosCtx, hasRadiusFilter, hasBboxFilter,
-			); hit != nil {
-				res.Total++
-				if params.From > 0 && int64(res.Total) <= int64(params.From) {
-					continue
-				}
-				res.Hits = append(res.Hits, hit)
-				if len(res.Hits) >= params.Limit && params.Limit > 0 {
+			if hit := processPBFFntity("way", int64(o.ID), o.TagMap(), coords,
+				queryLower, params, conf, ont, geosCtx); hit != nil {
+				if collectHit(res, hit, params) {
 					return res, nil
 				}
 			}
@@ -171,43 +115,30 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 			if conf.NodesOnly {
 				continue
 			}
-			var coords [][]float64
-			for _, member := range o.Members {
-				if member.Type == osmapi.TypeNode {
-					if nc, ok := nodeCoords[member.Ref]; ok {
-						coords = [][]float64{nc}
-						break
-					}
-				} else if member.Type == osmapi.TypeWay {
-					if member.Lat != 0 || member.Lon != 0 {
-						coords = [][]float64{{member.Lon, member.Lat}}
-						break
-					}
-				}
-			}
+			coords := relationToCoords(o, nodeCoords)
 			if len(coords) == 0 {
 				continue
 			}
 
-			firstLat := nanodegree(coords[0][1])
-			firstLon := nanodegree(coords[0][0])
-
-			if !matchesSpatialFilter(firstLat, firstLon, hasRadiusFilter, hasBboxFilter,
-				minLatNano, maxLatNano, minLonNano, maxLonNano, params, radiusMeters) {
+			if !matchesSpatialFilter(
+				nanodegree(coords[0][1]),
+				nanodegree(coords[0][0]),
+				filter.hasRadius,
+				filter.hasBbox,
+				filter.minLat,
+				filter.maxLat,
+				filter.minLon,
+				filter.maxLon,
+				params,
+				filter.radiusMeters,
+			) {
 
 				continue
 			}
 
-			if hit := processPBFFntity(
-				"relation", int64(o.ID), o.TagMap(), coords,
-				queryLower, params, conf, ont, geosCtx, hasRadiusFilter, hasBboxFilter,
-			); hit != nil {
-				res.Total++
-				if params.From > 0 && int64(res.Total) <= int64(params.From) {
-					continue
-				}
-				res.Hits = append(res.Hits, hit)
-				if len(res.Hits) >= params.Limit && params.Limit > 0 {
+			if hit := processPBFFntity("relation", int64(o.ID), o.TagMap(), coords,
+				queryLower, params, conf, ont, geosCtx); hit != nil {
+				if collectHit(res, hit, params) {
 					return res, nil
 				}
 			}
@@ -219,6 +150,117 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 	}
 
 	return res, nil
+}
+
+func computeSpatialFilter(params search.SearchParams) spatialFilter {
+	var f spatialFilter
+	f.hasRadius = params.Lat != nil && params.Lon != nil && params.Radius != ""
+	f.hasBbox = params.MinLat != nil && params.MaxLat != nil && params.MinLon != nil && params.MaxLon != nil
+
+	if f.hasRadius {
+		f.radiusMeters = parseRadiusToInt(params.Radius)
+		latCenter := nanodegree(*params.Lat)
+		lonCenter := nanodegree(*params.Lon)
+
+		radiusLatNano := int64(1_000_000_000 * float64(f.radiusMeters) / 111_000)
+		radiusLonNano := int64(
+			1_000_000_000 * float64(f.radiusMeters) / (6_367_000 * math.Cos(*params.Lat*math.Pi/180) * math.Pi / 180),
+		)
+
+		f.minLat = latCenter - radiusLatNano
+		f.maxLat = latCenter + radiusLatNano
+		f.minLon = lonCenter - radiusLonNano
+		f.maxLon = lonCenter + radiusLonNano
+	}
+
+	if f.hasBbox {
+		f.minLat = nanodegree(*params.MinLat)
+		f.maxLat = nanodegree(*params.MaxLat)
+		f.minLon = nanodegree(*params.MinLon)
+		f.maxLon = nanodegree(*params.MaxLon)
+	}
+	return f
+}
+
+func collectHit(res *bleve.SearchResult, hit *bleveSearch.DocumentMatch, params search.SearchParams) bool {
+	res.Total++
+	if params.From > 0 && int64(res.Total) <= int64(params.From) {
+		return false
+	}
+	res.Hits = append(res.Hits, hit)
+	return len(res.Hits) >= params.Limit && params.Limit > 0
+}
+
+func wayToCoords(o *osmapi.Way, nodeCoords map[int64][]float64) [][]float64 {
+	coords := make([][]float64, 0, len(o.Nodes))
+	for _, node := range o.Nodes {
+		if node.Lon != 0 || node.Lat != 0 {
+			coords = append(coords, []float64{node.Lon, node.Lat})
+		} else if nc, ok := nodeCoords[int64(node.ID)]; ok {
+			coords = append(coords, nc)
+		}
+	}
+	return coords
+}
+
+func relationToCoords(o *osmapi.Relation, nodeCoords map[int64][]float64) [][]float64 {
+	for _, member := range o.Members {
+		switch member.Type {
+		case osmapi.TypeNode:
+			if nc, ok := nodeCoords[member.Ref]; ok {
+				return [][]float64{nc}
+			}
+		case osmapi.TypeWay:
+			if member.Lat != 0 || member.Lon != 0 {
+				return [][]float64{{member.Lon, member.Lat}}
+			}
+		case osmapi.TypeRelation, osmapi.TypeChangeset, osmapi.TypeNote, osmapi.TypeUser, osmapi.TypeBounds:
+			// Relations as members are complex, skip for now in simple PBF path
+		}
+	}
+	return nil
+}
+
+func nanodegree(f float64) int64 {
+	return int64(f * 1_000_000_000)
+}
+
+func parseRadiusToInt(radiusStr string) int {
+	radiusStr = strings.ToLower(radiusStr)
+	var val float64
+	var unit string
+
+	switch {
+	case strings.HasSuffix(radiusStr, "km"):
+		unit = "km"
+		_, _ = fmt.Sscanf(radiusStr, "%fkm", &val)
+	case strings.HasSuffix(radiusStr, "m"):
+		unit = "m"
+		_, _ = fmt.Sscanf(radiusStr, "%fm", &val)
+	default:
+		_, _ = fmt.Sscanf(radiusStr, "%f", &val)
+	}
+
+	if unit == "km" {
+		return int(val * 1000)
+	}
+	return int(val)
+}
+
+// computeDistanceMeters computes the Haversine distance between two points in meters.
+func computeDistanceMeters(lat1, lon1, lat2, lon2 float64) int {
+	const radius = 6371000 // Earth radius in meters
+	phi1 := lat1 * math.Pi / 180
+	phi2 := lat2 * math.Pi / 180
+	deltaPhi := (lat2 - lat1) * math.Pi / 180
+	deltaLambda := (lon2 - lon1) * math.Pi / 180
+
+	a := math.Sin(deltaPhi/2)*math.Sin(deltaPhi/2) +
+		math.Cos(phi1)*math.Cos(phi2)*
+			math.Sin(deltaLambda/2)*math.Sin(deltaLambda/2)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+
+	return int(radius * c)
 }
 
 // matchesSpatialFilter checks if coordinates match the spatial filter (radius or bbox)
@@ -260,7 +302,7 @@ func matchesSpatialFilter(
 
 // processPBFFntity processes an OSM entity and creates a search result match.
 //
-//nolint:revive // Processing entities requires handling many classification and geometry cases with multiple parameters
+//nolint:revive // Processing entities requires handling many cases
 func processPBFFntity(
 	entityType string,
 	id int64,
@@ -271,92 +313,140 @@ func processPBFFntity(
 	conf *config.Config,
 	ont *PlaceTypeOntology,
 	geosCtx *geos.Context,
-	hasRadiusFilter, hasBboxFilter bool,
 ) *bleveSearch.DocumentMatch {
 	classifications := ClassifyMulti(tags, &conf.Importance, ont)
 	if len(classifications) == 0 {
 		return nil
 	}
 
-	// Check class/subtype filter
-	classMatched := params.Class == ""
-	subtypeMatched := params.Subtype == ""
-
-	if !classMatched {
-		for _, c := range classifications {
-			if c.Class == params.Class {
-				classMatched = true
-				break
-			}
-		}
-	}
-	if !subtypeMatched {
-		for _, c := range classifications {
-			if c.Subtype == params.Subtype {
-				subtypeMatched = true
-				break
-			}
-		}
-	}
-	if !classMatched || !subtypeMatched {
+	if !matchFilters(classifications, tags, params, queryLower) {
 		return nil
 	}
 
-	// Name match
-	matched := queryLower == ""
-	if !matched {
-		for k, v := range tags {
-			if strings.HasPrefix(k, "name") || strings.HasPrefix(k, "alt_name") || strings.HasPrefix(k, "short_name") {
-				if strings.Contains(strings.ToLower(v), queryLower) {
-					matched = true
-					break
-				}
-			}
-		}
-	}
-	if !matched {
-		return nil
-	}
-
-	best := classifications[0]
-	for _, c := range classifications[1:] {
-		if c.Importance > best.Importance {
-			best = c
-		}
-	}
-
-	// Build geometry if needed
-	var geom any
-	var distMeters int
-	if hasRadiusFilter && len(coords) > 0 {
-		distMeters = computeDistanceMeters(*params.Lat, *params.Lon, coords[0][1], coords[0][0])
-		g, err := createGeometryFromCoords(coords, ModeGeopoint, 0, geosCtx)
-		if err == nil {
-			geom = g
-		}
-	} else if hasBboxFilter {
-		g, err := createGeometryFromCoords(coords, ModeGeopoint, 0, geosCtx)
-		if err == nil {
-			geom = g
-		}
-	}
-
+	// All filters passed, create hit
 	hit := &bleveSearch.DocumentMatch{
 		ID:    fmt.Sprintf("%s/%d", entityType, id),
-		Score: best.Importance,
+		Score: classifications[0].Importance,
 		Fields: map[string]any{
-			"name":     tags["name"],
-			"class":    best.Class,
-			"subtype":  best.Subtype,
-			"geometry": geom,
+			"name":    tags["name"],
+			"class":   classifications[0].Class,
+			"subtype": classifications[0].Subtype,
 		},
 	}
-	if hasRadiusFilter && distMeters > 0 {
-		// Combine importance with distance decay: importance * (1 / (1 + distance_km))
-		// This preserves importance ranking while penalizing distant results
-		hit.Score = best.Importance * (1.0 / (1.0 + float64(distMeters)/1000.0))
-		hit.Fields["distance_meters"] = distMeters
+
+	// Store other names
+	for k, v := range tags {
+		if strings.HasPrefix(k, "name:") || k == "alt_name" || k == "old_name" || k == "short_name" {
+			hit.Fields[k] = v
+		}
+	}
+
+	// Build geometry if requested
+	if conf.GeometryMode != "no-geo" {
+		geom, err := createGeometryFromCoords(coords, GeometryMode(conf.GeometryMode), conf.SimplificationTol, geosCtx)
+		if err == nil {
+			hit.Fields["geometry"] = geom
+		}
 	}
 
 	return hit
+}
+
+func matchFilters(
+	classifications []*Classification,
+	tags map[string]string,
+	params search.SearchParams,
+	queryLower string,
+) bool {
+	if !matchClassSubtype(classifications, params) {
+		return false
+	}
+	if !matchTextQuery(tags, params, queryLower) {
+		return false
+	}
+	if !matchAddress(tags, params) {
+		return false
+	}
+	return true
+}
+
+func matchClassSubtype(classifications []*Classification, params search.SearchParams) bool {
+	classMatched := params.Class == ""
+	subtypeMatched := params.Subtype == ""
+
+	for _, c := range classifications {
+		if !classMatched && c.Class == params.Class {
+			classMatched = true
+		}
+		if !subtypeMatched && c.Subtype == params.Subtype {
+			subtypeMatched = true
+		}
+	}
+	if !classMatched || !subtypeMatched {
+		return false
+	}
+
+	if len(params.Classes) > 0 && !matchMultiFilter(classifications, params.Classes, true) {
+		return false
+	}
+	if len(params.Subtypes) > 0 && !matchMultiFilter(classifications, params.Subtypes, false) {
+		return false
+	}
+	return true
+}
+
+func matchMultiFilter(classifications []*Classification, filters []string, isClass bool) bool {
+	for _, f := range filters {
+		for _, c := range classifications {
+			val := c.Subtype
+			if isClass {
+				val = c.Class
+			}
+			if val == f {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func matchTextQuery(tags map[string]string, params search.SearchParams, queryLower string) bool {
+	if params.Query == "" {
+		return true
+	}
+	if strings.Contains(strings.ToLower(tags["name"]), queryLower) {
+		return true
+	}
+	for _, alt := range []string{"alt_name", "old_name", "short_name"} {
+		if strings.Contains(strings.ToLower(tags[alt]), queryLower) {
+			return true
+		}
+	}
+	for _, lang := range params.Langs {
+		if strings.Contains(strings.ToLower(tags["name:"+lang]), queryLower) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchAddress(tags map[string]string, params search.SearchParams) bool {
+	if params.Street != "" && !strings.Contains(strings.ToLower(tags["addr:street"]), strings.ToLower(params.Street)) {
+		return false
+	}
+	if params.HouseNumber != "" && tags["addr:housenumber"] != params.HouseNumber {
+		return false
+	}
+	if params.Postcode != "" && tags["addr:postcode"] != params.Postcode {
+		return false
+	}
+	if params.City != "" && !strings.Contains(strings.ToLower(tags["addr:city"]), strings.ToLower(params.City)) {
+		return false
+	}
+	if params.Country != "" &&
+		!strings.Contains(strings.ToLower(tags["addr:country"]), strings.ToLower(params.Country)) {
+
+		return false
+	}
+	return true
 }

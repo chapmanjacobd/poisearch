@@ -1,21 +1,23 @@
-package osm
+package osm_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/chapmanjacobd/poisearch/internal/osm"
 )
 
 func TestDefaultOntology(t *testing.T) {
-	ont := DefaultOntology()
+	ont := osm.DefaultOntology()
 
 	if ont == nil {
 		t.Fatal("DefaultOntology() returned nil")
 	}
 
 	tests := []struct {
-		name     string
-		qid      string
+		name      string
+		qid       string
 		wantLevel int
 		wantLabel string
 	}{
@@ -42,7 +44,7 @@ func TestDefaultOntology(t *testing.T) {
 }
 
 func TestOntology_GetQIDsForOSM(t *testing.T) {
-	ont := DefaultOntology()
+	ont := osm.DefaultOntology()
 
 	tests := []struct {
 		name    string
@@ -67,12 +69,12 @@ func TestOntology_GetQIDsForOSM(t *testing.T) {
 }
 
 func TestOntology_GetMinLevelForOSM(t *testing.T) {
-	ont := DefaultOntology()
+	ont := osm.DefaultOntology()
 
 	tests := []struct {
-		name    string
-		osmKey  string
-		osmVal  string
+		name      string
+		osmKey    string
+		osmVal    string
 		wantLevel int
 	}{
 		{"place=country", "place", "country", 0},
@@ -92,7 +94,7 @@ func TestOntology_GetMinLevelForOSM(t *testing.T) {
 }
 
 func TestOntology_BoostByOntology(t *testing.T) {
-	ont := DefaultOntology()
+	ont := osm.DefaultOntology()
 
 	tests := []struct {
 		name  string
@@ -130,7 +132,7 @@ Q532,3,village,place,village
 		t.Fatalf("failed to write test CSV: %v", err)
 	}
 
-	ont, err := LoadOntologyFromCSV(csvPath)
+	ont, err := osm.LoadOntologyFromCSV(csvPath)
 	if err != nil {
 		t.Fatalf("LoadOntologyFromCSV() failed: %v", err)
 	}
@@ -163,7 +165,7 @@ Q532,3,village,place,village
 }
 
 func TestLoadOntologyFromCSV_InvalidFile(t *testing.T) {
-	_, err := LoadOntologyFromCSV("/nonexistent/file.csv")
+	_, err := osm.LoadOntologyFromCSV("/nonexistent/file.csv")
 	if err == nil {
 		t.Error("expected error for non-existent file, got nil")
 	}
@@ -180,7 +182,7 @@ func TestLoadOntologyFromCSV_InvalidFormat(t *testing.T) {
 		t.Fatalf("failed to write test CSV: %v", err)
 	}
 
-	ont, err := LoadOntologyFromCSV(csvPath)
+	ont, err := osm.LoadOntologyFromCSV(csvPath)
 	if err != nil {
 		t.Fatalf("LoadOntologyFromCSV() failed: %v", err)
 	}

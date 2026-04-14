@@ -303,6 +303,7 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	// Address filters
 	if params.Street != "" || params.HouseNumber != "" || params.Postcode != "" || params.City != "" ||
 		params.Country != "" {
+
 		conjunctions := []query.Query{q}
 		if params.Street != "" {
 			sq := bleve.NewTermQuery(params.Street)
@@ -359,6 +360,7 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	// Add address fields when any address filter is used
 	if params.Street != "" || params.HouseNumber != "" || params.Postcode != "" || params.City != "" ||
 		params.Country != "" {
+
 		fields = append(fields,
 			"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
 			"addr:country", "addr:state", "addr:district", "addr:suburb",

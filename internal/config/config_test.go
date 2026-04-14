@@ -1,10 +1,11 @@
-package config
+package config_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/chapmanjacobd/poisearch/internal/config"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -35,7 +36,7 @@ town = 4.0
 restaurant = 2.0
 `
 
-	var conf Config
+	var conf config.Config
 	err := toml.Unmarshal([]byte(tomlContent), &conf)
 	if err != nil {
 		t.Fatalf("failed to parse valid config: %v", err)
@@ -82,7 +83,7 @@ port = 9889
 default = 1.0
 `
 
-	var conf Config
+	var conf config.Config
 	err := toml.Unmarshal([]byte(tomlContent), &conf)
 	if err != nil {
 		t.Fatalf("failed to parse config with store_address: %v", err)
@@ -106,7 +107,7 @@ port = 9889
 default = 1.0
 `
 
-	var conf Config
+	var conf config.Config
 	err := toml.Unmarshal([]byte(tomlContent), &conf)
 	if err != nil {
 		t.Fatalf("failed to parse config: %v", err)
@@ -170,7 +171,7 @@ port = 9889
 [importance]
 default = 1.0
 `
-			var conf Config
+			var conf config.Config
 			err := toml.Unmarshal([]byte(tomlContent), &conf)
 			if err != nil {
 				t.Fatalf("failed to parse config with geometry_mode=%s: %v", mode, err)
@@ -204,7 +205,7 @@ port = 9889
 [importance]
 default = 1.0
 `
-			var conf Config
+			var conf config.Config
 			err := toml.Unmarshal([]byte(tomlContent), &conf)
 			if err != nil {
 				t.Fatalf("failed to parse config with name_analyzer=%s: %v", analyzer, err)
@@ -248,7 +249,7 @@ city = 6.0
 		t.Fatalf("failed to read config file: %v", err)
 	}
 
-	var conf Config
+	var conf config.Config
 	if err := toml.Unmarshal(data, &conf); err != nil {
 		t.Fatalf("failed to parse config from file: %v", err)
 	}
@@ -300,7 +301,7 @@ hospital = 4.0
 yes = 1.5
 `
 
-	var conf Config
+	var conf config.Config
 	err := toml.Unmarshal([]byte(tomlContent), &conf)
 	if err != nil {
 		t.Fatalf("failed to parse config: %v", err)
@@ -340,7 +341,7 @@ port = 9889
 default = 1.0
 `
 
-	var conf Config
+	var conf config.Config
 	err := toml.Unmarshal([]byte(tomlContent), &conf)
 	if err != nil {
 		t.Fatalf("failed to parse minimal config: %v", err)

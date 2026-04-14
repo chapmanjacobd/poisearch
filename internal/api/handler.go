@@ -89,13 +89,19 @@ func RegisterHandlers(mux *http.ServeMux, index bleve.Index, conf *config.Config
 	RegisterHandlersWithPBF(mux, index, conf, "", nil)
 }
 
-func RegisterHandlersWithPBF(mux *http.ServeMux, index bleve.Index, conf *config.Config, pbfPath string, cache *search.QueryCache) {
+func RegisterHandlersWithPBF(
+	mux *http.ServeMux,
+	index bleve.Index,
+	conf *config.Config,
+	pbfPath string,
+	cache *search.QueryCache,
+) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		if cache != nil {
 			stats := cache.Stats()
-			_, _ = w.Write([]byte(fmt.Sprintf("OK (cache: %d hits, %d misses, %.2f%% hit rate)",
-				stats.Hits, stats.Misses, stats.HitRate*100)))
+			_, _ = w.Write(fmt.Appendf(nil, "OK (cache: %d hits, %d misses, %.2f%% hit rate)",
+				stats.Hits, stats.Misses, stats.HitRate*100))
 		} else {
 			_, _ = w.Write([]byte("OK"))
 		}
@@ -205,7 +211,57 @@ func handlePBFSearch(w http.ResponseWriter, r *http.Request, pbfPath string, con
 	}
 }
 
-func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index, conf *config.Config, cache *search.QueryCache) {
+func handleIndexSearch(
+	w http.ResponseWriter,
+	r *http.Request,
+	index bleve.Index,
+	conf *config.Config,
+	cache *search.QueryCache,
+) {
+	params := parseSearchParams(r, conf)
+
+	// Try cache first (only for non-geo queries)
+	if cache != nil && !search.IsGeoQuery(params) {
+		cacheKey := search.BuildCacheKey(params)
+		if cachedResult, found := cache.Get(cacheKey); found {
+			slog.Debug("cache hit", "query", params.Query)
+			// Return cached result directly as JSON
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(cachedResult); err != nil {
+				slog.Error("failed to encode cached response", "error", err)
+			}
+			return
+		}
+	}
+
+	res, err := search.Search(index, params)
+	if err != nil {
+		slog.Error("search failed", "error", err, "query", params.Query)
+		writeJSONError(w, http.StatusInternalServerError, "search_error", "Search failed: "+err.Error())
+		return
+	}
+
+	// Store in cache if enabled and not a geo query
+	if cache != nil && !search.IsGeoQuery(params) {
+		cacheKey := search.BuildCacheKey(params)
+		serialized := search.SerializeResult(res)
+		cache.Set(cacheKey, serialized)
+		slog.Debug("cache store", "query", params.Query)
+	}
+
+	// Support text/plain output format (UNIX-pipe-friendly)
+	format := r.URL.Query().Get("format")
+	if format == "text" || strings.Contains(r.Header.Get("Accept"), "text/plain") {
+		writeTextResponse(w, res, params.Langs)
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(res); err != nil {
+			slog.Error("failed to encode JSON response", "error", err)
+		}
+	}
+}
+
+func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams {
 	q := r.URL.Query().Get("q")
 	latStr := r.URL.Query().Get("lat")
 	lonStr := r.URL.Query().Get("lon")
@@ -219,7 +275,6 @@ func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index
 	subtype := r.URL.Query().Get("subtype")
 	classes := r.URL.Query().Get("classes")   // comma-separated multi-class
 	subtypes := r.URL.Query().Get("subtypes") // comma-separated multi-subtype
-	format := r.URL.Query().Get("format")     // "json" (default) or "text"
 
 	// Address search params
 	street := r.URL.Query().Get("street")
@@ -275,7 +330,7 @@ func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index
 		subtypeList = strings.Split(subtypes, ",")
 	}
 
-	params := search.SearchParams{
+	return search.SearchParams{
 		Query:       q,
 		Lat:         lat,
 		Lon:         lon,
@@ -296,45 +351,6 @@ func handleIndexSearch(w http.ResponseWriter, r *http.Request, index bleve.Index
 		City:        city,
 		Country:     country,
 		Analyzer:    conf.NameAnalyzer,
-	}
-
-	// Try cache first (only for non-geo queries)
-	if cache != nil && !search.IsGeoQuery(params) {
-		cacheKey := search.BuildCacheKey(params)
-		if cachedResult, found := cache.Get(cacheKey); found {
-			slog.Debug("cache hit", "query", q)
-			// Return cached result directly as JSON
-			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(cachedResult); err != nil {
-				slog.Error("failed to encode cached response", "error", err)
-			}
-			return
-		}
-	}
-
-	res, err := search.Search(index, params)
-	if err != nil {
-		slog.Error("search failed", "error", err, "query", q)
-		writeJSONError(w, http.StatusInternalServerError, "search_error", "Search failed: "+err.Error())
-		return
-	}
-
-	// Store in cache if enabled and not a geo query
-	if cache != nil && !search.IsGeoQuery(params) {
-		cacheKey := search.BuildCacheKey(params)
-		serialized := search.SerializeResult(res)
-		cache.Set(cacheKey, serialized)
-		slog.Debug("cache store", "query", q)
-	}
-
-	// Support text/plain output format (UNIX-pipe-friendly)
-	if format == "text" || strings.Contains(r.Header.Get("Accept"), "text/plain") {
-		writeTextResponse(w, res, langs)
-	} else {
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(res); err != nil {
-			slog.Error("failed to encode JSON response", "error", err)
-		}
 	}
 }
 

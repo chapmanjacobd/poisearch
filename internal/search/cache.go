@@ -13,19 +13,19 @@ import (
 
 // CacheStats holds statistics for the query cache.
 type CacheStats struct {
-	Hits    int64   `json:"hits"`
-	Misses  int64   `json:"misses"`
-	HitRate float64 `json:"hit_rate"`
-	Size    int     `json:"size"`
-	Evictions int64 `json:"evictions"`
+	Hits      int64   `json:"hits"`
+	Misses    int64   `json:"misses"`
+	HitRate   float64 `json:"hit_rate"`
+	Size      int     `json:"size"`
+	Evictions int64   `json:"evictions"`
 }
 
 // QueryCache is a thread-safe LRU cache for search results with TTL.
 type QueryCache struct {
-	cache   *lru.Cache[string, *cacheEntry]
-	ttl     time.Duration
-	mu      sync.Mutex
-	stats   CacheStats
+	cache *lru.Cache[string, *cacheEntry]
+	ttl   time.Duration
+	mu    sync.Mutex
+	stats CacheStats
 }
 
 type cacheEntry struct {
@@ -35,21 +35,21 @@ type cacheEntry struct {
 
 // SerializedResult holds a serialized search result for caching.
 type SerializedResult struct {
-	Total int64             `json:"total"`
-	From  int               `json:"from"`
-	Limit int               `json:"limit"`
-	Hits  []SerializedHit   `json:"hits"`
+	Total int64           `json:"total"`
+	From  int             `json:"from"`
+	Limit int             `json:"limit"`
+	Hits  []SerializedHit `json:"hits"`
 }
 
 // SerializedHit represents a single search hit for caching.
 type SerializedHit struct {
-	ID    string  `json:"id"`
-	Score float64 `json:"score"`
-	Name  string  `json:"name,omitempty"`
-	Class string  `json:"class,omitempty"`
-	Subtype string `json:"subtype,omitempty"`
-	Lat   float64 `json:"lat,omitempty"`
-	Lon   float64 `json:"lon,omitempty"`
+	ID      string  `json:"id"`
+	Score   float64 `json:"score"`
+	Name    string  `json:"name,omitempty"`
+	Class   string  `json:"class,omitempty"`
+	Subtype string  `json:"subtype,omitempty"`
+	Lat     float64 `json:"lat,omitempty"`
+	Lon     float64 `json:"lon,omitempty"`
 }
 
 // NewQueryCache creates a new query cache with the given capacity and TTL.
@@ -130,10 +130,23 @@ func BuildCacheKey(params SearchParams) string {
 	h := sha256.New()
 
 	// Always include these base parameters
-	fmt.Fprintf(h, "q=%s&limit=%d&from=%d&fuzzy=%t&prefix=%t&class=%s&subtype=%s&classes=%v&subtypes=%v&street=%s&housenumber=%s&postcode=%s&city=%s&country=%s",
-		params.Query, params.Limit, params.From, params.Fuzzy, params.Prefix,
-		params.Class, params.Subtype, params.Classes, params.Subtypes,
-		params.Street, params.HouseNumber, params.Postcode, params.City, params.Country,
+	fmt.Fprintf(
+		h,
+		"q=%s&limit=%d&from=%d&fuzzy=%t&prefix=%t&class=%s&subtype=%s&classes=%v&subtypes=%v&street=%s&housenumber=%s&postcode=%s&city=%s&country=%s",
+		params.Query,
+		params.Limit,
+		params.From,
+		params.Fuzzy,
+		params.Prefix,
+		params.Class,
+		params.Subtype,
+		params.Classes,
+		params.Subtypes,
+		params.Street,
+		params.HouseNumber,
+		params.Postcode,
+		params.City,
+		params.Country,
 	)
 
 	// Only include geo params for non-geo queries
@@ -179,7 +192,7 @@ func SerializeResult(result *bleve.SearchResult) *SerializedResult {
 		}
 
 		// Extract geometry
-		if geom, ok := hit.Fields["geometry"].(map[string]interface{}); ok {
+		if geom, ok := hit.Fields["geometry"].(map[string]any); ok {
 			if lat, ok := geom["lat"].(float64); ok {
 				sHit.Lat = lat
 			}
@@ -193,7 +206,7 @@ func SerializeResult(result *bleve.SearchResult) *SerializedResult {
 
 	return &SerializedResult{
 		Total: int64(result.Total),
-		From:  int(result.Request.From),
+		From:  result.Request.From,
 		Limit: result.Request.Size,
 		Hits:  hits,
 	}

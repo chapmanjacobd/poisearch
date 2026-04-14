@@ -10,17 +10,17 @@ import (
 )
 
 type Feature struct {
-	ID         string            `json:"id"`
-	Name       string            `json:"name"`
-	Names      map[string]string `json:"names"` // name:en, name:zh, etc.
-	Class      string            `json:"class"`
-	Subtype    string            `json:"subtype"`
-	Classes    []string          `json:"classes,omitempty"`  // multi-class support
-	Subtypes   []string          `json:"subtypes,omitempty"` // multi-class support
-	Importance float64           `json:"importance"`
-	Geometry   any               `json:"geometry"`
-	Address    map[string]string `json:"address,omitempty"` // addr:housenumber, addr:street, etc.
-	WikidataRedirects []string   `json:"wikidata_redirects,omitempty"` // Wikipedia redirect titles for this QID
+	ID                string            `json:"id"`
+	Name              string            `json:"name"`
+	Names             map[string]string `json:"names"` // name:en, name:zh, etc.
+	Class             string            `json:"class"`
+	Subtype           string            `json:"subtype"`
+	Classes           []string          `json:"classes,omitempty"`  // multi-class support
+	Subtypes          []string          `json:"subtypes,omitempty"` // multi-class support
+	Importance        float64           `json:"importance"`
+	Geometry          any               `json:"geometry"`
+	Address           map[string]string `json:"address,omitempty"`            // addr:housenumber, addr:street, etc.
+	WikidataRedirects []string          `json:"wikidata_redirects,omitempty"` // Wikipedia redirect titles for this QID
 }
 
 func OpenOrCreateIndex(indexPath string, m mapping.IndexMapping) (bleve.Index, error) {

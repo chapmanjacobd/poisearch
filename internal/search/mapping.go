@@ -13,19 +13,13 @@ import (
 )
 
 // registerAnalyzers registers custom text analyzers with the index mapping.
-// Supported analyzers:
-//   - "standard": default Bleve analyzer (tokenizes on word boundaries, lowercases)
-//   - "edge_ngram": produces prefix tokens (e.g., "matrix" -> "m", "ma", "mat", ...)
-//   - "ngram": produces substring tokens of length 2-15 (e.g., "matrix" -> "ma", "at", "tr", ...)
-//   - "keyword": no tokenization, exact match only
 func registerAnalyzers(m *mapping.IndexMappingImpl) error {
 	// Edge ngram analyzer: prefix tokens from the start of each word
-	// "restaurant" -> "r", "re", "res", "rest", ... up to 20 chars
 	if err := m.AddCustomTokenFilter("prefix_edge_ngram", map[string]any{
 		"type": "edge_ngram",
 		"min":  float64(1),
 		"max":  float64(20),
-		"back": false, // false = FRONT side (prefix)
+		"back": false,
 	}); err != nil {
 		return fmt.Errorf("register prefix_edge_ngram token filter: %w", err)
 	}
@@ -39,7 +33,6 @@ func registerAnalyzers(m *mapping.IndexMappingImpl) error {
 	}
 
 	// Ngram analyzer: produces all substrings of length 2-15
-	// "matrix" -> "ma", "at", "tr", "ri", "ix", "mat", "atr", ...
 	if err := m.AddCustomTokenFilter("substring_ngram", map[string]any{
 		"type": "ngram",
 		"min":  float64(2),
@@ -59,39 +52,45 @@ func registerAnalyzers(m *mapping.IndexMappingImpl) error {
 	return nil
 }
 
+// BuildIndexMapping creates the Bleve index mapping based on configuration.
 func BuildIndexMapping(conf *config.Config) mapping.IndexMapping {
 	indexMapping := bleve.NewIndexMapping()
 
-	// Register custom analyzers
 	if err := registerAnalyzers(indexMapping); err != nil {
-		// Log warning but continue with standard analyzer
 		fmt.Printf("warning: failed to register custom analyzers, falling back to standard: %v\n", err)
 	}
 
 	docMapping := bleve.NewDocumentMapping()
-
-	// Disable _all field to save space
 	docMapping.Enabled = true
-	docMapping.Dynamic = false // Only index defined fields
+	docMapping.Dynamic = false
 
-	// Determine the name analyzer to use
 	nameAnalyzer := conf.NameAnalyzer
 	if nameAnalyzer == "" {
-		nameAnalyzer = "standard" // default
+		nameAnalyzer = "standard"
 	}
 
-	// Name fields
+	addNameFields(docMapping, conf, nameAnalyzer)
+	addClassSubtypeFields(docMapping, conf)
+	addImportanceField(docMapping, conf)
+	addGeometryField(docMapping, conf)
+	addAddressFields(docMapping, conf)
+	addWikidataRedirectFields(docMapping, conf, nameAnalyzer)
+
+	indexMapping.DefaultMapping = docMapping
+	return indexMapping
+}
+
+func addNameFields(docMapping *mapping.DocumentMapping, conf *config.Config, nameAnalyzer string) {
 	nameFieldMapping := bleve.NewTextFieldMapping()
 	nameFieldMapping.Analyzer = nameAnalyzer
 	nameFieldMapping.IncludeInAll = false
-	nameFieldMapping.IncludeTermVectors = false // Saves space, no highlighting needed
-	nameFieldMapping.Store = true               // Always store names so results are useful
-	docMapping.AddFieldMappingsAt("name", nameFieldMapping)
-	docMapping.AddFieldMappingsAt("alt_name", nameFieldMapping)
-	docMapping.AddFieldMappingsAt("old_name", nameFieldMapping)
-	docMapping.AddFieldMappingsAt("short_name", nameFieldMapping)
-	docMapping.AddFieldMappingsAt("brand", nameFieldMapping)
-	docMapping.AddFieldMappingsAt("operator", nameFieldMapping)
+	nameFieldMapping.IncludeTermVectors = false
+	nameFieldMapping.Store = true
+
+	fields := []string{"name", "alt_name", "old_name", "short_name", "brand", "operator"}
+	for _, f := range fields {
+		docMapping.AddFieldMappingsAt(f, nameFieldMapping)
+	}
 
 	for _, lang := range conf.Languages {
 		docMapping.AddFieldMappingsAt("name:"+lang, nameFieldMapping)
@@ -99,68 +98,74 @@ func BuildIndexMapping(conf *config.Config) mapping.IndexMapping {
 		docMapping.AddFieldMappingsAt("old_name:"+lang, nameFieldMapping)
 		docMapping.AddFieldMappingsAt("short_name:"+lang, nameFieldMapping)
 	}
+}
 
-	// Class and Subtype
+func addClassSubtypeFields(docMapping *mapping.DocumentMapping, conf *config.Config) {
 	keywordMapping := bleve.NewTextFieldMapping()
 	keywordMapping.Analyzer = "keyword"
 	keywordMapping.IncludeInAll = false
 	keywordMapping.IncludeTermVectors = false
 	keywordMapping.Store = conf.StoreMetadata
+
 	docMapping.AddFieldMappingsAt("class", keywordMapping)
 	docMapping.AddFieldMappingsAt("subtype", keywordMapping)
-
-	// Multi-class fields (stored as comma-separated for filtering)
 	docMapping.AddFieldMappingsAt("classes", keywordMapping)
 	docMapping.AddFieldMappingsAt("subtypes", keywordMapping)
+}
 
-	// Importance
+func addImportanceField(docMapping *mapping.DocumentMapping, conf *config.Config) {
 	numMapping := bleve.NewNumericFieldMapping()
 	numMapping.IncludeInAll = false
 	numMapping.Store = conf.StoreMetadata
 	docMapping.AddFieldMappingsAt("importance", numMapping)
+}
 
-	// Geometry
+func addGeometryField(docMapping *mapping.DocumentMapping, conf *config.Config) {
 	geoMode := conf.GeometryMode
-	if geoMode != "" && geoMode != "no-geo" {
-		if geoMode == "geopoint" || geoMode == "geopoint-centroid" {
-			geoMapping := bleve.NewGeoPointFieldMapping()
-			geoMapping.Store = conf.StoreGeometry
-			docMapping.AddFieldMappingsAt("geometry", geoMapping)
-		} else {
-			geoMapping := bleve.NewGeoShapeFieldMapping()
-			geoMapping.Store = conf.StoreGeometry
-			docMapping.AddFieldMappingsAt("geometry", geoMapping)
-		}
+	if geoMode == "" || geoMode == "no-geo" {
+		return
 	}
 
-	// Address fields (opt-in via config)
-	if conf.StoreAddress {
-		addrMapping := bleve.NewTextFieldMapping()
-		addrMapping.Analyzer = "keyword"
-		addrMapping.IncludeInAll = false
-		addrMapping.Store = true
-		docMapping.AddFieldMappingsAt("addr:housenumber", addrMapping)
-		docMapping.AddFieldMappingsAt("addr:street", addrMapping)
-		docMapping.AddFieldMappingsAt("addr:city", addrMapping)
-		docMapping.AddFieldMappingsAt("addr:postcode", addrMapping)
-		docMapping.AddFieldMappingsAt("addr:country", addrMapping)
-		docMapping.AddFieldMappingsAt("addr:state", addrMapping)
-		docMapping.AddFieldMappingsAt("addr:district", addrMapping)
-		docMapping.AddFieldMappingsAt("addr:suburb", addrMapping)
-		docMapping.AddFieldMappingsAt("addr:neighbourhood", addrMapping)
+	if geoMode == "geopoint" || geoMode == "geopoint-centroid" {
+		geoMapping := bleve.NewGeoPointFieldMapping()
+		geoMapping.Store = conf.StoreGeometry
+		docMapping.AddFieldMappingsAt("geometry", geoMapping)
+	} else {
+		geoMapping := bleve.NewGeoShapeFieldMapping()
+		geoMapping.Store = conf.StoreGeometry
+		docMapping.AddFieldMappingsAt("geometry", geoMapping)
+	}
+}
+
+func addAddressFields(docMapping *mapping.DocumentMapping, conf *config.Config) {
+	if !conf.StoreAddress {
+		return
 	}
 
-	// Wikidata redirect titles (opt-in via config)
-	// These are indexed with the same analyzer as names to enable search by redirect titles
-	if conf.IndexWikidataRedirects {
-		wdRedirectMapping := bleve.NewTextFieldMapping()
-		wdRedirectMapping.Analyzer = nameAnalyzer
-		wdRedirectMapping.IncludeInAll = false
-		wdRedirectMapping.IncludeTermVectors = false
-		wdRedirectMapping.Store = true
-		docMapping.AddFieldMappingsAt("wikidata_redirects", wdRedirectMapping)
+	addrMapping := bleve.NewTextFieldMapping()
+	addrMapping.Analyzer = "keyword"
+	addrMapping.IncludeInAll = false
+	addrMapping.Store = true
+
+	fields := []string{
+		"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
+		"addr:country", "addr:state", "addr:district", "addr:suburb",
+		"addr:neighbourhood",
+	}
+	for _, f := range fields {
+		docMapping.AddFieldMappingsAt(f, addrMapping)
+	}
+}
+
+func addWikidataRedirectFields(docMapping *mapping.DocumentMapping, conf *config.Config, nameAnalyzer string) {
+	if !conf.IndexWikidataRedirects {
+		return
 	}
 
-	indexMapping.DefaultMapping = docMapping
-	return indexMapping
+	wdRedirectMapping := bleve.NewTextFieldMapping()
+	wdRedirectMapping.Analyzer = nameAnalyzer
+	wdRedirectMapping.IncludeInAll = false
+	wdRedirectMapping.IncludeTermVectors = false
+	wdRedirectMapping.Store = true
+	docMapping.AddFieldMappingsAt("wikidata_redirects", wdRedirectMapping)
 }
