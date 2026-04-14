@@ -148,6 +148,17 @@ func BuildIndexMapping(conf *config.Config) mapping.IndexMapping {
 		docMapping.AddFieldMappingsAt("addr:neighbourhood", addrMapping)
 	}
 
+	// Wikidata redirect titles (opt-in via config)
+	// These are indexed with the same analyzer as names to enable search by redirect titles
+	if conf.IndexWikidataRedirects {
+		wdRedirectMapping := bleve.NewTextFieldMapping()
+		wdRedirectMapping.Analyzer = nameAnalyzer
+		wdRedirectMapping.IncludeInAll = false
+		wdRedirectMapping.IncludeTermVectors = false
+		wdRedirectMapping.Store = true
+		docMapping.AddFieldMappingsAt("wikidata_redirects", wdRedirectMapping)
+	}
+
 	indexMapping.DefaultMapping = docMapping
 	return indexMapping
 }

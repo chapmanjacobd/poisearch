@@ -29,6 +29,7 @@ name_analyzer = "standard"
 # only_named = true           # Only index objects with a name tag
 # store_metadata = false      # Store class/subtype/importance in index (increases size)
 # store_geometry = false      # Store geometry in index (increases size)
+# index_wikidata_redirects = false # Index Wikipedia redirect titles as alternate names (increases size)
 
 [server]
 host = "0.0.0.0"

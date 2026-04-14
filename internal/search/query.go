@@ -138,12 +138,14 @@ func addNameQuery(q string, fuzzy, prefix bool, field, analyzer string) query.Qu
 func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error) {
 	// Check for "X near Y" pattern and handle it via NearSearch
 	if params.Query != "" && isNearQuery(params.Query) {
-		category, referencePlace, _, _ := parseNearQuery(params.Query)
-		nearResult, err := NearSearch(index, params, category, referencePlace)
-		if err != nil {
-			return nil, err
+		category, referencePlace, isNear := parseNearQuery(params.Query)
+		if isNear {
+			nearResult, err := NearSearch(index, params, category, referencePlace)
+			if err != nil {
+				return nil, err
+			}
+			return nearResult.Results, nil
 		}
-		return nearResult.Results, nil
 	}
 
 	// Check if we should use multi-interpretation for better recall
@@ -299,7 +301,8 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	}
 
 	// Address filters
-	if params.Street != "" || params.HouseNumber != "" || params.Postcode != "" || params.City != "" || params.Country != "" {
+	if params.Street != "" || params.HouseNumber != "" || params.Postcode != "" || params.City != "" ||
+		params.Country != "" {
 		conjunctions := []query.Query{q}
 		if params.Street != "" {
 			sq := bleve.NewTermQuery(params.Street)
@@ -354,7 +357,8 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		"distance_meters",
 	)
 	// Add address fields when any address filter is used
-	if params.Street != "" || params.HouseNumber != "" || params.Postcode != "" || params.City != "" || params.Country != "" {
+	if params.Street != "" || params.HouseNumber != "" || params.Postcode != "" || params.City != "" ||
+		params.Country != "" {
 		fields = append(fields,
 			"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
 			"addr:country", "addr:state", "addr:district", "addr:suburb",

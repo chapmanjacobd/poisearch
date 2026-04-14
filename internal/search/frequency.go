@@ -1,5 +1,6 @@
 package search
 
+/*
 import (
 	"sort"
 	"strings"
@@ -131,3 +132,4 @@ func optimizeQueryTerms(terms []string) []string {
 	}
 	return result
 }
+*/

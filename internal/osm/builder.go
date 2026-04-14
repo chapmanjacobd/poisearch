@@ -34,7 +34,7 @@ func roundToMeterAccuracy(f float64) float64 {
 	return math.Floor(f*shift+0.5) / shift
 }
 
-func representativePoint(g *geos.Geom, ctx *geos.Context) (*geos.Geom, bool, error) {
+func representativePoint(g *geos.Geom) (*geos.Geom, bool, error) {
 	switch g.TypeID() {
 	case geos.TypeIDPoint:
 		return g, true, nil
@@ -218,183 +218,15 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 	batch := index.NewBatch()
 	batchSize := 500
 
-	processEntity := func(
-		entityType string,
-		id int64,
-		tags map[string]string,
-		coords [][]float64,
-	) error {
-		if len(tags) == 0 {
-			skipped++
-			return nil
-		}
-
-		classifications := ClassifyMulti(tags, &conf.Importance, ont)
-		if len(classifications) == 0 {
-			skipped++
-			return nil
-		}
-
-		// Check --only-named filter
-		if conf.OnlyNamed {
-			hasName := tags["name"] != ""
-			if !hasName {
-				for _, alt := range []string{"alt_name", "old_name", "short_name"} {
-					if tags[alt] != "" {
-						hasName = true
-						break
-					}
-				}
-				if !hasName {
-					for _, lang := range conf.Languages {
-						if tags["name:"+lang] != "" {
-							hasName = true
-							break
-						}
-					}
-				}
-			}
-			if !hasName {
-				skipped++
-				return nil
-			}
-		}
-
-		// Find best classification by importance with tie-breaking
-		best := classifications[0]
-		for _, c := range classifications[1:] {
-			if c.Importance > best.Importance {
-				best = c
-			} else if c.Importance == best.Importance {
-				// Tie-breaking: prefer finer granularity (higher ontological level)
-				if c.OntLevel > best.OntLevel {
-					best = c
-				} else if c.OntLevel == best.OntLevel {
-					// Tie-break by population (higher wins)
-					cPop := parsePopulation(tags)
-					bestPop := parsePopulationForClassification(best.Class, best.Subtype, tags)
-					if cPop > bestPop {
-						best = c
-					}
-				}
-			}
-		}
-
-		// Apply Wikidata importance boost (language-aware)
-		if wdLookup != nil && tags["wikidata"] != "" {
-			// Detect primary language from tags (prefer name:XX tags, fallback to config)
-			primaryLang := ""
-			if len(conf.Languages) > 0 {
-				primaryLang = conf.Languages[0]
-			}
-			// Check if entity has language-specific name tags
-			for _, lang := range conf.Languages {
-				if _, ok := tags["name:"+lang]; ok {
-					primaryLang = lang
-					break
-				}
-			}
-			// Use language-aware lookup if we have a language, otherwise use highest score
-			var wdImportance float64
-			if primaryLang != "" {
-				wdImportance = wdLookup.GetImportanceForLang(tags["wikidata"], primaryLang)
-			} else {
-				wdImportance = wdLookup.GetImportance(tags["wikidata"])
-			}
-			if wdImportance > 0 {
-				best.Importance += wdImportance * 10.0
-			}
-		}
-
-		// Build geometry
-		var geom any
-		if geoMode != ModeNoGeo {
-			var err error
-			geom, err = createGeometryFromCoords(coords, geoMode, conf.SimplificationTol, geosCtx)
-			if err != nil {
-				slog.Debug("skipping entity (bad geometry)", "id", id, "error", err)
-				skipped++
-				return nil
-			}
-		}
-
-		feature := &search.Feature{
-			ID:         fmt.Sprintf("%s/%d", entityType, id),
-			Name:       tags["name"],
-			Names:      make(map[string]string),
-			Importance: best.Importance,
-			Geometry:   geom,
-			Class:      best.Class,
-			Subtype:    best.Subtype,
-		}
-
-		if conf.DisableImportance {
-			feature.Importance = 0
-		}
-
-		if !conf.DisableClassSubtype {
-			classes := make([]string, len(classifications))
-			subtypes := make([]string, len(classifications))
-			for i, c := range classifications {
-				classes[i] = c.Class
-				subtypes[i] = c.Subtype
-			}
-			feature.Classes = classes
-			feature.Subtypes = subtypes
-		}
-
-		if !conf.DisableAltNames {
-			for _, alt := range []string{"alt_name", "old_name", "short_name"} {
-				if val, ok := tags[alt]; ok {
-					feature.Names[alt] = val
-				}
-			}
-			for _, lang := range conf.Languages {
-				if name, ok := tags["name:"+lang]; ok {
-					feature.Names["name:"+lang] = name
-				}
-				for _, alt := range []string{"alt_name", "old_name", "short_name"} {
-					if val, ok := tags[alt+":"+lang]; ok {
-						feature.Names[alt+":"+lang] = val
-					}
-				}
-			}
-		} else {
-			for _, lang := range conf.Languages {
-				if name, ok := tags["name:"+lang]; ok {
-					feature.Names["name:"+lang] = name
-				}
-			}
-		}
-
-		// Extract address fields when configured
-		if conf.StoreAddress {
-			feature.Address = make(map[string]string)
-			addrKeys := []string{
-				"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
-				"addr:country", "addr:state", "addr:district", "addr:suburb",
-				"addr:neighbourhood",
-			}
-			for _, k := range addrKeys {
-				if val, ok := tags[k]; ok {
-					feature.Address[k] = val
-				}
-			}
-		}
-
-		if err := batch.Index(feature.ID, search.FeatureToMap(feature)); err != nil {
-			slog.Error("error indexing feature", "id", feature.ID, "error", err)
-			return nil
-		}
-
-		count++
-		if count%batchSize == 0 {
-			if err := index.Batch(batch); err != nil {
-				return err
-			}
-			batch = index.NewBatch()
-		}
-		return nil
+	ectx := &entityContext{
+		conf:      conf,
+		index:     index,
+		wdLookup:  wdLookup,
+		ont:       ont,
+		geosCtx:   geosCtx,
+		batch:     batch,
+		geoMode:   geoMode,
+		batchSize: batchSize,
 	}
 
 	// Open PBF with parallel decoders
@@ -418,6 +250,9 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 		obj := scanner.Object()
 		totalScanned++
 
+		var err error
+		var ok bool
+
 		switch o := obj.(type) {
 		case *osmapi.Node:
 			// Store node coordinates for way lookup
@@ -425,9 +260,7 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 
 			tags := o.TagMap()
 			coords := [][]float64{{o.Lon, o.Lat}}
-			if err := processEntity("node", int64(o.ID), tags, coords); err != nil {
-				return err
-			}
+			ok, err = processEntity(ectx, "node", int64(o.ID), tags, coords)
 
 		case *osmapi.Way:
 			tags := o.TagMap()
@@ -444,9 +277,7 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 				skipped++
 				continue
 			}
-			if err := processEntity("way", int64(o.ID), tags, coords); err != nil {
-				return err
-			}
+			ok, err = processEntity(ectx, "way", int64(o.ID), tags, coords)
 
 		case *osmapi.Relation:
 			tags := o.TagMap()
@@ -470,9 +301,22 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 				skipped++
 				continue
 			}
-			if err := processEntity("relation", int64(o.ID), tags, coords); err != nil {
-				return err
+			ok, err = processEntity(ectx, "relation", int64(o.ID), tags, coords)
+		}
+
+		if err != nil {
+			return err
+		}
+		if ok {
+			count++
+			if count%batchSize == 0 {
+				if err := index.Batch(ectx.batch); err != nil {
+					return err
+				}
+				ectx.batch = index.NewBatch()
 			}
+		} else {
+			skipped++
 		}
 
 		if totalScanned%logInterval == 0 {
@@ -503,6 +347,194 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 	return nil
 }
 
+type entityContext struct {
+	conf      *config.Config
+	index     bleve.Index
+	wdLookup  *WikidataLookup
+	ont       *PlaceTypeOntology
+	geosCtx   *geos.Context
+	batch     *bleve.Batch
+	geoMode   GeometryMode
+	batchSize int
+}
+
+func processEntity(
+	ctx *entityContext,
+	entityType string,
+	id int64,
+	tags map[string]string,
+	coords [][]float64,
+) (bool, error) {
+	if len(tags) == 0 {
+		return false, nil
+	}
+
+	classifications := ClassifyMulti(tags, &ctx.conf.Importance, ctx.ont)
+	if len(classifications) == 0 {
+		return false, nil
+	}
+
+	// Check --only-named filter
+	if ctx.conf.OnlyNamed {
+		hasName := tags["name"] != ""
+		if !hasName {
+			for _, alt := range []string{"alt_name", "old_name", "short_name"} {
+				if tags[alt] != "" {
+					hasName = true
+					break
+				}
+			}
+			if !hasName {
+				for _, lang := range ctx.conf.Languages {
+					if tags["name:"+lang] != "" {
+						hasName = true
+						break
+					}
+				}
+			}
+		}
+		if !hasName {
+			return false, nil
+		}
+	}
+
+	// Find best classification by importance with tie-breaking
+	best := classifications[0]
+	for _, c := range classifications[1:] {
+		if c.Importance > best.Importance {
+			best = c
+		} else if c.Importance == best.Importance {
+			// Tie-breaking: prefer finer granularity (higher ontological level)
+			if c.OntLevel > best.OntLevel {
+				best = c
+			} else if c.OntLevel == best.OntLevel {
+				// Tie-break by population (higher wins)
+				cPop := parsePopulation(tags)
+				bestPop := parsePopulationForClassification(best.Class, best.Subtype, tags)
+				if cPop > bestPop {
+					best = c
+				}
+			}
+		}
+	}
+
+	// Apply Wikidata importance boost (language-aware)
+	if ctx.wdLookup != nil && tags["wikidata"] != "" {
+		// Detect primary language from tags (prefer name:XX tags, fallback to config)
+		primaryLang := ""
+		if len(ctx.conf.Languages) > 0 {
+			primaryLang = ctx.conf.Languages[0]
+		}
+		// Check if entity has language-specific name tags
+		for _, lang := range ctx.conf.Languages {
+			if _, ok := tags["name:"+lang]; ok {
+				primaryLang = lang
+				break
+			}
+		}
+		// Use language-aware lookup if we have a language, otherwise use highest score
+		var wdImportance float64
+		if primaryLang != "" {
+			wdImportance = ctx.wdLookup.GetImportanceForLang(tags["wikidata"], primaryLang)
+		} else {
+			wdImportance = ctx.wdLookup.GetImportance(tags["wikidata"])
+		}
+		if wdImportance > 0 {
+			best.Importance += wdImportance * 10.0
+		}
+	}
+
+	// Build geometry
+	var geom any
+	if ctx.geoMode != ModeNoGeo {
+		var err error
+		geom, err = createGeometryFromCoords(coords, ctx.geoMode, ctx.conf.SimplificationTol, ctx.geosCtx)
+		if err != nil {
+			slog.Debug("skipping entity (bad geometry)", "id", id, "error", err)
+			return false, nil
+		}
+	}
+
+	feature := &search.Feature{
+		ID:         fmt.Sprintf("%s/%d", entityType, id),
+		Name:       tags["name"],
+		Names:      make(map[string]string),
+		Importance: best.Importance,
+		Geometry:   geom,
+		Class:      best.Class,
+		Subtype:    best.Subtype,
+	}
+
+	if ctx.conf.DisableImportance {
+		feature.Importance = 0
+	}
+
+	if !ctx.conf.DisableClassSubtype {
+		classes := make([]string, len(classifications))
+		subtypes := make([]string, len(classifications))
+		for i, c := range classifications {
+			classes[i] = c.Class
+			subtypes[i] = c.Subtype
+		}
+		feature.Classes = classes
+		feature.Subtypes = subtypes
+	}
+
+	if !ctx.conf.DisableAltNames {
+		for _, alt := range []string{"alt_name", "old_name", "short_name"} {
+			if val, ok := tags[alt]; ok {
+				feature.Names[alt] = val
+			}
+		}
+		for _, lang := range ctx.conf.Languages {
+			if name, ok := tags["name:"+lang]; ok {
+				feature.Names["name:"+lang] = name
+			}
+			for _, alt := range []string{"alt_name", "old_name", "short_name"} {
+				if val, ok := tags[alt+":"+lang]; ok {
+					feature.Names[alt+":"+lang] = val
+				}
+			}
+		}
+	} else {
+		for _, lang := range ctx.conf.Languages {
+			if name, ok := tags["name:"+lang]; ok {
+				feature.Names["name:"+lang] = name
+			}
+		}
+	}
+
+	// Extract address fields when configured
+	if ctx.conf.StoreAddress {
+		feature.Address = make(map[string]string)
+		addrKeys := []string{
+			"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
+			"addr:country", "addr:state", "addr:district", "addr:suburb",
+			"addr:neighbourhood",
+		}
+		for _, k := range addrKeys {
+			if val, ok := tags[k]; ok {
+				feature.Address[k] = val
+			}
+		}
+	}
+
+	// Attach Wikidata redirect titles as alternate names when configured
+	if ctx.conf.IndexWikidataRedirects && ctx.wdLookup != nil && tags["wikidata"] != "" {
+		redirects := ctx.wdLookup.GetRedirects(tags["wikidata"])
+		if len(redirects) > 0 {
+			feature.WikidataRedirects = redirects
+		}
+	}
+
+	if err := ctx.batch.Index(feature.ID, search.FeatureToMap(feature)); err != nil {
+		slog.Error("error indexing feature", "id", feature.ID, "error", err)
+		return false, nil
+	}
+
+	return true, nil
+}
+
 // CreateGeometry creates a GeoJSON-compatible geometry from an OSM object.
 // Used by the direct PBF search path.
 func CreateGeometry(obj osmapi.Object, mode GeometryMode, tolerance float64, ctx *geos.Context) (any, error) {
@@ -526,11 +558,10 @@ func CreateGeometry(obj osmapi.Object, mode GeometryMode, tolerance float64, ctx
 			g = ctx.NewLineString(coords)
 		}
 	case *osmapi.Relation:
-		if o.Bounds != nil {
-			g = ctx.NewGeomFromBounds(o.Bounds.MinLon, o.Bounds.MinLat, o.Bounds.MaxLon, o.Bounds.MaxLat)
-		} else {
+		if o.Bounds == nil {
 			return nil, errors.New("relation without bounds")
 		}
+		g = ctx.NewGeomFromBounds(o.Bounds.MinLon, o.Bounds.MinLat, o.Bounds.MaxLon, o.Bounds.MaxLat)
 	default:
 		return nil, errors.New("unsupported object type")
 	}
@@ -545,7 +576,7 @@ func CreateGeometry(obj osmapi.Object, mode GeometryMode, tolerance float64, ctx
 		if mode == ModeGeopointCentroid {
 			pt = g.Centroid()
 		} else {
-			pt, _, err = representativePoint(g, ctx)
+			pt, _, err = representativePoint(g)
 		}
 		if err != nil || pt == nil {
 			return nil, fmt.Errorf("could not create geopoint: %w", err)
@@ -564,8 +595,8 @@ func CreateGeometry(obj osmapi.Object, mode GeometryMode, tolerance float64, ctx
 		finalGeom = g.TopologyPreserveSimplify(tolerance)
 	case ModeGeoshapeFull:
 		finalGeom = g
-	default:
-		pt, _, err := representativePoint(g, ctx)
+	case ModeGeopoint, ModeGeopointCentroid, ModeNoGeo:
+		pt, _, err := representativePoint(g)
 		if err != nil || pt == nil {
 			return nil, fmt.Errorf("could not create default geopoint: %w", err)
 		}
@@ -612,7 +643,7 @@ func createGeometryFromCoords(
 		if mode == ModeGeopointCentroid {
 			pt = g.Centroid()
 		} else {
-			pt, _, err = representativePoint(g, ctx)
+			pt, _, err = representativePoint(g)
 		}
 		if err != nil || pt == nil {
 			return nil, fmt.Errorf("could not create geopoint: %w", err)
@@ -631,8 +662,8 @@ func createGeometryFromCoords(
 		finalGeom = g.TopologyPreserveSimplify(tolerance)
 	case ModeGeoshapeFull:
 		finalGeom = g
-	default:
-		pt, _, err := representativePoint(g, ctx)
+	case ModeGeopoint, ModeGeopointCentroid, ModeNoGeo:
+		pt, _, err := representativePoint(g)
 		if err != nil || pt == nil {
 			return nil, fmt.Errorf("could not create default geopoint: %w", err)
 		}

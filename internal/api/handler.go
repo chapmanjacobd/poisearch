@@ -53,6 +53,38 @@ func writeJSONError(w http.ResponseWriter, statusCode int, code, message string)
 	}
 }
 
+func CORSMiddleware(next http.Handler, allowedOrigins []string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			allowed := false
+			if len(allowedOrigins) == 0 {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+				allowed = true
+			} else {
+				for _, o := range allowedOrigins {
+					if o == "*" || o == origin {
+						w.Header().Set("Access-Control-Allow-Origin", o)
+						allowed = true
+						break
+					}
+				}
+			}
+
+			if allowed {
+				w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+				if r.Method == http.MethodOptions {
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func RegisterHandlers(mux *http.ServeMux, index bleve.Index, conf *config.Config) {
 	RegisterHandlersWithPBF(mux, index, conf, "")
 }

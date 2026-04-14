@@ -1,7 +1,7 @@
 package search
 
 import (
-	"math"
+	// "math" // Reserved for future use
 
 	"github.com/blevesearch/bleve/v2/search"
 )
@@ -55,6 +55,7 @@ func DefaultRankingConfig() RankingConfig {
 	}
 }
 
+/*
 // applyProximityPenalty adjusts the score based on distance from query location.
 // Returns the adjusted score.
 func applyProximityPenalty(score, distMeters, weight float64) float64 {
@@ -126,6 +127,7 @@ func adjustScore(score float64, hit *search.DocumentMatch, params SearchParams, 
 
 	return score
 }
+*/
 
 // extractDistanceFromHit extracts the distance from a search hit.
 func extractDistanceFromHit(hit *search.DocumentMatch) float64 {
@@ -135,8 +137,7 @@ func extractDistanceFromHit(hit *search.DocumentMatch) float64 {
 
 	// Try to get distance from fields
 	if fields, ok := hit.Fields["_geo_distance"]; ok {
-		switch v := fields.(type) {
-		case float64:
+		if v, ok := fields.(float64); ok {
 			return v
 		}
 	}
@@ -151,8 +152,7 @@ func extractImportanceFromHit(hit *search.DocumentMatch) float64 {
 	}
 
 	if fields, ok := hit.Fields["importance"]; ok {
-		switch v := fields.(type) {
-		case float64:
+		if v, ok := fields.(float64); ok {
 			return v
 		}
 	}

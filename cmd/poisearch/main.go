@@ -59,7 +59,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	mux := http.NewServeMux()
 	api.RegisterHandlersWithPBF(mux, s.index, s.conf, s.pbfPath)
-	mux.ServeHTTP(w, r)
+
+	handler := api.CORSMiddleware(mux, s.conf.Server.AllowedOrigins)
+	handler.ServeHTTP(w, r)
 }
 
 func (s *ServeCmd) Run(conf *config.Config) error {

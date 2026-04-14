@@ -26,6 +26,7 @@ type Config struct {
 	StoreMetadata       bool              `toml:"store_metadata"`
 	StoreGeometry       bool              `toml:"store_geometry"`
 	StoreAddress        bool              `toml:"store_address"` // Opt-in: index addr:* tags for address search
+	IndexWikidataRedirects bool           `toml:"index_wikidata_redirects"` // Opt-in: index Wikipedia redirect titles as alternate names
 }
 
 type ImportanceWeights struct {
@@ -45,6 +46,7 @@ type ImportanceWeights struct {
 }
 
 type ServerConfig struct {
-	Host string `toml:"host"`
-	Port int    `toml:"port"`
+	Host           string   `toml:"host"`
+	Port           int      `toml:"port"`
+	AllowedOrigins []string `toml:"allowed_origins"`
 }

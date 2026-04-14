@@ -20,6 +20,7 @@ type Feature struct {
 	Importance float64           `json:"importance"`
 	Geometry   any               `json:"geometry"`
 	Address    map[string]string `json:"address,omitempty"` // addr:housenumber, addr:street, etc.
+	WikidataRedirects []string   `json:"wikidata_redirects,omitempty"` // Wikipedia redirect titles for this QID
 }
 
 func OpenOrCreateIndex(indexPath string, m mapping.IndexMapping) (bleve.Index, error) {
@@ -64,6 +65,10 @@ func FeatureToMap(f *Feature) map[string]any {
 		for k, v := range f.Address {
 			m[k] = v
 		}
+	}
+	// Store wikidata redirect titles when configured
+	if len(f.WikidataRedirects) > 0 {
+		m["wikidata_redirects"] = strings.Join(f.WikidataRedirects, "|")
 	}
 	return m
 }

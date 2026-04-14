@@ -101,3 +101,123 @@ de	a	Berlin	0.85	Berlin_Q64
 		t.Error("header line should have been skipped")
 	}
 }
+
+func TestLoadWikidataImportanceWithRedirects(t *testing.T) {
+	// Create a test file with both articles and redirects
+	tmpFile, err := os.CreateTemp(t.TempDir(), "wikidata-redirects-test-*.tsv.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	// Write test data in gzip format (TSV format from wikipedia-wikidata pipeline)
+	gzWriter := gzip.NewWriter(tmpFile)
+	testData := `language	type	title	importance	wikidata_id
+en	a	Brandenburg_Gate	0.5531125195487524	Q82425
+en	r	Berlin's_Gate	0.5531125195487524	Q82425
+en	r	Brandenberg_Gate	0.5531125195487524	Q82425
+en	r	Brandenburger_Tor	0.5531125195487524	Q82425
+en	a	Eiffel_Tower	0.7	Q243
+fr	a	Tour_Eiffel	0.7	Q243
+fr	r	Tour_de_Paris	0.7	Q243
+`
+	gzWriter.Write([]byte(testData))
+	gzWriter.Close()
+	tmpFile.Close()
+
+	lookup, err := osm.LoadWikidataImportance(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("failed to load test wikidata importance: %v", err)
+	}
+
+	// Verify size (only articles, not redirects)
+	if lookup.Size() != 2 {
+		t.Errorf("expected 2 QIDs, got %d", lookup.Size())
+	}
+
+	// Test redirect lookup
+	redirects := lookup.GetRedirects("Q82425")
+	if len(redirects) != 3 {
+		t.Errorf("expected 3 redirects for Q82425, got %d: %v", len(redirects), redirects)
+	}
+
+	// Verify specific redirects
+	expectedRedirects := map[string]bool{
+		"Berlin's_Gate":    true,
+		"Brandenberg_Gate": true,
+		"Brandenburger_Tor": true,
+	}
+
+	for _, r := range redirects {
+		if !expectedRedirects[r] {
+			t.Errorf("unexpected redirect for Q82425: %s", r)
+		}
+	}
+
+	// Test Q243 redirects (only 1 redirect from French)
+	eiffelRedirects := lookup.GetRedirects("Q243")
+	if len(eiffelRedirects) != 1 {
+		t.Errorf("expected 1 redirect for Q243, got %d", len(eiffelRedirects))
+	}
+	if len(eiffelRedirects) > 0 && eiffelRedirects[0] != "Tour_de_Paris" {
+		t.Errorf("expected redirect Tour_de_Paris, got %s", eiffelRedirects[0])
+	}
+
+	// Test QID with no redirects
+	noRedirects := lookup.GetRedirects("Q999999")
+	if noRedirects != nil {
+		t.Errorf("expected nil for QID with no redirects, got %v", noRedirects)
+	}
+
+	// Verify importance still works
+	brandenburgImportance := lookup.GetImportance("Q82425")
+	if brandenburgImportance == 0 {
+		t.Error("expected non-zero importance for Q82425")
+	}
+
+	// Test language-specific lookup for Q243 (should prefer French score)
+	frImportance := lookup.GetImportanceForLang("Q243", "fr")
+	if frImportance == 0 {
+		t.Error("expected non-zero French importance for Q243")
+	}
+}
+
+func TestRedirectCount(t *testing.T) {
+	// Create a test file with redirects
+	tmpFile, err := os.CreateTemp(t.TempDir(), "wikidata-redirect-count-*.tsv.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	gzWriter := gzip.NewWriter(tmpFile)
+	testData := `language	type	title	importance	wikidata_id
+en	a	Test_Article_1	0.5	Q1
+en	r	Redirect_1a	0.5	Q1
+en	r	Redirect_1b	0.5	Q1
+en	a	Test_Article_2	0.6	Q2
+en	r	Redirect_2a	0.6	Q2
+en	r	Redirect_2b	0.6	Q2
+en	r	Redirect_2c	0.6	Q2
+en	a	Test_Article_3	0.7	Q3
+`
+	gzWriter.Write([]byte(testData))
+	gzWriter.Close()
+	tmpFile.Close()
+
+	lookup, err := osm.LoadWikidataImportance(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("failed to load test wikidata importance: %v", err)
+	}
+
+	// Total redirect count should be 5 (2 for Q1 + 3 for Q2)
+	totalRedirects := lookup.RedirectCount()
+	if totalRedirects != 5 {
+		t.Errorf("expected 5 total redirects, got %d", totalRedirects)
+	}
+
+	// Size should be 3 (Q1, Q2, Q3)
+	if lookup.Size() != 3 {
+		t.Errorf("expected 3 QIDs, got %d", lookup.Size())
+	}
+}

@@ -726,7 +726,7 @@ func TestAnalyzer_IndexSizeComparison(t *testing.T) {
 		Size     int64
 	}
 
-	var results []SizeResult
+	results := make([]SizeResult, 0, len(analyzers))
 
 	for _, analyzer := range analyzers {
 		conf := defaultTestConfig()

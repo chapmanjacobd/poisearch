@@ -5,12 +5,7 @@ import (
 	"strings"
 
 	"github.com/blevesearch/bleve/v2"
-	"github.com/blevesearch/bleve/v2/search/query"
 )
-
-// nearOperators are the keywords that trigger NearSearch mode.
-// These match Nominatim's pattern for "category near place" queries.
-var nearOperators = []string{"near", "in", "around", "close to"}
 
 // nearPattern matches "X near Y" or "X in Y" patterns.
 // Examples: "restaurants near Big Ben", "hotels in Berlin"
@@ -29,29 +24,28 @@ type NearResult struct {
 }
 
 // parseNearQuery checks if the query matches a "X near Y" pattern.
-// Returns (category, referencePlace, operator, true) if matched, else (..., false).
-func parseNearQuery(q string) (category, referencePlace, operator string, isNear bool) {
+// Returns (category, referencePlace, true) if matched, else (..., false).
+func parseNearQuery(q string) (category, referencePlace string, isNear bool) {
 	matches := nearPattern.FindStringSubmatch(q)
 	if matches == nil {
-		return "", "", "", false
+		return "", "", false
 	}
 
 	category = strings.TrimSpace(matches[1])
-	operator = strings.ToLower(strings.TrimSpace(matches[2]))
 	referencePlace = strings.TrimSpace(matches[3])
 
 	// Validate: category should be a known POI type or short phrase
 	// (typically 1-3 words, not a full sentence)
 	if len(strings.Fields(category)) > 5 {
-		return "", "", "", false
+		return "", "", false
 	}
 
-	return category, referencePlace, operator, true
+	return category, referencePlace, true
 }
 
 // isNearQuery returns true if the query looks like a "X near Y" pattern.
 func isNearQuery(q string) bool {
-	_, _, _, ok := parseNearQuery(q)
+	_, _, ok := parseNearQuery(q)
 	return ok
 }
 
@@ -91,14 +85,12 @@ func NearSearch(index bleve.Index, baseParams SearchParams, category, referenceP
 
 	// Try to get coordinates from the hit
 	if fields, ok := hit.Fields["lat"]; ok {
-		switch v := fields.(type) {
-		case float64:
+		if v, ok := fields.(float64); ok {
 			lat = v
 		}
 	}
 	if fields, ok := hit.Fields["lon"]; ok {
-		switch v := fields.(type) {
-		case float64:
+		if v, ok := fields.(float64); ok {
 			lon = v
 		}
 	}
@@ -142,27 +134,4 @@ func NearSearch(index bleve.Index, baseParams SearchParams, category, referenceP
 		Lon:            lon,
 		Results:        results,
 	}, nil
-}
-
-// buildNearQuery creates a combined query for "X near Y" pattern.
-// This is used when we want to search both in a single Bleve query
-// rather than two-phase search. Returns nil if not a near query.
-func buildNearQuery(q string, params SearchParams) query.Query {
-	category, referencePlace, _, isNear := parseNearQuery(q)
-	if !isNear {
-		return nil
-	}
-
-	// Create a disjunction that matches either:
-	// 1. The category terms
-	// 2. The reference place terms
-	// With higher boost for category matches
-
-	categoryQuery := bleve.NewMatchQuery(category)
-	categoryQuery.SetBoost(2.0)
-
-	refQuery := bleve.NewMatchQuery(referencePlace)
-	refQuery.SetBoost(0.5) // Lower boost for reference place
-
-	return bleve.NewDisjunctionQuery(categoryQuery, refQuery)
 }

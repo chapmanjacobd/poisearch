@@ -28,6 +28,8 @@ type WikidataLookup struct {
 	scores map[string]float64
 	// qid -> lang -> max importance score for that language
 	langScores map[string]map[string]float64
+	// qid -> list of redirect titles (Wikipedia redirects that point to this QID)
+	redirects map[string][]string
 }
 
 // LoadWikidataImportance loads Wikidata importance scores from a TSV file.
@@ -57,6 +59,7 @@ func LoadWikidataImportance(path string) (*WikidataLookup, error) {
 	lookup := &WikidataLookup{
 		scores:     make(map[string]float64),
 		langScores: make(map[string]map[string]float64),
+		redirects:  make(map[string][]string),
 	}
 
 	scanner := bufio.NewScanner(reader)
@@ -75,6 +78,8 @@ func LoadWikidataImportance(path string) (*WikidataLookup, error) {
 
 		// Parse the line
 		lang := strings.TrimSpace(parts[0])
+		typ := strings.TrimSpace(parts[1])
+		title := strings.TrimSpace(parts[2])
 		wikidataID := strings.TrimSpace(parts[4])
 		if !strings.HasPrefix(wikidataID, "Q") {
 			continue // Skip non-QID entries
@@ -94,6 +99,11 @@ func LoadWikidataImportance(path string) (*WikidataLookup, error) {
 		}
 		if existing, ok := lookup.langScores[wikidataID][lang]; !ok || importance > existing {
 			lookup.langScores[wikidataID][lang] = importance
+		}
+
+		// Capture redirect titles (type == 'r')
+		if typ == "r" && title != "" {
+			lookup.redirects[wikidataID] = append(lookup.redirects[wikidataID], title)
 		}
 	}
 
@@ -139,4 +149,26 @@ func (w *WikidataLookup) Size() int {
 		return 0
 	}
 	return len(w.scores)
+}
+
+// GetRedirects returns the list of Wikipedia redirect titles for a given QID.
+// These can be used as alternate names to improve search discoverability.
+// Returns nil if the QID has no redirects.
+func (w *WikidataLookup) GetRedirects(qid string) []string {
+	if w == nil || w.redirects == nil {
+		return nil
+	}
+	return w.redirects[qid]
+}
+
+// RedirectCount returns the total number of redirect titles in the lookup table.
+func (w *WikidataLookup) RedirectCount() int {
+	if w == nil || w.redirects == nil {
+		return 0
+	}
+	count := 0
+	for _, redirects := range w.redirects {
+		count += len(redirects)
+	}
+	return count
 }
