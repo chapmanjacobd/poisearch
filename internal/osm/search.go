@@ -1,15 +1,19 @@
 package osm
 
 import (
+	"context"
 	"fmt"
 	"math"
+	"os"
+	"runtime"
 	"strings"
 
 	"github.com/blevesearch/bleve/v2"
 	bleveSearch "github.com/blevesearch/bleve/v2/search"
 	"github.com/chapmanjacobd/poisearch/internal/config"
 	"github.com/chapmanjacobd/poisearch/internal/search"
-	"github.com/codesoap/pbf"
+	osmapi "github.com/paulmach/osm"
+	"github.com/paulmach/osm/osmpbf"
 	"github.com/twpayne/go-geos"
 )
 
@@ -20,9 +24,8 @@ func nanodegree(f float64) int64 {
 
 // computeDistanceMeters returns the approximate distance in meters between two points
 func computeDistanceMeters(lat1, lon1, lat2, lon2 float64) int {
-	latRad := lat1 * math.Pi / 180
 	y := (lat2 - lat1) * 111_000
-	x := (lon2 - lon1) * 6_367_000 * math.Cos(latRad) * math.Pi / 180
+	x := (lon2 - lon1) * 6_367_000 * math.Cos(lat1*math.Pi/180) * math.Pi / 180
 	return int(math.Sqrt(float64(y*y + x*x)))
 }
 
@@ -35,20 +38,11 @@ func parseRadiusToInt(radius string) int {
 	return result
 }
 
-// PBFSearch performs direct PBF search without using a pre-built index
-// Uses codesoap/pbf library for efficient entity extraction with vtprotobuf optimizations
+// PBFSearch performs direct PBF search without using a pre-built index.
+// Uses paulmach/osm streaming scanner for low-memory, fast parsing.
 //
-//nolint:revive,cyclop,funlen // Search requires handling many spatial filtering and classification cases
+//nolint:funlen,cyclop // Search requires handling many spatial filtering and classification cases
 func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) (*bleve.SearchResult, error) {
-	// Build tag filter for early filtering
-	filter := buildTagFilter(&conf.Importance)
-
-	// Extract entities using optimized pbf library
-	entities, err := pbf.ExtractEntities(pbfPath, filter)
-	if err != nil {
-		return nil, fmt.Errorf("extracting entities from PBF: %w", err)
-	}
-
 	// Load ontology for classification
 	ont := DefaultOntology()
 	if conf.OntologyPath != "" {
@@ -56,6 +50,15 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 			ont = loaded
 		}
 	}
+
+	file, err := os.Open(pbfPath)
+	if err != nil {
+		return nil, fmt.Errorf("opening PBF file: %w", err)
+	}
+	defer file.Close()
+
+	scanner := osmpbf.New(context.Background(), file, runtime.GOMAXPROCS(-1))
+	defer scanner.Close()
 
 	geosCtx := geos.NewContext()
 	queryLower := strings.ToLower(params.Query)
@@ -93,149 +96,117 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 		Hits: make(bleveSearch.DocumentMatchCollection, 0),
 	}
 
-	// Search through nodes
-	for _, node := range entities.Nodes {
-		latNano, lonNano := node.Coords()
+	// Node coordinate lookup for way/relation geometry reconstruction
+	nodeCoords := make(map[int64][]float64)
 
-		if !matchesSpatialFilter(
-			latNano,
-			lonNano,
-			hasRadiusFilter,
-			hasBboxFilter,
-			minLatNano,
-			maxLatNano,
-			minLonNano,
-			maxLonNano,
-			params,
-			radiusMeters,
-		) {
+	for scanner.Scan() {
+		obj := scanner.Object()
 
-			continue
-		}
+		switch o := obj.(type) {
+		case *osmapi.Node:
+			nodeCoords[int64(o.ID)] = []float64{o.Lon, o.Lat}
+			latNano := nanodegree(o.Lat)
+			lonNano := nanodegree(o.Lon)
 
-		coords := [][]float64{{
-			nanodegreeToFloat(lonNano),
-			nanodegreeToFloat(latNano),
-		}}
-
-		if hit := processEntity(
-			"node",
-			node.ID(),
-			node.Tags(),
-			coords,
-			queryLower,
-			params,
-			conf,
-			ont,
-			geosCtx,
-			hasRadiusFilter,
-			hasBboxFilter,
-		); hit != nil {
-			res.Hits = append(res.Hits, hit)
-			res.Total++
-			if len(res.Hits) >= params.Limit && params.Limit > 0 {
-				break
-			}
-		}
-	}
-
-	// Search through ways
-	if !conf.NodesOnly {
-		for _, way := range entities.Ways {
-			coords, err := wayCoordinates(way, entities.Nodes)
-			if err != nil || len(coords) == 0 {
-				continue
-			}
-
-			// Use first coordinate for spatial filtering
-			firstLat := nanodegree(coords[0][1])
-			firstLon := nanodegree(coords[0][0])
-
-			if !matchesSpatialFilter(
-				firstLat,
-				firstLon,
-				hasRadiusFilter,
-				hasBboxFilter,
-				minLatNano,
-				maxLatNano,
-				minLonNano,
-				maxLonNano,
-				params,
-				radiusMeters,
-			) {
+			if !matchesSpatialFilter(latNano, lonNano, hasRadiusFilter, hasBboxFilter,
+				minLatNano, maxLatNano, minLonNano, maxLonNano, params, radiusMeters) {
 
 				continue
 			}
 
-			if hit := processEntity(
-				"way",
-				way.ID(),
-				way.Tags(),
-				coords,
-				queryLower,
-				params,
-				conf,
-				ont,
-				geosCtx,
-				hasRadiusFilter,
-				hasBboxFilter,
+			if hit := processPBFFntity(
+				"node", int64(o.ID), o.TagMap(), [][]float64{{o.Lon, o.Lat}},
+				queryLower, params, conf, ont, geosCtx, hasRadiusFilter, hasBboxFilter,
 			); hit != nil {
 				res.Hits = append(res.Hits, hit)
 				res.Total++
 				if len(res.Hits) >= params.Limit && params.Limit > 0 {
-					break
+					return res, nil
 				}
 			}
-		}
-	}
 
-	// Search through relations
-	if !conf.NodesOnly {
-		for _, relation := range entities.Relations {
-			coords, err := relationCoordinates(relation, entities.Nodes)
-			if err != nil || len(coords) == 0 {
+		case *osmapi.Way:
+			if conf.NodesOnly {
+				continue
+			}
+			coords := make([][]float64, 0, len(o.Nodes))
+			for _, node := range o.Nodes {
+				if node.Lon != 0 || node.Lat != 0 {
+					coords = append(coords, []float64{node.Lon, node.Lat})
+				} else if nc, ok := nodeCoords[int64(node.ID)]; ok {
+					coords = append(coords, nc)
+				}
+			}
+			if len(coords) < 2 {
 				continue
 			}
 
 			firstLat := nanodegree(coords[0][1])
 			firstLon := nanodegree(coords[0][0])
 
-			if !matchesSpatialFilter(
-				firstLat,
-				firstLon,
-				hasRadiusFilter,
-				hasBboxFilter,
-				minLatNano,
-				maxLatNano,
-				minLonNano,
-				maxLonNano,
-				params,
-				radiusMeters,
-			) {
+			if !matchesSpatialFilter(firstLat, firstLon, hasRadiusFilter, hasBboxFilter,
+				minLatNano, maxLatNano, minLonNano, maxLonNano, params, radiusMeters) {
 
 				continue
 			}
 
-			if hit := processEntity(
-				"relation",
-				relation.ID(),
-				relation.Tags(),
-				coords,
-				queryLower,
-				params,
-				conf,
-				ont,
-				geosCtx,
-				hasRadiusFilter,
-				hasBboxFilter,
+			if hit := processPBFFntity(
+				"way", int64(o.ID), o.TagMap(), coords,
+				queryLower, params, conf, ont, geosCtx, hasRadiusFilter, hasBboxFilter,
 			); hit != nil {
 				res.Hits = append(res.Hits, hit)
 				res.Total++
 				if len(res.Hits) >= params.Limit && params.Limit > 0 {
-					break
+					return res, nil
+				}
+			}
+
+		case *osmapi.Relation:
+			if conf.NodesOnly {
+				continue
+			}
+			var coords [][]float64
+			for _, member := range o.Members {
+				if member.Type == osmapi.TypeNode {
+					if nc, ok := nodeCoords[member.Ref]; ok {
+						coords = [][]float64{nc}
+						break
+					}
+				} else if member.Type == osmapi.TypeWay {
+					if member.Lat != 0 || member.Lon != 0 {
+						coords = [][]float64{{member.Lon, member.Lat}}
+						break
+					}
+				}
+			}
+			if len(coords) == 0 {
+				continue
+			}
+
+			firstLat := nanodegree(coords[0][1])
+			firstLon := nanodegree(coords[0][0])
+
+			if !matchesSpatialFilter(firstLat, firstLon, hasRadiusFilter, hasBboxFilter,
+				minLatNano, maxLatNano, minLonNano, maxLonNano, params, radiusMeters) {
+
+				continue
+			}
+
+			if hit := processPBFFntity(
+				"relation", int64(o.ID), o.TagMap(), coords,
+				queryLower, params, conf, ont, geosCtx, hasRadiusFilter, hasBboxFilter,
+			); hit != nil {
+				res.Hits = append(res.Hits, hit)
+				res.Total++
+				if len(res.Hits) >= params.Limit && params.Limit > 0 {
+					return res, nil
 				}
 			}
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("PBF scan error: %w", err)
 	}
 
 	return res, nil
@@ -278,10 +249,10 @@ func matchesSpatialFilter(
 	return true
 }
 
-// processEntity processes an OSM entity and creates a search result match.
+// processPBFFntity processes an OSM entity and creates a search result match.
 //
 //nolint:revive // Processing entities requires handling many classification and geometry cases with multiple parameters
-func processEntity(
+func processPBFFntity(
 	entityType string,
 	id int64,
 	tags map[string]string,

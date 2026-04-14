@@ -1,4 +1,4 @@
-//nolint:testpackage // Tests need access to internal functions like truncate and representativePoint
+//nolint:testpackage // Tests need access to internal functions like roundToMeterAccuracy and representativePoint
 package osm
 
 import (
@@ -7,7 +7,7 @@ import (
 	"github.com/twpayne/go-geos"
 )
 
-func TestTruncate(t *testing.T) {
+func TestRoundToMeterAccuracy(t *testing.T) {
 	tests := []struct {
 		input    float64
 		expected float64
@@ -19,9 +19,9 @@ func TestTruncate(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := truncate(tt.input)
+		got := roundToMeterAccuracy(tt.input)
 		if got != tt.expected {
-			t.Errorf("truncate(%f) = %f; want %f", tt.input, got, tt.expected)
+			t.Errorf("roundToMeterAccuracy(%f) = %f; want %f", tt.input, got, tt.expected)
 		}
 	}
 }
@@ -32,7 +32,7 @@ func TestRepresentativePoint(t *testing.T) {
 	// Test Polygon
 	polyCoords := [][][]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}
 	poly := ctx.NewPolygon(polyCoords)
-	pt, isPt, err := representativePoint(poly)
+	pt, isPt, err := representativePoint(poly, ctx)
 	if err != nil {
 		t.Fatalf("representativePoint failed: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestRepresentativePoint(t *testing.T) {
 	// Test LineString
 	lineCoords := [][]float64{{0, 0}, {10, 0}}
 	line := ctx.NewLineString(lineCoords)
-	pt, _, _ = representativePoint(line)
+	pt, _, _ = representativePoint(line, ctx)
 	if pt.X() != 5 || pt.Y() != 0 {
 		t.Errorf("expected midpoint at (5,0), got (%f,%f)", pt.X(), pt.Y())
 	}

@@ -10,9 +10,9 @@ import (
 
 // termFrequency represents the estimated frequency of a search term.
 type termFrequency struct {
-	Term      string
-	Length    int
-	IsRare    bool
+	Term   string
+	Length int
+	IsRare bool
 }
 
 // analyzeTermFrequencies estimates the frequency of each term in the query.

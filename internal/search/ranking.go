@@ -57,7 +57,7 @@ func DefaultRankingConfig() RankingConfig {
 
 // applyProximityPenalty adjusts the score based on distance from query location.
 // Returns the adjusted score.
-func applyProximityPenalty(score float64, distMeters float64, weight float64) float64 {
+func applyProximityPenalty(score, distMeters, weight float64) float64 {
 	if weight <= 0 || distMeters <= 0 {
 		return score
 	}
@@ -89,7 +89,7 @@ func applyWordBreakPenalty(score float64, wordCount int, penalty float64) float6
 }
 
 // applyImportanceBoost boosts results with higher importance scores.
-func applyImportanceBoost(score float64, importance float64) float64 {
+func applyImportanceBoost(score, importance float64) float64 {
 	if importance <= 0 {
 		return score
 	}

@@ -42,7 +42,7 @@ func downloadPBF(t *testing.T) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", pbfURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pbfURL, nil)
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
 	}
@@ -194,12 +194,12 @@ func TestAnalyzer_Standard(t *testing.T) {
 	defer idx.Close()
 
 	tests := []struct {
-		name        string
-		query       string
-		fuzzy       bool
-		prefix      bool
-		expectMin   int
-		expectMax   int
+		name      string
+		query     string
+		fuzzy     bool
+		prefix    bool
+		expectMin int
+		expectMax int
 	}{
 		{"exact match: Vaduz", "Vaduz", false, false, 1, 100},
 		{"exact match: Schaan", "Schaan", false, false, 1, 100},
@@ -336,7 +336,7 @@ func TestAnalyzer_Keyword(t *testing.T) {
 		expectMax int
 	}{
 		{"exact: Vaduz", "Vaduz", 1, 100},
-		{"partial: vad", "vad", 0, 0},      // Should NOT match with keyword analyzer
+		{"partial: vad", "vad", 0, 0},        // Should NOT match with keyword analyzer
 		{"wrong case: vaduz", "vaduz", 0, 0}, // Case-sensitive with keyword
 	}
 
@@ -558,7 +558,6 @@ func BenchmarkSearch(b *testing.B) {
 	analyzers := []string{"standard", "edge_ngram", "ngram", "keyword"}
 
 	for _, analyzer := range analyzers {
-		analyzer := analyzer
 		b.Run(analyzer, func(b *testing.B) {
 			conf := defaultTestConfig()
 			conf.NameAnalyzer = analyzer
@@ -567,7 +566,7 @@ func BenchmarkSearch(b *testing.B) {
 			defer idx.Close()
 
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				params := search.SearchParams{
 					Query:    "Vaduz",
 					Limit:    50,
@@ -600,7 +599,7 @@ func BenchmarkNewFeatures(b *testing.B) {
 	b.Run("Normalization", func(b *testing.B) {
 		// Test normalization overhead
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			params := search.SearchParams{
 				Query:    "München",
 				Limit:    50,
@@ -618,7 +617,7 @@ func BenchmarkNewFeatures(b *testing.B) {
 	b.Run("NearQuery", func(b *testing.B) {
 		// Test NearSearch overhead
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			params := search.SearchParams{
 				Query:    "restaurant near Vaduz",
 				Limit:    50,
@@ -636,7 +635,7 @@ func BenchmarkNewFeatures(b *testing.B) {
 	b.Run("MultiInterpretation", func(b *testing.B) {
 		// Test multi-interpretation overhead
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			params := search.SearchParams{
 				Query:    "Vaduz center",
 				Limit:    50,
@@ -654,7 +653,7 @@ func BenchmarkNewFeatures(b *testing.B) {
 	b.Run("FrequencyAware", func(b *testing.B) {
 		// Test frequency-aware optimization
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			params := search.SearchParams{
 				Query:    "the great restaurant",
 				Limit:    50,
@@ -672,7 +671,7 @@ func BenchmarkNewFeatures(b *testing.B) {
 	b.Run("Baseline_Simple", func(b *testing.B) {
 		// Baseline: simple single-word query
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			params := search.SearchParams{
 				Query:    "Vaduz",
 				Limit:    50,

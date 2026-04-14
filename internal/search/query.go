@@ -43,7 +43,7 @@ func (p SearchParams) QueryFields() int {
 	}
 	// Count space-separated words
 	count := 1
-	for i := 0; i < len(p.Query); i++ {
+	for i := range len(p.Query) {
 		if p.Query[i] == ' ' {
 			count++
 		}

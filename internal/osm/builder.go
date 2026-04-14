@@ -1,15 +1,20 @@
 package osm
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"os"
+	"runtime"
+	"strings"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/chapmanjacobd/poisearch/internal/config"
 	"github.com/chapmanjacobd/poisearch/internal/search"
-	"github.com/codesoap/pbf"
+	osmapi "github.com/paulmach/osm"
+	"github.com/paulmach/osm/osmpbf"
 	"github.com/twpayne/go-geos"
 )
 
@@ -25,17 +30,12 @@ const (
 	ModeNoGeo            GeometryMode = "no-geo"
 )
 
-// nanodegreeToFloat converts int64 nanodegrees to float64 coordinates
-func nanodegreeToFloat(n int64) float64 {
-	return float64(n) / 1_000_000_000.0
-}
-
-func truncate(f float64) float64 {
+func roundToMeterAccuracy(f float64) float64 {
 	shift := math.Pow(10, 5)
 	return math.Floor(f*shift+0.5) / shift
 }
 
-func representativePoint(g *geos.Geom) (*geos.Geom, bool, error) {
+func representativePoint(g *geos.Geom, ctx *geos.Context) (*geos.Geom, bool, error) {
 	switch g.TypeID() {
 	case geos.TypeIDPoint:
 		return g, true, nil
@@ -87,13 +87,13 @@ func geomToGeoJSON(g *geos.Geom) map[string]any {
 	case geos.TypeIDPoint:
 		return map[string]any{
 			"type":        "point",
-			"coordinates": []float64{truncate(g.X()), truncate(g.Y())},
+			"coordinates": []float64{roundToMeterAccuracy(g.X()), roundToMeterAccuracy(g.Y())},
 		}
 	case geos.TypeIDLineString, geos.TypeIDLinearRing:
 		coords := g.CoordSeq().ToCoords()
 		for i := range coords {
-			coords[i][0] = truncate(coords[i][0])
-			coords[i][1] = truncate(coords[i][1])
+			coords[i][0] = roundToMeterAccuracy(coords[i][0])
+			coords[i][1] = roundToMeterAccuracy(coords[i][1])
 		}
 		return map[string]any{
 			"type":        "linestring",
@@ -103,8 +103,8 @@ func geomToGeoJSON(g *geos.Geom) map[string]any {
 		ring := g.ExteriorRing()
 		coords := ring.CoordSeq().ToCoords()
 		for i := range coords {
-			coords[i][0] = truncate(coords[i][0])
-			coords[i][1] = truncate(coords[i][1])
+			coords[i][0] = roundToMeterAccuracy(coords[i][0])
+			coords[i][1] = roundToMeterAccuracy(coords[i][1])
 		}
 		return map[string]any{
 			"type":        "polygon",
@@ -115,7 +115,7 @@ func geomToGeoJSON(g *geos.Geom) map[string]any {
 		coords := make([][]float64, 0, n)
 		for i := range n {
 			comp := g.Geometry(i)
-			coords = append(coords, []float64{truncate(comp.X()), truncate(comp.Y())})
+			coords = append(coords, []float64{roundToMeterAccuracy(comp.X()), roundToMeterAccuracy(comp.Y())})
 		}
 		return map[string]any{
 			"type":        "multipoint",
@@ -128,8 +128,8 @@ func geomToGeoJSON(g *geos.Geom) map[string]any {
 			comp := g.Geometry(i)
 			lineCoords := comp.CoordSeq().ToCoords()
 			for j := range lineCoords {
-				lineCoords[j][0] = truncate(lineCoords[j][0])
-				lineCoords[j][1] = truncate(lineCoords[j][1])
+				lineCoords[j][0] = roundToMeterAccuracy(lineCoords[j][0])
+				lineCoords[j][1] = roundToMeterAccuracy(lineCoords[j][1])
 			}
 			coords = append(coords, lineCoords)
 		}
@@ -145,8 +145,8 @@ func geomToGeoJSON(g *geos.Geom) map[string]any {
 			ring := comp.ExteriorRing()
 			ringCoords := ring.CoordSeq().ToCoords()
 			for j := range ringCoords {
-				ringCoords[j][0] = truncate(ringCoords[j][0])
-				ringCoords[j][1] = truncate(ringCoords[j][1])
+				ringCoords[j][0] = roundToMeterAccuracy(ringCoords[j][0])
+				ringCoords[j][1] = roundToMeterAccuracy(ringCoords[j][1])
 			}
 			coords = append(coords, [][][]float64{ringCoords})
 		}
@@ -169,58 +169,47 @@ func geomToGeoJSON(g *geos.Geom) map[string]any {
 		centroid := g.Centroid()
 		return map[string]any{
 			"type":        "point",
-			"coordinates": []float64{truncate(centroid.X()), truncate(centroid.Y())},
+			"coordinates": []float64{roundToMeterAccuracy(centroid.X()), roundToMeterAccuracy(centroid.Y())},
 		}
 	}
 }
 
-// buildTagFilter creates a pbf.Filter from the config's importance weights.
-// This enables early filtering at the PBF parsing level, skipping entities
-// that have no classifiable tags before expensive operations like geometry
-// creation and classification.
-func buildTagFilter(weights *config.ImportanceWeights) pbf.Filter {
-	filter := pbf.Filter{
-		Tags: make(map[string][]string),
-	}
-
-	// Add tag keys to the filter.
-	// If values is empty, we use an empty slice []string{} which means
-	// "any value for this key, but key must be present".
-	// If values has entries, we include those specific values.
-	addTag := func(key string, values map[string]float64) {
-		if len(values) == 0 {
-			return
-		}
-		// If there are specific values configured, include them
-		// Otherwise use empty slice to match any value for this key
-		filter.Tags[key] = make([]string, 0, len(values))
-		for v := range values {
-			if v != "" && v != "yes" && v != "no" {
-				filter.Tags[key] = append(filter.Tags[key], v)
+// nameSignature creates a normalized name string for deduplication.
+// POIs with identical names and similar classes in close proximity are likely duplicates.
+func nameSignature(tags map[string]string, classifications []*Classification) string {
+	name := strings.ToLower(tags["name"])
+	if name == "" {
+		// Try alternate names
+		for _, alt := range []string{"alt_name", "old_name", "short_name"} {
+			if v := tags[alt]; v != "" {
+				name = strings.ToLower(v)
+				break
 			}
 		}
-		// If no specific values were added (all were yes/no/empty),
-		// the slice is empty which means "any value for this key"
 	}
-
-	addTag("place", weights.Place)
-	addTag("amenity", weights.Amenity)
-	addTag("highway", weights.Highway)
-	addTag("shop", weights.Shop)
-	addTag("tourism", weights.Tourism)
-	addTag("leisure", weights.Leisure)
-	addTag("historic", weights.Historic)
-	addTag("natural", weights.Natural)
-	addTag("railway", weights.Railway)
-
-	return filter
+	if name == "" || len(classifications) == 0 {
+		return ""
+	}
+	// Combine name with primary class for more accurate dedup
+	return name + "|" + classifications[0].Class
 }
 
-// BuildIndex builds a Bleve index from an OSM PBF file using the codesoap/pbf library.
-// This leverages vtprotobuf optimization, object pooling, and parallel blob decoding
-// for significantly better performance than standard PBF parsers.
+// shouldDedup checks if an entity should be deduplicated.
+// Returns true if the entity has been seen before with similar attributes.
+// We track by name+class signature and spatial proximity to catch real-world duplicates.
+type dedupKey struct {
+	nameClass string
+	latBucket int64 // coordinate bucket for spatial proximity check
+	lonBucket int64
+}
+
+// BuildIndex builds a Bleve index from an OSM PBF file using paulmach/osm streaming scanner.
+// This approach has lower memory than bulk-extraction libraries and supports parallel decoders.
 //
-//nolint:revive,funlen // Index building requires coordinating multiple components, complexity is inherent
+// On-the-fly deduplication: POIs with identical name+class within ~50m are treated as duplicates.
+// Only the highest-importance instance is kept.
+//
+//nolint:funlen,cyclop // Index building requires coordinating streaming, classification, geometry, and dedup
 func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error {
 	slog.Info("building index", "path", conf.IndexPath, "input", inputPath)
 
@@ -250,41 +239,177 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 		ont = DefaultOntology()
 	}
 
-	// Extract entities using codesoap/pbf (optimized with vtprotobuf + parallel decoding)
-	// Note: We don't use a tag filter here because pbf.Filter uses AND logic across
-	// multiple tag keys, which would exclude all entities. Instead, we extract all
-	// entities and filter them during indexing in buildFeature().
-	entities, err := pbf.ExtractEntities(inputPath, pbf.Filter{})
-	if err != nil {
-		return fmt.Errorf("extracting entities from PBF: %w", err)
-	}
-
-	slog.Info("extracted entities",
-		"nodes", len(entities.Nodes),
-		"ways", len(entities.Ways),
-		"relations", len(entities.Relations))
+	// Build node lookup for ways/relations (needed for geometry reconstruction)
+	// Streaming means we see nodes first, then ways/relations can reference them.
+	// For large files this uses memory, but it's necessary for geometry.
+	nodeCoords := make(map[int64][]float64)
 
 	geosCtx := geos.NewContext()
 	count := 0
 	skipped := 0
-	totalEntities := len(entities.Nodes) + len(entities.Ways) + len(entities.Relations)
-	batch := index.NewBatch()
-	batchSize := 500 // Flush more frequently for lower peak memory and faster resume
+	deduped := 0
 	geoMode := GeometryMode(conf.GeometryMode)
 
-	// processEntity is a helper function to index a single entity
-	// Bleve uses upsert semantics: re-indexing an existing ID overwrites it,
-	// so interrupted builds can be safely resumed by re-running.
-	processEntity := func(entityType string, id int64, tags map[string]string, coords [][]float64) error {
-		feature, shouldIndex, err := buildFeature(entityType, id, tags, coords, conf, wdLookup, ont, geosCtx, geoMode)
-		if err != nil {
-			slog.Debug("skipping "+entityType, "id", id, "error", err)
+	// Dedup tracking: key = name+class signature + spatial bucket, value = best importance seen
+	// Bucket size is ~0.0005 degrees (~50m at equator)
+	const bucketSize = 0.0005
+	seen := make(map[dedupKey]float64)
+
+	isDuplicate := func(sig string, lat, lon, importance float64) bool {
+		if sig == "" {
+			return false
+		}
+		latBucket := int64(lat / bucketSize)
+		lonBucket := int64(lon / bucketSize)
+		key := dedupKey{nameClass: sig, latBucket: latBucket, lonBucket: lonBucket}
+
+		if prevImportance, exists := seen[key]; exists {
+			// Already seen something similar; keep the highest importance
+			if importance <= prevImportance {
+				return true
+			}
+			// This one is better, replace
+			seen[key] = importance
+			return false
+		}
+		seen[key] = importance
+		return false
+	}
+
+	batch := index.NewBatch()
+	batchSize := 500
+
+	processEntity := func(
+		entityType string,
+		id int64,
+		tags map[string]string,
+		coords [][]float64,
+	) error {
+		if len(tags) == 0 {
 			skipped++
 			return nil
 		}
-		if !shouldIndex {
+
+		classifications := ClassifyMulti(tags, &conf.Importance, ont)
+		if len(classifications) == 0 {
 			skipped++
 			return nil
+		}
+
+		// Check --only-named filter
+		if conf.OnlyNamed {
+			hasName := tags["name"] != ""
+			if !hasName {
+				for _, alt := range []string{"alt_name", "old_name", "short_name"} {
+					if tags[alt] != "" {
+						hasName = true
+						break
+					}
+				}
+				if !hasName {
+					for _, lang := range conf.Languages {
+						if tags["name:"+lang] != "" {
+							hasName = true
+							break
+						}
+					}
+				}
+			}
+			if !hasName {
+				skipped++
+				return nil
+			}
+		}
+
+		// Find best classification by importance
+		best := classifications[0]
+		for _, c := range classifications[1:] {
+			if c.Importance > best.Importance {
+				best = c
+			}
+		}
+
+		// Apply Wikidata importance boost
+		if wdLookup != nil && tags["wikidata"] != "" {
+			wdImportance := wdLookup.GetImportance(tags["wikidata"])
+			if wdImportance > 0 {
+				best.Importance += wdImportance * 10.0
+			}
+		}
+
+		// Get a representative coordinate for dedup
+		var repLat, repLon float64
+		if len(coords) > 0 {
+			repLat = coords[0][1]
+			repLon = coords[0][0]
+		}
+
+		// Check for duplicates
+		sig := nameSignature(tags, classifications)
+		if isDuplicate(sig, repLat, repLon, best.Importance) {
+			deduped++
+			return nil
+		}
+
+		// Build geometry
+		var geom any
+		if geoMode != ModeNoGeo {
+			var err error
+			geom, err = createGeometryFromCoords(coords, geoMode, conf.SimplificationTol, geosCtx)
+			if err != nil {
+				slog.Debug("skipping entity (bad geometry)", "id", id, "error", err)
+				skipped++
+				return nil
+			}
+		}
+
+		feature := &search.Feature{
+			ID:         fmt.Sprintf("%s/%d", entityType, id),
+			Name:       tags["name"],
+			Names:      make(map[string]string),
+			Importance: best.Importance,
+			Geometry:   geom,
+			Class:      best.Class,
+			Subtype:    best.Subtype,
+		}
+
+		if conf.DisableImportance {
+			feature.Importance = 0
+		}
+
+		if !conf.DisableClassSubtype {
+			classes := make([]string, len(classifications))
+			subtypes := make([]string, len(classifications))
+			for i, c := range classifications {
+				classes[i] = c.Class
+				subtypes[i] = c.Subtype
+			}
+			feature.Classes = classes
+			feature.Subtypes = subtypes
+		}
+
+		if !conf.DisableAltNames {
+			for _, alt := range []string{"alt_name", "old_name", "short_name"} {
+				if val, ok := tags[alt]; ok {
+					feature.Names[alt] = val
+				}
+			}
+			for _, lang := range conf.Languages {
+				if name, ok := tags["name:"+lang]; ok {
+					feature.Names["name:"+lang] = name
+				}
+				for _, alt := range []string{"alt_name", "old_name", "short_name"} {
+					if val, ok := tags[alt+":"+lang]; ok {
+						feature.Names[alt+":"+lang] = val
+					}
+				}
+			}
+		} else {
+			for _, lang := range conf.Languages {
+				if name, ok := tags["name:"+lang]; ok {
+					feature.Names["name:"+lang] = name
+				}
+			}
 		}
 
 		if err := batch.Index(feature.ID, search.FeatureToMap(feature)); err != nil {
@@ -298,60 +423,105 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 				return err
 			}
 			batch = index.NewBatch()
-			slog.Info(
-				"indexing progress",
-				"indexed",
-				count,
-				"total",
-				totalEntities,
-				"pct",
-				fmt.Sprintf("%.1f%%", float64(count)*100/float64(totalEntities)),
-			)
 		}
 		return nil
 	}
 
-	// Process nodes
-	for _, node := range entities.Nodes {
-		lat, lon := node.Coords()
-		if err := processEntity("node", node.ID(), node.Tags(), [][]float64{{
-			nanodegreeToFloat(lon),
-			nanodegreeToFloat(lat),
-		}}); err != nil {
-			return err
-		}
+	// Open PBF with parallel decoders
+	file, err := os.Open(inputPath)
+	if err != nil {
+		return err
 	}
+	defer file.Close()
 
-	// Process ways
-	if !conf.NodesOnly {
-		for _, way := range entities.Ways {
-			coords, err := wayCoordinates(way, entities.Nodes)
-			if err != nil {
-				slog.Debug("skipping way (no coordinates)", "id", way.ID(), "error", err)
+	scanner := osmpbf.New(context.Background(), file, runtime.GOMAXPROCS(-1))
+	if conf.NodesOnly {
+		scanner.SkipWays = true
+		scanner.SkipRelations = true
+	}
+	defer scanner.Close()
+
+	totalScanned := 0
+	logInterval := 50000
+
+	for scanner.Scan() {
+		obj := scanner.Object()
+		totalScanned++
+
+		switch o := obj.(type) {
+		case *osmapi.Node:
+			// Store node coordinates for way lookup
+			nodeCoords[int64(o.ID)] = []float64{o.Lon, o.Lat}
+
+			tags := o.TagMap()
+			coords := [][]float64{{o.Lon, o.Lat}}
+			if err := processEntity("node", int64(o.ID), tags, coords); err != nil {
+				return err
+			}
+
+		case *osmapi.Way:
+			tags := o.TagMap()
+			coords := make([][]float64, 0, len(o.Nodes))
+			for _, node := range o.Nodes {
+				if node.Lon != 0 || node.Lat != 0 {
+					// Way has embedded coordinates (add-locations-to-ways)
+					coords = append(coords, []float64{node.Lon, node.Lat})
+				} else if nc, ok := nodeCoords[int64(node.ID)]; ok {
+					coords = append(coords, nc)
+				}
+			}
+			if len(coords) < 2 {
 				skipped++
 				continue
 			}
-
-			if err := processEntity("way", way.ID(), way.Tags(), coords); err != nil {
+			if err := processEntity("way", int64(o.ID), tags, coords); err != nil {
 				return err
 			}
-		}
-	}
 
-	// Process relations
-	if !conf.NodesOnly {
-		for _, relation := range entities.Relations {
-			coords, err := relationCoordinates(relation, entities.Nodes)
-			if err != nil {
-				slog.Debug("skipping relation (no coordinates)", "id", relation.ID(), "error", err)
+		case *osmapi.Relation:
+			tags := o.TagMap()
+			// Get first member node coordinate as representative point
+			var coords [][]float64
+			for _, member := range o.Members {
+				if member.Type == osmapi.TypeNode {
+					if nc, ok := nodeCoords[member.Ref]; ok {
+						coords = [][]float64{nc}
+						break
+					}
+				} else if member.Type == osmapi.TypeWay {
+					// Member might have embedded Lat/Lon
+					if member.Lat != 0 || member.Lon != 0 {
+						coords = [][]float64{{member.Lon, member.Lat}}
+						break
+					}
+				}
+			}
+			if len(coords) == 0 {
 				skipped++
 				continue
 			}
-
-			if err := processEntity("relation", relation.ID(), relation.Tags(), coords); err != nil {
+			if err := processEntity("relation", int64(o.ID), tags, coords); err != nil {
 				return err
 			}
 		}
+
+		if totalScanned%logInterval == 0 {
+			slog.Info(
+				"indexing progress",
+				"scanned",
+				totalScanned,
+				"indexed",
+				count,
+				"skipped",
+				skipped,
+				"deduped",
+				deduped,
+			)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("PBF scan error: %w", err)
 	}
 
 	// Flush remaining batch
@@ -361,199 +531,94 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 		}
 	}
 
-	slog.Info("Finished!", "indexed_features", count, "skipped", skipped)
+	slog.Info("Finished!", "indexed", count, "skipped", skipped, "deduped", deduped)
 	return nil
 }
 
-// buildFeature creates a search.Feature from OSM entity data.
-//
-//nolint:revive // Feature building requires handling many classification and geometry cases
-func buildFeature(
-	entityType string,
-	id int64,
-	tags map[string]string,
-	coords [][]float64,
-	conf *config.Config,
-	wdLookup *WikidataLookup,
-	ont *PlaceTypeOntology,
-	geosCtx *geos.Context,
-	geoMode GeometryMode,
-) (
-	*search.Feature,
-	bool,
-	error,
-) {
-	if len(tags) == 0 {
-		return nil, false, nil
-	}
+// CreateGeometry creates a GeoJSON-compatible geometry from an OSM object.
+// Used by the direct PBF search path.
+func CreateGeometry(obj osmapi.Object, mode GeometryMode, tolerance float64, ctx *geos.Context) (any, error) {
+	var g *geos.Geom
 
-	classifications := ClassifyMulti(tags, &conf.Importance, ont)
-	if len(classifications) == 0 {
-		return nil, false, nil
-	}
-
-	// Check --only-named filter
-	if conf.OnlyNamed {
-		hasName := tags["name"] != ""
-		if !hasName {
-			altNames := []string{"alt_name", "old_name", "short_name"}
-			for _, alt := range altNames {
-				if tags[alt] != "" {
-					hasName = true
-					break
-				}
-			}
-			if !hasName {
-				for _, lang := range conf.Languages {
-					if tags["name:"+lang] != "" {
-						hasName = true
-						break
-					}
-				}
-			}
+	switch o := obj.(type) {
+	case *osmapi.Node:
+		g = ctx.NewPointFromXY(o.Lon, o.Lat)
+	case *osmapi.Way:
+		coords := make([][]float64, len(o.Nodes))
+		for i, n := range o.Nodes {
+			coords[i] = []float64{n.Lon, n.Lat}
 		}
-		if !hasName {
-			return nil, false, nil
+		if len(coords) < 2 {
+			return nil, errors.New("way with fewer than 2 nodes")
 		}
+		// Closed way → potential polygon
+		if len(coords) >= 4 && coords[0][0] == coords[len(coords)-1][0] && coords[0][1] == coords[len(coords)-1][1] {
+			g = ctx.NewPolygon([][][]float64{coords})
+		} else {
+			g = ctx.NewLineString(coords)
+		}
+	case *osmapi.Relation:
+		if o.Bounds != nil {
+			g = ctx.NewGeomFromBounds(o.Bounds.MinLon, o.Bounds.MinLat, o.Bounds.MaxLon, o.Bounds.MaxLat)
+		} else {
+			return nil, errors.New("relation without bounds")
+		}
+	default:
+		return nil, errors.New("unsupported object type")
 	}
 
-	// Use the highest-importance classification
-	best := classifications[0]
-	for _, c := range classifications[1:] {
-		if c.Importance > best.Importance {
-			best = c
-		}
+	if g == nil {
+		return nil, errors.New("could not create geometry")
 	}
 
-	// Apply Wikidata importance boost
-	if wdLookup != nil && tags["wikidata"] != "" {
-		wdImportance := wdLookup.GetImportance(tags["wikidata"])
-		if wdImportance > 0 {
-			best.Importance += wdImportance * 10.0
+	if mode == ModeGeopoint || mode == ModeGeopointCentroid {
+		var pt *geos.Geom
+		var err error
+		if mode == ModeGeopointCentroid {
+			pt = g.Centroid()
+		} else {
+			pt, _, err = representativePoint(g, ctx)
 		}
+		if err != nil || pt == nil {
+			return nil, fmt.Errorf("could not create geopoint: %w", err)
+		}
+		return map[string]any{
+			"lat": roundToMeterAccuracy(pt.Y()),
+			"lon": roundToMeterAccuracy(pt.X()),
+		}, nil
 	}
 
-	// Build geometry
-	var geom any
-	var err error
-	if geoMode != ModeNoGeo {
-		geom, err = createGeometryFromCoords(coords, geoMode, conf.SimplificationTol, geosCtx)
-		if err != nil {
-			return nil, false, fmt.Errorf("creating geometry: %w", err)
+	var finalGeom *geos.Geom
+	switch mode {
+	case ModeGeoshapeBBox:
+		finalGeom = g.Envelope()
+	case ModeGeoshapeSimplify:
+		finalGeom = g.TopologyPreserveSimplify(tolerance)
+	case ModeGeoshapeFull:
+		finalGeom = g
+	default:
+		pt, _, err := representativePoint(g, ctx)
+		if err != nil || pt == nil {
+			return nil, fmt.Errorf("could not create default geopoint: %w", err)
 		}
+		return map[string]any{
+			"lat": roundToMeterAccuracy(pt.Y()),
+			"lon": roundToMeterAccuracy(pt.X()),
+		}, nil
 	}
 
-	feature := &search.Feature{
-		ID:         fmt.Sprintf("%s/%d", entityType, id),
-		Name:       tags["name"],
-		Names:      make(map[string]string),
-		Importance: best.Importance,
-		Geometry:   geom,
-		Class:      best.Class,
-		Subtype:    best.Subtype,
-	}
-
-	if conf.DisableImportance {
-		feature.Importance = 0
-	}
-
-	if !conf.DisableClassSubtype {
-		classes := make([]string, len(classifications))
-		subtypes := make([]string, len(classifications))
-		for i, c := range classifications {
-			classes[i] = c.Class
-			subtypes[i] = c.Subtype
-		}
-		feature.Classes = classes
-		feature.Subtypes = subtypes
-	}
-
-	if !conf.DisableAltNames {
-		altNames := []string{"alt_name", "old_name", "short_name"}
-		for _, alt := range altNames {
-			if val, ok := tags[alt]; ok {
-				feature.Names[alt] = val
-			}
-		}
-
-		for _, lang := range conf.Languages {
-			if name, ok := tags["name:"+lang]; ok {
-				feature.Names["name:"+lang] = name
-			}
-			for _, alt := range altNames {
-				if val, ok := tags[alt+":"+lang]; ok {
-					feature.Names[alt+":"+lang] = val
-				}
-			}
-		}
-	} else {
-		for _, lang := range conf.Languages {
-			if name, ok := tags["name:"+lang]; ok {
-				feature.Names["name:"+lang] = name
-			}
-		}
-	}
-
-	return feature, true, nil
+	return geomToGeoJSON(finalGeom), nil
 }
 
-// wayCoordinates reconstructs coordinates for a way from its node references
-func wayCoordinates(way pbf.Way, nodes map[int64]pbf.Node) ([][]float64, error) {
-	nodeIDs := way.Nodes()
-	if len(nodeIDs) == 0 {
-		return nil, errors.New("way has no nodes")
-	}
-
-	coords := make([][]float64, 0, len(nodeIDs))
-	for _, nodeID := range nodeIDs {
-		node, ok := nodes[nodeID]
-		if !ok {
-			slog.Debug("way references node not in PBF", "way_id", way.ID(), "node_id", nodeID)
-			continue
-		}
-		lat, lon := node.Coords()
-		coords = append(coords, []float64{
-			nanodegreeToFloat(lon),
-			nanodegreeToFloat(lat),
-		})
-	}
-
-	if len(coords) < 2 {
-		return nil, errors.New("way has fewer than 2 nodes with coordinates")
-	}
-
-	return coords, nil
-}
-
-// relationCoordinates gets a representative point from a relation's member nodes
-func relationCoordinates(relation pbf.Relation, nodes map[int64]pbf.Node) ([][]float64, error) {
-	for _, nodeID := range relation.Nodes() {
-		node, ok := nodes[nodeID]
-		if !ok {
-			continue
-		}
-		lat, lon := node.Coords()
-		return [][]float64{{
-			nanodegreeToFloat(lon),
-			nanodegreeToFloat(lat),
-		}}, nil
-	}
-
-	return nil, errors.New("relation has no member nodes with coordinates")
-}
-
-// createGeometryFromCoords creates a geometry from coordinates based on the geometry mode
+// createGeometryFromCoords creates a geometry from a list of coordinates
 func createGeometryFromCoords(
 	coords [][]float64,
 	mode GeometryMode,
 	tolerance float64,
 	ctx *geos.Context,
-) (
-	any,
-	error,
-) {
+) (any, error) {
 	if len(coords) == 0 {
-		return nil, errors.New("no coordinates provided")
+		return nil, errors.New("no coordinates")
 	}
 
 	var g *geos.Geom
@@ -561,6 +626,7 @@ func createGeometryFromCoords(
 	if len(coords) == 1 {
 		g = ctx.NewPointFromXY(coords[0][0], coords[0][1])
 	} else {
+		// Closed ring → polygon
 		if len(coords) >= 4 && coords[0][0] == coords[len(coords)-1][0] && coords[0][1] == coords[len(coords)-1][1] {
 			g = ctx.NewPolygon([][][]float64{coords})
 		} else {
@@ -572,42 +638,41 @@ func createGeometryFromCoords(
 		return nil, errors.New("could not create geometry")
 	}
 
-	switch mode {
-	case ModeGeopoint, ModeGeopointCentroid:
+	if mode == ModeGeopoint || mode == ModeGeopointCentroid {
 		var pt *geos.Geom
 		var err error
 		if mode == ModeGeopointCentroid {
 			pt = g.Centroid()
 		} else {
-			pt, _, err = representativePoint(g)
+			pt, _, err = representativePoint(g, ctx)
 		}
 		if err != nil || pt == nil {
 			return nil, fmt.Errorf("could not create geopoint: %w", err)
 		}
 		return map[string]any{
-			"lat": truncate(pt.Y()),
-			"lon": truncate(pt.X()),
+			"lat": roundToMeterAccuracy(pt.Y()),
+			"lon": roundToMeterAccuracy(pt.X()),
 		}, nil
+	}
 
+	var finalGeom *geos.Geom
+	switch mode {
 	case ModeGeoshapeBBox:
-		g = g.Envelope()
+		finalGeom = g.Envelope()
 	case ModeGeoshapeSimplify:
-		g = g.TopologyPreserveSimplify(tolerance)
+		finalGeom = g.TopologyPreserveSimplify(tolerance)
 	case ModeGeoshapeFull:
-		// Use geometry as-is
-	case ModeNoGeo:
-		// Should not reach here since caller checks mode != ModeNoGeo
-		return nil, errors.New("unexpected ModeNoGeo in createGeometryFromCoords")
+		finalGeom = g
 	default:
-		pt, _, err := representativePoint(g)
+		pt, _, err := representativePoint(g, ctx)
 		if err != nil || pt == nil {
 			return nil, fmt.Errorf("could not create default geopoint: %w", err)
 		}
 		return map[string]any{
-			"lat": truncate(pt.Y()),
-			"lon": truncate(pt.X()),
+			"lat": roundToMeterAccuracy(pt.Y()),
+			"lon": roundToMeterAccuracy(pt.X()),
 		}, nil
 	}
 
-	return geomToGeoJSON(g), nil
+	return geomToGeoJSON(finalGeom), nil
 }
