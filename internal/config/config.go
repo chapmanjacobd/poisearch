@@ -34,7 +34,7 @@ type Config struct {
 	NodesOnly              bool              `toml:"nodes_only"`
 	DisableAltNames        bool              `toml:"disable_alt_names"`
 	DisableImportance      bool              `toml:"disable_importance"`
-	DisableKeyValues    bool              `toml:"disable_key_value"`
+	DisableKeyValues       bool              `toml:"disable_key_value"`
 	OnlyNamed              bool              `toml:"only_named"`
 	StoreMetadata          bool              `toml:"store_metadata"`
 	StoreGeometry          bool              `toml:"store_geometry"`

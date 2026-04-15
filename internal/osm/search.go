@@ -332,8 +332,8 @@ func processPBFEntity(
 		Score: classifications[0].Importance,
 		Fields: map[string]any{
 			"name":          tags["name"],
-			"key":         classifications[0].Key,
-			"value":       classifications[0].Value,
+			"key":           classifications[0].Key,
+			"value":         classifications[0].Value,
 			"phone":         tags["phone"],
 			"wheelchair":    tags["wheelchair"],
 			"opening_hours": tags["opening_hours"],

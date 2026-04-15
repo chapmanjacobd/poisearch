@@ -58,8 +58,8 @@ func createTestIndex(t *testing.T) bleve.Index {
 	testData := []struct {
 		id         string
 		name       string
-		key      string
-		value    string
+		key        string
+		value      string
 		importance float64
 		lat, lon   float64
 		street     string
@@ -76,8 +76,8 @@ func createTestIndex(t *testing.T) bleve.Index {
 	for _, td := range testData {
 		doc := map[string]any{
 			"name":       td.name,
-			"key":      td.key,
-			"value":    td.value,
+			"key":        td.key,
+			"value":      td.value,
 			"importance": td.importance,
 			"geometry":   map[string]float64{"lat": td.lat, "lon": td.lon},
 		}

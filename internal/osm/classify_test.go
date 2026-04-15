@@ -10,7 +10,7 @@ import (
 func TestMatchBoostPattern(t *testing.T) {
 	tests := []struct {
 		key, value, pattern string
-		expected                bool
+		expected            bool
 	}{
 		{"amenity", "hospital", "hospital", true},
 		{"hospital", "yes", "hospital", true},
@@ -52,8 +52,8 @@ func TestClassify(t *testing.T) {
 			name: "City (matches boost 'city')",
 			tags: map[string]string{"place": "city"},
 			expected: &Classification{
-				Key:      "place",
-				Value:    "city",
+				Key:        "place",
+				Value:      "city",
 				Importance: 1040.0,
 			},
 		},
@@ -61,8 +61,8 @@ func TestClassify(t *testing.T) {
 			name: "Pharmacy (matches boost 'amenity=pharmacy')",
 			tags: map[string]string{"amenity": "pharmacy"},
 			expected: &Classification{
-				Key:      "amenity",
-				Value:    "pharmacy",
+				Key:        "amenity",
+				Value:      "pharmacy",
 				Importance: 1030.0,
 			},
 		},
@@ -70,8 +70,8 @@ func TestClassify(t *testing.T) {
 			name: "Any=big (matches boost '*=big')",
 			tags: map[string]string{"shop": "big"},
 			expected: &Classification{
-				Key:      "shop",
-				Value:    "big",
+				Key:        "shop",
+				Value:      "big",
 				Importance: 1020.0,
 			},
 		},
@@ -79,8 +79,8 @@ func TestClassify(t *testing.T) {
 			name: "Hospital (matches boost 'hospital')",
 			tags: map[string]string{"healthcare": "hospital"},
 			expected: &Classification{
-				Key:      "healthcare",
-				Value:    "hospital",
+				Key:        "healthcare",
+				Value:      "hospital",
 				Importance: 1010.0,
 			},
 		},
@@ -88,8 +88,8 @@ func TestClassify(t *testing.T) {
 			name: "Restaurant (unboosted fallback to default)",
 			tags: map[string]string{"amenity": "restaurant"},
 			expected: &Classification{
-				Key:      "amenity",
-				Value:    "restaurant",
+				Key:        "amenity",
+				Value:      "restaurant",
 				Importance: 2.0,
 			},
 		},
@@ -97,8 +97,8 @@ func TestClassify(t *testing.T) {
 			name: "City with population boost",
 			tags: map[string]string{"place": "city", "population": "1000"},
 			expected: &Classification{
-				Key:      "place",
-				Value:    "city",
+				Key:        "place",
+				Value:      "city",
 				Importance: 1040.0 + 6.90875, // 1040 + ln(1001) ≈ 1040 + 6.90875
 			},
 		},

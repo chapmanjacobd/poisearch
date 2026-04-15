@@ -31,8 +31,8 @@ func createTestIndexForQuery(t *testing.T) bleve.Index {
 	testDocs := []struct {
 		id           string
 		name         string
-		key        string
-		value      string
+		key          string
+		value        string
 		importance   float64
 		lat, lon     float64
 		street       string
@@ -50,8 +50,8 @@ func createTestIndexForQuery(t *testing.T) bleve.Index {
 		{
 			id:           "node/1",
 			name:         "Berlin",
-			key:        "place",
-			value:      "city",
+			key:          "place",
+			value:        "city",
 			importance:   10.0,
 			lat:          52.52,
 			lon:          13.40,
@@ -67,8 +67,8 @@ func createTestIndexForQuery(t *testing.T) bleve.Index {
 		{
 			id:         "node/2",
 			name:       "Munich",
-			key:      "place",
-			value:    "city",
+			key:        "place",
+			value:      "city",
 			importance: 9.0,
 			lat:        48.13,
 			lon:        11.58,
@@ -82,8 +82,8 @@ func createTestIndexForQuery(t *testing.T) bleve.Index {
 		{
 			id:           "node/3",
 			name:         "Restaurant Alpha",
-			key:        "amenity",
-			value:      "restaurant",
+			key:          "amenity",
+			value:        "restaurant",
 			importance:   5.0,
 			lat:          52.53,
 			lon:          13.41,
@@ -103,8 +103,8 @@ func createTestIndexForQuery(t *testing.T) bleve.Index {
 	for _, doc := range testDocs {
 		data := map[string]any{
 			"name":       doc.name,
-			"key":      doc.key,
-			"value":    doc.value,
+			"key":        doc.key,
+			"value":      doc.value,
 			"importance": doc.importance,
 			"geometry":   []float64{doc.lon, doc.lat},
 		}
@@ -442,7 +442,7 @@ func TestSearch_MultiKeyValuesFilters(t *testing.T) {
 			name: "single key filter",
 			params: search.SearchParams{
 				Query:   "",
-				Key:   "amenity",
+				Key:     "amenity",
 				Limit:   10,
 				Langs:   []string{"en"},
 				GeoMode: "geopoint",
@@ -453,7 +453,7 @@ func TestSearch_MultiKeyValuesFilters(t *testing.T) {
 			name: "multi-key filter OR",
 			params: search.SearchParams{
 				Query:   "",
-				Keys: []string{"amenity", "shop"},
+				Keys:    []string{"amenity", "shop"},
 				Limit:   10,
 				Langs:   []string{"en"},
 				GeoMode: "geopoint",
@@ -464,7 +464,7 @@ func TestSearch_MultiKeyValuesFilters(t *testing.T) {
 			name: "single value filter",
 			params: search.SearchParams{
 				Query:   "",
-				Value: "restaurant",
+				Value:   "restaurant",
 				Limit:   10,
 				Langs:   []string{"en"},
 				GeoMode: "geopoint",
@@ -474,11 +474,11 @@ func TestSearch_MultiKeyValuesFilters(t *testing.T) {
 		{
 			name: "multi-value filter OR",
 			params: search.SearchParams{
-				Query:    "",
-				Values: []string{"restaurant", "cafe"},
-				Limit:    10,
-				Langs:    []string{"en"},
-				GeoMode:  "geopoint",
+				Query:   "",
+				Values:  []string{"restaurant", "cafe"},
+				Limit:   10,
+				Langs:   []string{"en"},
+				GeoMode: "geopoint",
 			},
 			expectMin: 2,
 		},
@@ -655,8 +655,8 @@ func TestSearch_BoostedPriority(t *testing.T) {
 	// We'll index a new item with high importance.
 	highImpDoc := map[string]any{
 		"name":       "Priority Pharmacy",
-		"key":      "amenity",
-		"value":    "pharmacy",
+		"key":        "amenity",
+		"value":      "pharmacy",
 		"importance": 1000.0,
 		"geometry":   []float64{13.42, 52.54},
 	}

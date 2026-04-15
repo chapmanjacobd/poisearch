@@ -1,12 +1,15 @@
 package search
 
 import (
-	"sort"
 	"strings"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/search/query"
 )
+
+type Boostable interface {
+	SetBoost(float64)
+}
 
 // QueryInterpretation represents one way to parse a multi-word query.
 type QueryInterpretation struct {
@@ -132,80 +135,61 @@ func executeInterpretations(index bleve.Index, params SearchParams) (*bleve.Sear
 	}
 
 	interpretations := generateInterpretations(params.Query, params, analyzer)
-
-	// Execute each interpretation and collect results
-	type scoredResult struct {
-		Interpretation QueryInterpretation
-		Result         *bleve.SearchResult
-		CombinedScore  float64
+	if len(interpretations) == 0 {
+		return &bleve.SearchResult{}, nil
 	}
 
-	results := make([]scoredResult, 0, len(interpretations))
+	// Option A: Execute each and pick the winner
+	// Option B: Combine into one DisjunctionQuery with boosts (new)
+	// We use Option B to "interpret as possibly being multiple things" simultaneously.
 
+	interpQueries := make([]query.Query, 0, len(interpretations))
 	for _, interp := range interpretations {
-		// Build combined query for this interpretation
-		var combinedQuery query.Query
+		var combined query.Query
 		if len(interp.Queries) == 1 {
-			combinedQuery = interp.Queries[0]
+			combined = interp.Queries[0]
 		} else {
-			combinedQuery = bleve.NewDisjunctionQuery(interp.Queries...)
+			combined = bleve.NewConjunctionQuery(interp.Queries...)
 		}
 
-		// Execute search
-		searchRequest := bleve.NewSearchRequest(combinedQuery)
-		searchRequest.Size = params.Limit
-		if params.Limit <= 0 {
-			searchRequest.Size = 50
+		// Apply penalty as a negative boost
+		// 1.0 - penalty (e.g., 0.0 penalty -> 1.0 boost, 0.2 penalty -> 0.8 boost)
+		boost := 1.0 - interp.Penalty
+		if boost < 0.1 {
+			boost = 0.1 // Minimum boost
 		}
-
-		// Configure result fields
-		searchRequest.Fields = []string{"*", "-geometry"}
-		searchRequest.IncludeLocations = false
-
-		// Execute
-		searchResult, err := index.Search(searchRequest)
-		if err != nil {
-			continue
+		if b, ok := combined.(Boostable); ok {
+			b.SetBoost(boost)
 		}
-
-		// Calculate combined score: results * (1 - penalty)
-		combinedScore := float64(searchResult.Total) * (1.0 - interp.Penalty)
-
-		results = append(results, scoredResult{
-			Interpretation: interp,
-			Result:         searchResult,
-			CombinedScore:  combinedScore,
-		})
+		interpQueries = append(interpQueries, combined)
 	}
 
-	// Sort by combined score (descending)
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].CombinedScore > results[j].CombinedScore
-	})
+	finalQuery := bleve.NewDisjunctionQuery(interpQueries...)
 
-	// Return the best interpretation's results
-	if len(results) > 0 {
-		return results[0].Result, nil
+	searchRequest := bleve.NewSearchRequest(finalQuery)
+	searchRequest.Size = params.Limit
+	if params.Limit <= 0 {
+		searchRequest.Size = 50
 	}
+	searchRequest.From = params.From
 
-	// Fallback: empty results
-	return &bleve.SearchResult{}, nil
+	// Configure result fields
+	searchRequest.Fields = []string{"*", "-geometry"}
+	searchRequest.IncludeLocations = false
+	searchRequest.SortBy([]string{"-importance", "_score"})
+
+	return index.Search(searchRequest)
 }
 
 // shouldUseMultiInterpretation returns true if the query should be parsed
-// with multiple interpretations. Only applies to queries with 2+ words
-// that don't already have specific modifiers (fuzzy, prefix, etc.).
+// with multiple interpretations.
 func shouldUseMultiInterpretation(params SearchParams) bool {
-	// Only for multi-word queries
-	if len(strings.Fields(params.Query)) < 2 {
-		return false
-	}
-
 	// Don't use multi-interpretation if user explicitly requested fuzzy/prefix
 	// (they already specified the matching strategy)
 	if params.Fuzzy || params.Prefix {
 		return false
 	}
 
-	return true
+	// Always allow for queries with at least one word
+	return params.Query != ""
 }

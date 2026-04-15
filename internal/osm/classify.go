@@ -9,8 +9,8 @@ import (
 )
 
 type Classification struct {
-	Key      string
-	Value    string
+	Key        string
+	Value      string
 	Importance float64
 	OntLevel   int // Ontological level (0-6), -1 if not applicable
 }
@@ -109,8 +109,8 @@ func ClassifyMulti(
 		}
 
 		results = append(results, &Classification{
-			Key:      key,
-			Value:    value,
+			Key:        key,
+			Value:      value,
 			Importance: importance,
 			OntLevel:   ontLevel,
 		})

@@ -35,8 +35,8 @@ type SearchHit struct {
 	ID       string  `json:"id"`
 	Score    float64 `json:"score"`
 	Name     string  `json:"name,omitempty"`
-	Key    string  `json:"key,omitempty"`
-	Value  string  `json:"value,omitempty"`
+	Key      string  `json:"key,omitempty"`
+	Value    string  `json:"value,omitempty"`
 	Geometry any     `json:"geometry,omitempty"`
 }
 
@@ -243,7 +243,7 @@ func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams
 	prefix := r.URL.Query().Get("prefix") == "1" || r.URL.Query().Get("prefix") == "true"
 	key := r.URL.Query().Get("key")
 	value := r.URL.Query().Get("value")
-	keys := r.URL.Query().Get("keys")   // comma-separated multi-key
+	keys := r.URL.Query().Get("keys")     // comma-separated multi-key
 	values := r.URL.Query().Get("values") // comma-separated multi-value
 
 	// Address search params
@@ -319,10 +319,10 @@ func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams
 		GeoMode:      conf.GeometryMode,
 		Fuzzy:        fuzzy,
 		Prefix:       prefix,
-		Key:        key,
-		Value:      value,
-		Keys:      keyList,
-		Values:     valueList,
+		Key:          key,
+		Value:        value,
+		Keys:         keyList,
+		Values:       valueList,
 		Street:       street,
 		HouseNumber:  housenumber,
 		Postcode:     postcode,

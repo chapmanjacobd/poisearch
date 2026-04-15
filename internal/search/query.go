@@ -23,13 +23,13 @@ type SearchParams struct {
 	GeoMode string
 
 	// Advanced features
-	Fuzzy   bool
-	Prefix  bool
-	Key   string
-	Value string
+	Fuzzy  bool
+	Prefix bool
+	Key    string
+	Value  string
 
 	// Multi-value key/value filters (OR within each)
-	Keys  []string
+	Keys   []string
 	Values []string
 
 	// Analyzer type used during indexing (affects query strategy)

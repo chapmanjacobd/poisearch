@@ -43,13 +43,13 @@ type SerializedResult struct {
 
 // SerializedHit represents a single search hit for caching.
 type SerializedHit struct {
-	ID      string  `json:"id"`
-	Score   float64 `json:"score"`
-	Name    string  `json:"name,omitempty"`
+	ID    string  `json:"id"`
+	Score float64 `json:"score"`
+	Name  string  `json:"name,omitempty"`
 	Key   string  `json:"key,omitempty"`
 	Value string  `json:"value,omitempty"`
-	Lat     float64 `json:"lat,omitempty"`
-	Lon     float64 `json:"lon,omitempty"`
+	Lat   float64 `json:"lat,omitempty"`
+	Lon   float64 `json:"lon,omitempty"`
 }
 
 // NewQueryCache creates a new query cache with the given capacity and TTL.

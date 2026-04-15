@@ -388,7 +388,7 @@ func TestSearch_KeyFilter(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		key     string
+		key       string
 		expectMin int
 	}{
 		{"place key", "place", 1},
@@ -399,7 +399,7 @@ func TestSearch_KeyFilter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			params := search.SearchParams{
 				Query:    "",
-				Key:    tt.key,
+				Key:      tt.key,
 				Limit:    50,
 				GeoMode:  "geopoint-centroid",
 				Langs:    conf.Languages,

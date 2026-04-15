@@ -13,10 +13,10 @@ type Feature struct {
 	ID                string            `json:"id"`
 	Name              string            `json:"name"`
 	Names             map[string]string `json:"names"` // name:en, name:zh, etc.
-	Key             string            `json:"key"`
-	Value           string            `json:"value"`
-	Keys           []string          `json:"keys,omitempty"`  // multi-key support
-	Values          []string          `json:"values,omitempty"` // multi-key support
+	Key               string            `json:"key"`
+	Value             string            `json:"value"`
+	Keys              []string          `json:"keys,omitempty"`   // multi-key support
+	Values            []string          `json:"values,omitempty"` // multi-key support
 	Importance        float64           `json:"importance"`
 	Geometry          any               `json:"geometry"`
 	Address           map[string]string `json:"address,omitempty"`            // addr:housenumber, addr:street, etc.
@@ -48,8 +48,8 @@ func FeatureToMap(f *Feature) map[string]any {
 	// Bleve already stores it as the primary key of the document.
 	m := map[string]any{
 		"name":       f.Name,
-		"key":      f.Key,
-		"value":    f.Value,
+		"key":        f.Key,
+		"value":      f.Value,
 		"importance": f.Importance,
 		"geometry":   f.Geometry,
 	}
