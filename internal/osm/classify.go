@@ -45,6 +45,11 @@ func ClassifyMulti(
 		"vending", "waterway", "water", "artwork_type",
 		"building:use", "clothes", "fuel", "route", "waste",
 		"internet_access", "wheelchair",
+		"addr:housenumber", "addr:street", "addr:postcode", "addr:city",
+		"brand", "operator",
+		"ref", "int_ref", "nat_ref", "reg_ref",
+		"official_name", "loc_name", "reg_name",
+		"addr:suburb", "addr:neighbourhood", "addr:district", "addr:state", "addr:province",
 	}
 
 	var results []*Classification
@@ -256,7 +261,25 @@ func getTypeDefaultImportance(key, value string) float64 {
 		"fuel",
 		"waste",
 		"internet_access",
-		"wheelchair":
+		"wheelchair",
+		"addr:housenumber",
+		"addr:street",
+		"addr:postcode",
+		"addr:city",
+		"addr:suburb",
+		"addr:neighbourhood",
+		"addr:district",
+		"addr:state",
+		"addr:province",
+		"brand",
+		"operator",
+		"ref",
+		"int_ref",
+		"nat_ref",
+		"reg_ref",
+		"official_name",
+		"loc_name",
+		"reg_name":
 		return 1.0
 	case "castle_type",
 		"crossing",

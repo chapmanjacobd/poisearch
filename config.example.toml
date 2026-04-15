@@ -34,6 +34,8 @@ disable_key_value = false     # Skip key/value indexing
 only_named = true                 # Only index objects with a name tag
 store_metadata = false            # Store key/value/importance in index (increases size)
 store_geometry = false            # Store geometry in index (increases size)
+store_secondary_names = false     # Store secondary names like alt_name, name:en in index (increases size)
+store_contact_info = false        # Store contact info like phone, opening_hours in index (increases size)
 store_address = false             # Index addr:* tags for address search
 index_wikidata_redirects = false  # Index Wikipedia redirect titles as alternate names (increases size)
 

@@ -235,8 +235,16 @@ func extractOMTTags(feature *geojson.Feature, layerName string, languages []stri
 	NormalizeNameTag(tags, languages)
 	EnhanceName(tags)
 
-	// Map OpenMapTiles 'key' to OSM-style tags for classification
-	if key, ok := tags["key"]; ok {
+	// Map OpenMapTiles 'class' or 'subclass' or 'key' to OSM-style tags for classification
+	key := tags["class"]
+	if key == "" {
+		key = tags["subclass"]
+	}
+	if k, ok := tags["key"]; ok && key == "" {
+		key = k
+	}
+
+	if key != "" {
 		switch layerName {
 		case "place", "places":
 			tags["place"] = key
@@ -264,6 +272,10 @@ func extractOMTTags(feature *geojson.Feature, layerName string, languages []stri
 			tags["landuse"] = key
 		case "building":
 			tags["building"] = "yes"
+		case "housenumber":
+			if _, ok := tags["amenity"]; !ok {
+				tags["amenity"] = "address"
+			}
 		}
 	}
 
@@ -423,6 +435,7 @@ func isPOILayer(name string) bool {
 		"landuse",
 		"point",
 		"building",
+		"housenumber",
 		"water_name",
 		"waterway",
 		"aerodrome_label":

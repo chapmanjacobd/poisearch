@@ -22,10 +22,10 @@ type PlaceTypeOntology struct {
 	// Reverse mapping: OSM key/value -> list of QIDs
 	osmToQIDs map[string][]string
 	// Reverse mapping: label -> list of OSM key/value pairs
-	labelToTags map[string][]tagMatch
+	labelToTags map[string][]TagMatch
 }
 
-type tagMatch struct {
+type TagMatch struct {
 	Key   string
 	Value string
 }
@@ -37,7 +37,7 @@ func DefaultOntology() *PlaceTypeOntology {
 		levels:      make(map[string]int),
 		labels:      make(map[string]string),
 		osmToQIDs:   make(map[string][]string),
-		labelToTags: make(map[string][]tagMatch),
+		labelToTags: make(map[string][]TagMatch),
 	}
 
 	// Define place types with ontological levels
@@ -107,7 +107,7 @@ func DefaultOntology() *PlaceTypeOntology {
 		ont.labels[t.qid] = t.label
 		key := t.osmKey + "=" + t.osmVal
 		ont.osmToQIDs[key] = append(ont.osmToQIDs[key], t.qid)
-		ont.labelToTags[t.label] = append(ont.labelToTags[t.label], tagMatch{Key: t.osmKey, Value: t.osmVal})
+		ont.labelToTags[t.label] = append(ont.labelToTags[t.label], TagMatch{Key: t.osmKey, Value: t.osmVal})
 	}
 
 	return ont
@@ -135,7 +135,7 @@ func LoadOntologyFromCSV(path string) (*PlaceTypeOntology, error) {
 		levels:      make(map[string]int),
 		labels:      make(map[string]string),
 		osmToQIDs:   make(map[string][]string),
-		labelToTags: make(map[string][]tagMatch),
+		labelToTags: make(map[string][]TagMatch),
 	}
 
 	for _, record := range records {
@@ -156,7 +156,7 @@ func LoadOntologyFromCSV(path string) (*PlaceTypeOntology, error) {
 		ont.labels[qid] = label
 		key := osmKey + "=" + osmVal
 		ont.osmToQIDs[key] = append(ont.osmToQIDs[key], qid)
-		ont.labelToTags[label] = append(ont.labelToTags[label], tagMatch{Key: osmKey, Value: osmVal})
+		ont.labelToTags[label] = append(ont.labelToTags[label], TagMatch{Key: osmKey, Value: osmVal})
 	}
 
 	return ont, nil
@@ -214,7 +214,7 @@ func (p *PlaceTypeOntology) GetMinLevelForOSM(osmKey, osmVal string) int {
 }
 
 // GetTagsForLabel returns the OSM key/value pairs for a given human-readable label.
-func (p *PlaceTypeOntology) GetTagsForLabel(label string) []tagMatch {
+func (p *PlaceTypeOntology) GetTagsForLabel(label string) []TagMatch {
 	if p == nil {
 		return nil
 	}

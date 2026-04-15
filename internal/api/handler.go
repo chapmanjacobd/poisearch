@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/blevesearch/bleve/v2"
+	blevesearch "github.com/blevesearch/bleve/v2/search"
 	"github.com/chapmanjacobd/poisearch/internal/config"
 	"github.com/chapmanjacobd/poisearch/internal/osm"
 	"github.com/chapmanjacobd/poisearch/internal/search"
@@ -340,8 +341,6 @@ func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams
 
 // writeTextResponse writes search results in a simple key-value format
 // suitable for piping through UNIX tools like grep, awk, etc.
-//
-//nolint:revive // Response formatting requires handling all fields, complexity is inherent
 func writeTextResponse(w http.ResponseWriter, res *bleve.SearchResult, langs []string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
@@ -349,56 +348,76 @@ func writeTextResponse(w http.ResponseWriter, res *bleve.SearchResult, langs []s
 		if i > 0 {
 			fmt.Fprintln(w) // Blank line between entities
 		}
+		writeBasicInfo(w, hit)
+		writeCoreFields(w, hit)
+		writeAlternateNames(w, hit)
+		writeLocalizedNames(w, hit, langs)
+		writeGeometry(w, hit)
+		writeAddress(w, hit)
+		writeMetadataFields(w, hit)
+		writeDistance(w, hit)
+	}
 
-		// Basic info
-		fmt.Fprintf(w, "id: %s\n", hit.ID)
-		fmt.Fprintf(w, "score: %.6f\n", hit.Score)
+	fmt.Fprintf(w, "\n---\ntotal: %d\nreturned: %d\n", res.Total, len(res.Hits))
+}
 
-		// Extract fields
-		if name, ok := hit.Fields["name"].(string); ok && name != "" {
-			fmt.Fprintf(w, "name: %s\n", name)
-		}
-		if key, ok := hit.Fields["key"].(string); ok && key != "" {
-			fmt.Fprintf(w, "key: %s\n", key)
-		}
-		if value, ok := hit.Fields["value"].(string); ok && value != "" {
-			fmt.Fprintf(w, "value: %s\n", value)
-		}
-		if keys, ok := hit.Fields["keys"].(string); ok && keys != "" {
-			fmt.Fprintf(w, "keys: %s\n", keys)
-		}
-		if values, ok := hit.Fields["values"].(string); ok && values != "" {
-			fmt.Fprintf(w, "values: %s\n", values)
-		}
-		if importance, ok := hit.Fields["importance"].(float64); ok {
-			fmt.Fprintf(w, "importance: %.6f\n", importance)
-		}
+func writeBasicInfo(w http.ResponseWriter, hit *blevesearch.DocumentMatch) {
+	fmt.Fprintf(w, "id: %s\n", hit.ID)
+	fmt.Fprintf(w, "score: %.6f\n", hit.Score)
+}
 
-		// Alternate names
-		for _, altKey := range []string{"alt_name", "old_name", "short_name"} {
-			if val, ok := hit.Fields[altKey].(string); ok && val != "" {
-				fmt.Fprintf(w, "%s: %s\n", altKey, val)
-			}
-		}
+func writeCoreFields(w http.ResponseWriter, hit *blevesearch.DocumentMatch) {
+	if name, ok := hit.Fields["name"].(string); ok && name != "" {
+		fmt.Fprintf(w, "name: %s\n", name)
+	}
+	if key, ok := hit.Fields["key"].(string); ok && key != "" {
+		fmt.Fprintf(w, "key: %s\n", key)
+	}
+	if value, ok := hit.Fields["value"].(string); ok && value != "" {
+		fmt.Fprintf(w, "value: %s\n", value)
+	}
+	if keys, ok := hit.Fields["keys"].(string); ok && keys != "" {
+		fmt.Fprintf(w, "keys: %s\n", keys)
+	}
+	if values, ok := hit.Fields["values"].(string); ok && values != "" {
+		fmt.Fprintf(w, "values: %s\n", values)
+	}
+	if importance, ok := hit.Fields["importance"].(float64); ok {
+		fmt.Fprintf(w, "importance: %.6f\n", importance)
+	}
+}
 
-		// Localized names
-		for _, lang := range langs {
-			if val, ok := hit.Fields["name:"+lang].(string); ok && val != "" {
-				fmt.Fprintf(w, "name:%s: %s\n", lang, val)
-			}
+func writeAlternateNames(w http.ResponseWriter, hit *blevesearch.DocumentMatch) {
+	for _, altKey := range []string{"alt_name", "old_name", "short_name"} {
+		if val, ok := hit.Fields[altKey].(string); ok && val != "" {
+			fmt.Fprintf(w, "%s: %s\n", altKey, val)
 		}
+	}
+}
 
-		// Geometry (simplified)
-		if geom, ok := hit.Fields["geometry"].(map[string]any); ok {
-			if lat, ok := geom["lat"].(float64); ok {
-				fmt.Fprintf(w, "lat: %.5f\n", lat)
-			}
-			if lon, ok := geom["lon"].(float64); ok {
-				fmt.Fprintf(w, "lon: %.5f\n", lon)
-			}
+func writeLocalizedNames(w http.ResponseWriter, hit *blevesearch.DocumentMatch, langs []string) {
+	for _, lang := range langs {
+		if val, ok := hit.Fields["name:"+lang].(string); ok && val != "" {
+			fmt.Fprintf(w, "name:%s: %s\n", lang, val)
 		}
+	}
+}
 
-		// Address fields
+func writeGeometry(w http.ResponseWriter, hit *blevesearch.DocumentMatch) {
+	if geom, ok := hit.Fields["geometry"].(map[string]any); ok {
+		if lat, ok := geom["lat"].(float64); ok {
+			fmt.Fprintf(w, "lat: %.5f\n", lat)
+		}
+		if lon, ok := geom["lon"].(float64); ok {
+			fmt.Fprintf(w, "lon: %.5f\n", lon)
+		}
+	}
+}
+
+func writeAddress(w http.ResponseWriter, hit *blevesearch.DocumentMatch) {
+	if displayAddr, ok := hit.Fields["display_address"].(string); ok && displayAddr != "" {
+		fmt.Fprintf(w, "address: %s\n", displayAddr)
+	} else {
 		for _, addrKey := range []string{
 			"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
 			"addr:country", "addr:state", "addr:district", "addr:suburb",
@@ -408,20 +427,19 @@ func writeTextResponse(w http.ResponseWriter, res *bleve.SearchResult, langs []s
 				fmt.Fprintf(w, "%s: %s\n", addrKey, val)
 			}
 		}
+	}
+}
 
-		// Metadata fields
-		for _, metaKey := range []string{"phone", "wheelchair", "opening_hours"} {
-			if val, ok := hit.Fields[metaKey].(string); ok && val != "" {
-				fmt.Fprintf(w, "%s: %s\n", metaKey, val)
-			}
-		}
-
-		// Distance (if radius search was used)
-		if dist, ok := hit.Fields["distance_meters"].(int); ok {
-			fmt.Fprintf(w, "distance_meters: %d\n", dist)
+func writeMetadataFields(w http.ResponseWriter, hit *blevesearch.DocumentMatch) {
+	for _, metaKey := range []string{"phone", "wheelchair", "opening_hours"} {
+		if val, ok := hit.Fields[metaKey].(string); ok && val != "" {
+			fmt.Fprintf(w, "%s: %s\n", metaKey, val)
 		}
 	}
+}
 
-	// Summary
-	fmt.Fprintf(w, "\n---\ntotal: %d\nreturned: %d\n", res.Total, len(res.Hits))
+func writeDistance(w http.ResponseWriter, hit *blevesearch.DocumentMatch) {
+	if dist, ok := hit.Fields["distance_meters"].(int); ok {
+		fmt.Fprintf(w, "distance_meters: %d\n", dist)
+	}
 }

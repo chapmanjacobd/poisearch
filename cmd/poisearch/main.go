@@ -171,6 +171,39 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 		slog.Warn("failed to create query cache, continuing without it", "error", err)
 	}
 
+	s.initCategoryMapper(conf)
+
+	srv := &Server{
+		index:       idx,
+		conf:        conf,
+		pbfPath:     conf.PBFPath,
+		pmtilesPath: conf.PMTilesPath,
+		cache:       cache,
+	}
+
+	addr := fmt.Sprintf("%s:%d", conf.Server.Host, conf.Server.Port)
+	httpSrv := &http.Server{
+		Addr:    addr,
+		Handler: srv,
+	}
+
+	s.handleSignals(conf, srv, httpSrv)
+
+	slog.Info("starting server", "addr", addr)
+	if err := httpSrv.ListenAndServe(); err != http.ErrServerClosed {
+		return err
+	}
+
+	srv.indexLock.Lock()
+	if srv.index != nil {
+		srv.index.Close()
+	}
+	srv.indexLock.Unlock()
+
+	return nil
+}
+
+func (s *ServeCmd) initCategoryMapper(conf *config.Config) {
 	// Initialize CategoryMapper from ontology
 	ont := osm.DefaultOntology()
 	if conf.OntologyPath != "" {
@@ -197,21 +230,9 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 		}
 		return result
 	}
+}
 
-	srv := &Server{
-		index:       idx,
-		conf:        conf,
-		pbfPath:     conf.PBFPath,
-		pmtilesPath: conf.PMTilesPath,
-		cache:       cache,
-	}
-
-	addr := fmt.Sprintf("%s:%d", conf.Server.Host, conf.Server.Port)
-	httpSrv := &http.Server{
-		Addr:    addr,
-		Handler: srv,
-	}
-
+func (s *ServeCmd) handleSignals(conf *config.Config, srv *Server, httpSrv *http.Server) {
 	// Handle SIGHUP for hot-reload
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
@@ -252,19 +273,6 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 			}
 		}
 	}()
-
-	slog.Info("starting server", "addr", addr)
-	if err := httpSrv.ListenAndServe(); err != http.ErrServerClosed {
-		return err
-	}
-
-	srv.indexLock.Lock()
-	if srv.index != nil {
-		srv.index.Close()
-	}
-	srv.indexLock.Unlock()
-
-	return nil
 }
 
 func main() {

@@ -4,9 +4,10 @@ set -e
 # Configuration
 PLANETILER_VERSION="0.10.2"
 PMTILES_VERSION="1.30.1"
-PBF_FILE=${1:-"liechtenstein-latest.osm.pbf"}
-OUTPUT_FILE=${2:-"liechtenstein.pmtiles"}
-SCHEMA=${3:-"openmaptiles"}
+AREA=${1:-"liechtenstein"}
+PBF_FILE=${2:-"${AREA}-latest.osm.pbf"}
+OUTPUT_FILE=${3:-"${AREA}.pmtiles"}
+SCHEMA=${4:-"openmaptiles"}
 
 # Directories
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -50,32 +51,42 @@ if [ ! -f "$PMTILES_BIN" ]; then
     rm "$TEMP_TGZ"
 fi
 
-# Bounds for Liechtenstein (to make generation faster and smaller)
+# Bounds (to make generation faster and smaller)
 # minlon, minlat, maxlon, maxlat
-BOUNDS="9.47,47.04,9.65,47.28"
+if [ "$AREA" = "liechtenstein" ]; then
+    BOUNDS="9.47,47.04,9.65,47.28"
+    BOUNDS_ARG="--bounds=$BOUNDS"
+elif [ "$AREA" = "taiwan" ]; then
+    BOUNDS="119.3,21.7,122.3,25.5"
+    BOUNDS_ARG="--bounds=$BOUNDS"
+else
+    BOUNDS_ARG=""
+fi
+
 # Use local PBF if it exists, otherwise rely on planetiler download
 if [ -f "$ROOT_DIR/$PBF_FILE" ]; then
     OSM_PATH="--osm-path=$ROOT_DIR/$PBF_FILE"
+    DOWNLOAD_ARG=""
     echo "Using local OSM PBF: $PBF_FILE"
 else
     OSM_PATH=""
-    echo "Local PBF not found, planetiler will download for area: liechtenstein"
+    DOWNLOAD_ARG="--download"
+    echo "Local PBF not found, planetiler will download for area: $AREA"
 fi
 
-echo "Generating PMTiles for liechtenstein using $SCHEMA schema..."
+echo "Generating PMTiles for $AREA using $SCHEMA schema..."
 
 # Note: Using java -jar planetiler.jar
 # We output directly to .pmtiles
 java -Xmx2g -jar "$PLANETILER_JAR" \
     $OSM_PATH \
     --output="$ROOT_DIR/$OUTPUT_FILE" \
-    --bounds="$BOUNDS" \
-    --area="liechtenstein" \
-    --download \
+    $BOUNDS_ARG \
+    --area="$AREA" \
+    $DOWNLOAD_ARG \
     --fetch-wikidata \
     --nodemap-type=sparsearray \
     --schema="$SCHEMA" \
     --log-jts-exceptions=true
 
 echo "Done! PMTiles file created at $ROOT_DIR/$OUTPUT_FILE"
-

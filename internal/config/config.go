@@ -36,6 +36,8 @@ type Config struct {
 	OnlyNamed              bool              `toml:"only_named"`
 	StoreMetadata          bool              `toml:"store_metadata"`
 	StoreGeometry          bool              `toml:"store_geometry"`
+	StoreSecondaryNames    bool              `toml:"store_secondary_names"`    // Opt-in: store secondary names like alt_name, old_name, etc.
+	StoreContactInfo       bool              `toml:"store_contact_info"`       // Opt-in: store phone, wheelchair, opening_hours
 	StoreAddress           bool              `toml:"store_address"`            // Opt-in: index addr:* tags for address search
 	IndexWikidataRedirects bool              `toml:"index_wikidata_redirects"` // Opt-in: index Wikipedia redirect titles as alternate names
 	PMTilesPostProcess     bool              `toml:"pmtiles_post_process"`     // Opt-in: perform precise intersection check for PMTiles (slow)

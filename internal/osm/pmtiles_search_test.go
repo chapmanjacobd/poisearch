@@ -16,6 +16,7 @@ func TestPMTilesSearch(t *testing.T) {
 	}
 
 	conf := &config.Config{
+		StoreSecondaryNames: true,
 		Importance: config.ImportanceWeights{
 			Boosts:  []string{"city", "country", "town", "village"},
 			Default: 1.0,
@@ -100,5 +101,51 @@ func TestPMTilesSearch(t *testing.T) {
 			t.Fatalf("PMTilesSearch failed: %v", err)
 		}
 		t.Logf("ExactMatch search found %d results", res.Total)
+	})
+
+	t.Run("AddressSearch", func(t *testing.T) {
+		// From debug, we know there are housenumbers in liechtenstein.pmtiles
+		params := search.SearchParams{
+			Lat:         &lat,
+			Lon:         &lon,
+			Radius:      "10km",
+			HouseNumber: "1",
+			Limit:       10,
+		}
+
+		res, err := osm.PMTilesSearch(pmtilesPath, params, conf)
+		if err != nil {
+			t.Fatalf("PMTilesSearch failed: %v", err)
+		}
+
+		if res.Total == 0 {
+			t.Errorf("expected results for address search (housenumber=1), got 0")
+		}
+
+		for _, hit := range res.Hits {
+			hn, _ := hit.Fields["addr:housenumber"].(string)
+			if hn != "1" {
+				t.Errorf("expected housenumber 1, got %s", hn)
+			}
+			t.Logf("Found address: %s %s", hn, hit.Fields["addr:street"])
+		}
+	})
+
+	t.Run("CitySearch", func(t *testing.T) {
+		params := search.SearchParams{
+			Lat:    &lat,
+			Lon:    &lon,
+			Radius: "10km",
+			City:   "Vaduz",
+			Limit:  10,
+		}
+
+		res, err := osm.PMTilesSearch(pmtilesPath, params, conf)
+		if err != nil {
+			t.Fatalf("PMTilesSearch failed: %v", err)
+		}
+
+		// Even if addr:city is not ubiquitous, we should find something in a well-tagged area
+		t.Logf("City search (Vaduz) found %d results", res.Total)
 	})
 }

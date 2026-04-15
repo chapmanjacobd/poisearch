@@ -175,31 +175,10 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 			analyzer = "standard"
 		}
 
-		// Search across multiple name fields
-		nameQueries := make([]query.Query, 0, 4+4*len(params.Langs))
-		nameQueries = append(nameQueries,
+		// Search across primary and combined search names
+		nameQueries := []query.Query{
 			addNameQuery(normalized, params.Fuzzy, params.Prefix, "name", analyzer),
-			addNameQuery(normalized, params.Fuzzy, params.Prefix, "alt_name", analyzer),
-			addNameQuery(normalized, params.Fuzzy, params.Prefix, "old_name", analyzer),
-			addNameQuery(normalized, params.Fuzzy, params.Prefix, "short_name", analyzer),
-		)
-		for _, lang := range params.Langs {
-			nameQueries = append(
-				nameQueries,
-				addNameQuery(normalized, params.Fuzzy, params.Prefix, "name:"+lang, analyzer),
-			)
-			nameQueries = append(
-				nameQueries,
-				addNameQuery(normalized, params.Fuzzy, params.Prefix, "alt_name:"+lang, analyzer),
-			)
-			nameQueries = append(
-				nameQueries,
-				addNameQuery(normalized, params.Fuzzy, params.Prefix, "old_name:"+lang, analyzer),
-			)
-			nameQueries = append(
-				nameQueries,
-				addNameQuery(normalized, params.Fuzzy, params.Prefix, "short_name:"+lang, analyzer),
-			)
+			addNameQuery(normalized, params.Fuzzy, params.Prefix, "_search_names", analyzer),
 		}
 		q = bleve.NewDisjunctionQuery(nameQueries...)
 	} else {
@@ -390,32 +369,19 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	searchRequest.SortBy([]string{"-importance", "_score"})
 
 	// Fields to return
-	fields := make([]string, 0, 10+4*len(params.Langs))
-	fields = append(fields,
-		"name",
-		"alt_name",
-		"old_name",
-		"short_name",
-		"key",
-		"value",
-		"keys",
-		"values",
-		"importance",
-		"geometry",
-		"distance_meters",
-	)
-	// Add address fields when any address filter is used
-	if params.Street != "" || params.HouseNumber != "" || params.Postcode != "" || params.City != "" ||
-		params.Country != "" || params.Floor != "" || params.Unit != "" || params.Level != "" ||
-		params.Phone != "" || params.Wheelchair != "" || params.OpeningHours != "" {
-
-		fields = append(fields,
-			"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
-			"addr:country", "addr:state", "addr:district", "addr:suburb",
-			"addr:neighbourhood", "addr:floor", "addr:unit", "level",
-			"phone", "wheelchair", "opening_hours",
-		)
+	fields := []string{
+		"name", "alt_name", "old_name", "short_name", "brand", "operator",
+		"key", "value", "keys", "values", "importance",
+		"geometry", "distance_meters",
+		"display_address",
+		"phone", "wheelchair", "opening_hours",
 	}
+	// Add individual address fields for compatibility
+	fields = append(fields,
+		"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
+		"addr:country", "addr:state", "addr:district", "addr:suburb",
+		"addr:neighbourhood", "addr:floor", "addr:unit", "level",
+	)
 	for _, lang := range params.Langs {
 		fields = append(fields, "name:"+lang, "alt_name:"+lang, "old_name:"+lang, "short_name:"+lang)
 	}

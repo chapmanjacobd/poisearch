@@ -29,6 +29,8 @@ type CategoryMatch struct {
 
 // CategoryMapper is a global hook to allow resolving category names (e.g., "restaurants")
 // to OSM key/value pairs. Set this at startup from the osm package.
+//
+//nolint:gochecknoglobals // Hook for ontology resolution without circular dependencies
 var CategoryMapper func(query string) []CategoryMatch
 
 // generateInterpretations creates multiple interpretations of a multi-word query.

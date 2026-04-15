@@ -53,9 +53,16 @@ func FeatureToMap(f *Feature) map[string]any {
 		"importance": f.Importance,
 		"geometry":   f.Geometry,
 	}
+
+	searchNames := make([]string, 0, len(f.Names))
 	for k, v := range f.Names {
 		m[k] = v
+		searchNames = append(searchNames, v)
 	}
+	if len(searchNames) > 0 {
+		m["_search_names"] = searchNames
+	}
+
 	// Store multi-key fields for filtering
 	if len(f.Keys) > 0 {
 		m["keys"] = f.Keys
@@ -65,6 +72,22 @@ func FeatureToMap(f *Feature) map[string]any {
 	}
 	// Store address fields when configured
 	if len(f.Address) > 0 {
+		var addrParts []string
+		// Priority order for display address string
+		displayKeys := []string{
+			"addr:housenumber", "addr:street", "addr:neighbourhood",
+			"addr:suburb", "addr:district", "addr:city",
+			"addr:state", "addr:postcode", "addr:country",
+		}
+		for _, k := range displayKeys {
+			if v, ok := f.Address[k]; ok {
+				addrParts = append(addrParts, v)
+			}
+		}
+		if len(addrParts) > 0 {
+			m["display_address"] = strings.Join(addrParts, ", ")
+		}
+
 		for k, v := range f.Address {
 			m[k] = v
 		}

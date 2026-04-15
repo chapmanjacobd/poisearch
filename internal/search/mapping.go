@@ -93,11 +93,11 @@ func BuildIndexMapping(conf *config.Config) mapping.IndexMapping {
 	return indexMapping
 }
 
-func addMetadataFields(docMapping *mapping.DocumentMapping, _ *config.Config) {
+func addMetadataFields(docMapping *mapping.DocumentMapping, conf *config.Config) {
 	keywordMapping := bleve.NewTextFieldMapping()
 	keywordMapping.Analyzer = "keyword"
 	keywordMapping.IncludeInAll = false
-	keywordMapping.Store = true
+	keywordMapping.Store = conf.StoreContactInfo
 
 	fields := []string{"phone", "wheelchair", "opening_hours"}
 	for _, f := range fields {
@@ -111,18 +111,32 @@ func addNameFields(docMapping *mapping.DocumentMapping, conf *config.Config, nam
 	nameFieldMapping.IncludeInAll = true
 	nameFieldMapping.IncludeTermVectors = false
 	nameFieldMapping.Store = true
+	docMapping.AddFieldMappingsAt("name", nameFieldMapping)
 
-	fields := []string{"name", "alt_name", "old_name", "short_name", "brand", "operator"}
+	secondaryNameMapping := bleve.NewTextFieldMapping()
+	secondaryNameMapping.Analyzer = nameAnalyzer
+	secondaryNameMapping.IncludeInAll = true
+	secondaryNameMapping.IncludeTermVectors = false
+	secondaryNameMapping.Store = conf.StoreSecondaryNames
+
+	fields := []string{"alt_name", "old_name", "short_name", "brand", "operator"}
 	for _, f := range fields {
-		docMapping.AddFieldMappingsAt(f, nameFieldMapping)
+		docMapping.AddFieldMappingsAt(f, secondaryNameMapping)
 	}
 
 	for _, lang := range conf.Languages {
-		docMapping.AddFieldMappingsAt("name:"+lang, nameFieldMapping)
-		docMapping.AddFieldMappingsAt("alt_name:"+lang, nameFieldMapping)
-		docMapping.AddFieldMappingsAt("old_name:"+lang, nameFieldMapping)
-		docMapping.AddFieldMappingsAt("short_name:"+lang, nameFieldMapping)
+		docMapping.AddFieldMappingsAt("name:"+lang, secondaryNameMapping)
+		docMapping.AddFieldMappingsAt("alt_name:"+lang, secondaryNameMapping)
+		docMapping.AddFieldMappingsAt("old_name:"+lang, secondaryNameMapping)
+		docMapping.AddFieldMappingsAt("short_name:"+lang, secondaryNameMapping)
 	}
+
+	searchNamesMapping := bleve.NewTextFieldMapping()
+	searchNamesMapping.Analyzer = nameAnalyzer
+	searchNamesMapping.IncludeInAll = true
+	searchNamesMapping.IncludeTermVectors = false
+	searchNamesMapping.Store = false
+	docMapping.AddFieldMappingsAt("_search_names", searchNamesMapping)
 }
 
 func addKeyValuesFields(docMapping *mapping.DocumentMapping, conf *config.Config) {
@@ -134,8 +148,15 @@ func addKeyValuesFields(docMapping *mapping.DocumentMapping, conf *config.Config
 
 	docMapping.AddFieldMappingsAt("key", keywordMapping)
 	docMapping.AddFieldMappingsAt("value", keywordMapping)
-	docMapping.AddFieldMappingsAt("keys", keywordMapping)
-	docMapping.AddFieldMappingsAt("values", keywordMapping)
+
+	unstoreKeywordMapping := bleve.NewTextFieldMapping()
+	unstoreKeywordMapping.Analyzer = "keyword"
+	unstoreKeywordMapping.IncludeInAll = true
+	unstoreKeywordMapping.IncludeTermVectors = false
+	unstoreKeywordMapping.Store = false
+
+	docMapping.AddFieldMappingsAt("keys", unstoreKeywordMapping)
+	docMapping.AddFieldMappingsAt("values", unstoreKeywordMapping)
 }
 
 func addImportanceField(docMapping *mapping.DocumentMapping, conf *config.Config) {
@@ -170,7 +191,7 @@ func addAddressFields(docMapping *mapping.DocumentMapping, conf *config.Config) 
 	addrMapping := bleve.NewTextFieldMapping()
 	addrMapping.Analyzer = "keyword"
 	addrMapping.IncludeInAll = false
-	addrMapping.Store = true
+	addrMapping.Store = false
 
 	fields := []string{
 		"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
@@ -180,6 +201,12 @@ func addAddressFields(docMapping *mapping.DocumentMapping, conf *config.Config) 
 	for _, f := range fields {
 		docMapping.AddFieldMappingsAt(f, addrMapping)
 	}
+
+	displayAddrMapping := bleve.NewTextFieldMapping()
+	displayAddrMapping.Analyzer = "keyword"
+	displayAddrMapping.IncludeInAll = false
+	displayAddrMapping.Store = true
+	docMapping.AddFieldMappingsAt("display_address", displayAddrMapping)
 }
 
 func addWikidataRedirectFields(docMapping *mapping.DocumentMapping, conf *config.Config, nameAnalyzer string) {
@@ -191,6 +218,6 @@ func addWikidataRedirectFields(docMapping *mapping.DocumentMapping, conf *config
 	wdRedirectMapping.Analyzer = nameAnalyzer
 	wdRedirectMapping.IncludeInAll = true
 	wdRedirectMapping.IncludeTermVectors = false
-	wdRedirectMapping.Store = true
+	wdRedirectMapping.Store = false
 	docMapping.AddFieldMappingsAt("wikidata_redirects", wdRedirectMapping)
 }

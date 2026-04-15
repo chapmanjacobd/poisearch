@@ -35,6 +35,11 @@ type ModeResult struct {
 
 func main() {
 	slow := flag.Bool("slow", false, "Use larger Taiwan PBF for benchmarking")
+	scenarioFilter := flag.String(
+		"scenario",
+		"",
+		"Comma-separated list of scenarios to run (e.g. 'Addresses,PMTiles Scan')",
+	)
 	flag.Parse()
 
 	conf := &config.Config{
@@ -68,7 +73,7 @@ func main() {
 		log.Fatalf("PBF file %s not found. Please download it first or set pbf_path in config.", pbf)
 	}
 
-	runFullBench(pbf, conf)
+	runFullBench(pbf, conf, *scenarioFilter)
 }
 
 func getDirSize(path string) int64 {
@@ -120,9 +125,11 @@ func formatSize(size int64) string {
 // runFullBench runs comprehensive benchmarks across multiple geometry modes and search scenarios.
 //
 //nolint:funlen,revive // Benchmark function needs to be comprehensive to cover all scenarios
-func runFullBench(pbf string, conf *config.Config) {
+func runFullBench(pbf string, conf *config.Config, scenarioFilter string) {
 	// First run analyzer comparison benchmark
-	runAnalyzerBench(pbf, conf)
+	if scenarioFilter == "" {
+		runAnalyzerBench(pbf, conf)
+	}
 
 	// Then run the full geometry mode benchmark
 	scenarios := []struct {
@@ -160,6 +167,7 @@ func runFullBench(pbf string, conf *config.Config) {
 		lat, lon = 25.03, 121.56 // Taipei
 		city = "Taipei"
 		value = "city"
+		pmtiles = "taiwan.pmtiles"
 	}
 	radius := "1000m"
 	dLat := 0.0045
@@ -168,6 +176,9 @@ func runFullBench(pbf string, conf *config.Config) {
 	minLon, maxLon := lon-dLon, lon+dLon
 
 	for _, s := range scenarios {
+		if scenarioFilter != "" && !strings.Contains(scenarioFilter, s.Label) {
+			continue
+		}
 		fmt.Printf("\n--- Scenario: %s ---\n", s.Label)
 		conf.GeometryMode = s.Mode
 		conf.NodesOnly = s.NodesOnly
@@ -228,11 +239,14 @@ func runFullBench(pbf string, conf *config.Config) {
 			Label  string
 			Params search.SearchParams
 		}{
-			{"Basic Search", search.SearchParams{Query: city, GeoMode: s.Mode, Limit: 50}},
-			{"Fuzzy Search", search.SearchParams{Query: city[:len(city)-1], Fuzzy: true, GeoMode: s.Mode, Limit: 50}},
+			{"Basic Search", search.SearchParams{Query: city, GeoMode: s.Mode, Limit: 10000}},
+			{
+				"Fuzzy Search",
+				search.SearchParams{Query: city[:len(city)-1], Fuzzy: true, GeoMode: s.Mode, Limit: 10000},
+			},
 			{
 				"Prefix Search",
-				search.SearchParams{Query: strings.ToLower(city[:3]), Prefix: true, GeoMode: s.Mode, Limit: 50},
+				search.SearchParams{Query: strings.ToLower(city[:3]), Prefix: true, GeoMode: s.Mode, Limit: 10000},
 			},
 		}
 
@@ -241,23 +255,23 @@ func runFullBench(pbf string, conf *config.Config) {
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Key Filter", search.SearchParams{Query: city, Key: "place", GeoMode: s.Mode, Limit: 50}},
+				}{"Key Filter", search.SearchParams{Query: city, Key: "place", GeoMode: s.Mode, Limit: 10000}},
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Value Filter", search.SearchParams{Query: city, Value: value, GeoMode: s.Mode, Limit: 50}},
+				}{"Value Filter", search.SearchParams{Query: city, Value: value, GeoMode: s.Mode, Limit: 10000}},
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Combined (Fuzzy+Key)", search.SearchParams{Query: city[:len(city)-1], Fuzzy: true, Key: "place", GeoMode: s.Mode, Limit: 50}},
+				}{"Combined (Fuzzy+Key)", search.SearchParams{Query: city[:len(city)-1], Fuzzy: true, Key: "place", GeoMode: s.Mode, Limit: 10000}},
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Shop Search", search.SearchParams{Value: "bakery", GeoMode: s.Mode, Limit: 50}},
+				}{"Shop Search", search.SearchParams{Value: "bakery", GeoMode: s.Mode, Limit: 10000}},
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Tourism Search", search.SearchParams{Value: "museum", GeoMode: s.Mode, Limit: 50}},
+				}{"Tourism Search", search.SearchParams{Value: "museum", GeoMode: s.Mode, Limit: 10000}},
 			)
 		}
 
@@ -266,24 +280,26 @@ func runFullBench(pbf string, conf *config.Config) {
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Radius Search", search.SearchParams{Lat: &lat, Lon: &lon, Radius: radius, GeoMode: s.Mode, Limit: 50}},
+				}{"Radius Search", search.SearchParams{Lat: &lat, Lon: &lon, Radius: radius, GeoMode: s.Mode, Limit: 10000}},
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"BBox Search", search.SearchParams{MinLat: &minLat, MaxLat: &maxLat, MinLon: &minLon, MaxLon: &maxLon, GeoMode: s.Mode, Limit: 50}},
+				}{"BBox Search", search.SearchParams{MinLat: &minLat, MaxLat: &maxLat, MinLon: &minLon, MaxLon: &maxLon, GeoMode: s.Mode, Limit: 10000}},
 			)
 		}
 
 		if s.StoreAddress {
 			street := "Herrengasse"
+			searchCity := city
 			if city == "Taipei" {
-				street = "Xinyi Road"
+				street = "忠孝東路五段"
+				searchCity = "臺北市"
 			}
 			searchScenarios = append(searchScenarios,
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Address Match", search.SearchParams{Street: street, City: city, GeoMode: s.Mode, Limit: 50}},
+				}{"Address Match", search.SearchParams{Street: street, City: searchCity, GeoMode: s.Mode, Limit: 10000}},
 			)
 		}
 
@@ -403,11 +419,14 @@ func replaceReadmeSection(lines []string, title, report string) ([]string, bool)
 	newLines := []string{}
 	updated := false
 	i := 0
+
+	titlePrefix := "## " + strings.Split(title, ", ")[0]
+
 	for i < len(lines) {
 		line := lines[i]
-		if strings.HasPrefix(line, "## "+title) && !updated {
+		if strings.HasPrefix(line, titlePrefix) && !updated {
 			updated = true
-			newLines = append(newLines, line)
+			newLines = append(newLines, "## "+title)
 			i = skipOldBlock(lines, i+1, &newLines, report)
 		} else {
 			newLines = append(newLines, line)
@@ -477,12 +496,12 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 		Label  string
 		Params search.SearchParams
 	}{
-		{"Exact: " + city, search.SearchParams{Query: city, Limit: 50}},
-		{"Prefix: " + strings.ToLower(city[:3]), search.SearchParams{Query: strings.ToLower(city[:3]), Limit: 50}},
-		{"Partial: " + city[:len(city)-1], search.SearchParams{Query: city[:len(city)-1], Limit: 50}},
-		{"Autocomplete: rest", search.SearchParams{Query: "rest", Limit: 50}},
-		{"Short: " + strings.ToLower(city[:2]), search.SearchParams{Query: strings.ToLower(city[:2]), Limit: 50}},
-		{"Geo + Text", search.SearchParams{Query: city, Lat: &lat, Lon: &lon, Radius: "1000m", Limit: 50}},
+		{"Exact: " + city, search.SearchParams{Query: city, Limit: 10000}},
+		{"Prefix: " + strings.ToLower(city[:3]), search.SearchParams{Query: strings.ToLower(city[:3]), Limit: 10000}},
+		{"Partial: " + city[:len(city)-1], search.SearchParams{Query: city[:len(city)-1], Limit: 10000}},
+		{"Autocomplete: rest", search.SearchParams{Query: "rest", Limit: 10000}},
+		{"Short: " + strings.ToLower(city[:2]), search.SearchParams{Query: strings.ToLower(city[:2]), Limit: 10000}},
+		{"Geo + Text", search.SearchParams{Query: city, Lat: &lat, Lon: &lon, Radius: "1000m", Limit: 10000}},
 	}
 
 	for _, analyzer := range analyzers {

@@ -350,6 +350,18 @@ func processPBFEntity(
 		}
 	}
 
+	// Store address fields
+	for _, k := range []string{
+		"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
+		"addr:country", "addr:state", "addr:district", "addr:suburb",
+		"addr:neighbourhood", "addr:floor", "addr:unit", "level",
+	} {
+		if v, ok := tags[k]; ok {
+			hit.Fields[k] = v
+		}
+	}
+	hit.Fields["display_address"] = computeDisplayAddress(tags)
+
 	// Build geometry if requested
 	if conf.GeometryMode != "no-geo" {
 		geom, err := createGeometryFromCoords(coords, GeometryMode(conf.GeometryMode), conf.SimplificationTol, geosCtx)
@@ -494,4 +506,21 @@ func MatchMetadata(tags map[string]string, params search.SearchParams) bool {
 		return false
 	}
 	return true
+}
+
+func computeDisplayAddress(tags map[string]string) string {
+	var parts []string
+	if hn := tags["addr:housenumber"]; hn != "" {
+		parts = append(parts, hn)
+	}
+	if st := tags["addr:street"]; st != "" {
+		parts = append(parts, st)
+	}
+	if city := tags["addr:city"]; city != "" {
+		parts = append(parts, city)
+	}
+	if pc := tags["addr:postcode"]; pc != "" {
+		parts = append(parts, pc)
+	}
+	return strings.Join(parts, ", ")
 }

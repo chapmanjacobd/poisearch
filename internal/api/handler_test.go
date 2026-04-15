@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -438,5 +439,50 @@ func TestHandler_Registration(t *testing.T) {
 
 	if rec2.Code != http.StatusOK {
 		t.Errorf("expected search endpoint to return 200, got %d", rec2.Code)
+	}
+}
+
+// Test PMTiles search with address parameters.
+func TestHandler_PMTilesAddressSearch(t *testing.T) {
+	pmtilesPath := "../../liechtenstein.pmtiles"
+	if _, err := os.Stat(pmtilesPath); err != nil {
+		t.Skip("liechtenstein.pmtiles not found, skipping PMTiles address test")
+	}
+
+	conf := &config.Config{
+		Languages: []string{"en"},
+	}
+
+	mux := http.NewServeMux()
+	api.RegisterHandlersWithPBF(mux, api.HandlerOptions{
+		Conf:        conf,
+		PMTilesPath: pmtilesPath,
+	})
+
+	// Search for housenumber 1 near Vaduz
+	req := httptest.NewRequest(http.MethodGet, "/search?mode=pmtiles&lat=47.14&lon=9.52&radius=10km&housenumber=1", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	hits, _ := result["hits"].([]any)
+	if len(hits) == 0 {
+		t.Error("expected at least one hit for housenumber 1 in PMTiles")
+	}
+
+	for _, h := range hits {
+		hit := h.(map[string]any)
+		fields := hit["fields"].(map[string]any)
+		if fields["addr:housenumber"] != "1" {
+			t.Errorf("expected addr:housenumber 1, got %v", fields["addr:housenumber"])
+		}
 	}
 }
