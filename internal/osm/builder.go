@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blevesearch/bleve/v2"
@@ -307,7 +308,7 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 	defer nodeCoords.Close()
 
 	geosCtx := geos.NewContext()
-	count := 0
+	imported := 0
 	skipped := 0
 	geoMode := GeometryMode(conf.GeometryMode)
 	batch := index.NewBatch()
@@ -399,8 +400,8 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 		}
 
 		if found {
-			count++
-			if count%batchSize == 0 {
+			imported++
+			if imported%batchSize == 0 {
 				if err := index.Batch(ectx.batch); err != nil {
 					return err
 				}
@@ -415,8 +416,8 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 				"indexing progress",
 				"scanned",
 				totalScanned,
-				"indexed",
-				count,
+				"imported",
+				imported,
 				"skipped",
 				skipped,
 			)
@@ -434,7 +435,7 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 		}
 	}
 
-	slog.Info("Finished!", "indexed", count, "skipped", skipped)
+	slog.Info("Finished!", "scanned", totalScanned, "imported", imported, "skipped", skipped)
 	return nil
 }
 
@@ -822,6 +823,13 @@ func createGeometryFromCoords(
 	return processGeomByMode(g, mode, tolerance)
 }
 
+// importStats tracks progress across workers.
+type importStats struct {
+	scanned  atomic.Uint64
+	skipped  atomic.Uint64
+	imported atomic.Uint64
+}
+
 // workItem represents an OSM entity to be processed by a worker.
 type workItem struct {
 	ID     string
@@ -864,6 +872,7 @@ func buildIndexParallel(
 	defer nodeCoords.Close()
 	workChan := make(chan *workItem, workers*100)
 	resultChan := make(chan *processedItem, workers*100)
+	stats := &importStats{}
 
 	g, egCtx := errgroup.WithContext(ctx)
 	for range workers {
@@ -876,6 +885,7 @@ func buildIndexParallel(
 				wdLookup:   wdLookup,
 				ont:        ont,
 				geosCtx:    workerGeosCtx,
+				stats:      stats,
 			}
 			return processWorker(egCtx, params)
 		})
@@ -884,10 +894,10 @@ func buildIndexParallel(
 	var collectorErr error
 	var collectorWg sync.WaitGroup
 	collectorWg.Go(func() {
-		collectorErr = runCollector(ctx, index, resultChan, cancel)
+		collectorErr = runCollector(ctx, index, resultChan, cancel, stats)
 	})
 
-	totalScanned, scannerSkipped, producerErr := runProducer(egCtx, inputPath, conf, nodeCoords, workChan)
+	producerErr := runProducer(egCtx, inputPath, conf, nodeCoords, workChan, stats)
 	close(workChan)
 
 	// Wait for workers to finish
@@ -908,7 +918,15 @@ func buildIndexParallel(
 		return producerErr
 	}
 
-	slog.Info("Finished!", "scanned", totalScanned, "skipped", scannerSkipped)
+	slog.Info(
+		"Finished!",
+		"scanned",
+		stats.scanned.Load(),
+		"imported",
+		stats.imported.Load(),
+		"skipped",
+		stats.skipped.Load(),
+	)
 	return nil
 }
 
@@ -918,6 +936,7 @@ func runCollector(
 	index bleve.Index,
 	resultChan <-chan *processedItem,
 	cancel context.CancelFunc,
+	stats *importStats,
 ) error {
 	batch := index.NewBatch()
 	batchSize := 500
@@ -942,6 +961,7 @@ func runCollector(
 					return fmt.Errorf("collector batch index error: %w", err)
 				}
 				count++
+				stats.imported.Add(1)
 				if count%batchSize == 0 {
 					if err := index.Batch(batch); err != nil {
 						cancel()
@@ -954,16 +974,18 @@ func runCollector(
 	}
 }
 
+// nolint: revive //argument-limit is already optimal
 func runProducer(
 	ctx context.Context,
 	inputPath string,
 	conf *config.Config,
 	nodeCoords nodeCache,
 	workChan chan<- *workItem,
-) (scanned, skipped int, err error) {
+	stats *importStats,
+) error {
 	file, err := os.Open(inputPath)
 	if err != nil {
-		return 0, 0, err
+		return err
 	}
 	defer file.Close()
 
@@ -974,35 +996,36 @@ func runProducer(
 	}
 	defer scanner.Close()
 
-	totalScanned := 0
 	logInterval := 50000
 
 	for scanner.Scan() {
 		obj := scanner.Object()
-		totalScanned++
+		stats.scanned.Add(1)
 		item := buildWorkItem(obj, nodeCoords)
 		if item != nil {
 			select {
 			case <-ctx.Done():
-				return totalScanned, skipped, ctx.Err()
+				return ctx.Err()
 			case workChan <- item:
 			}
 		} else {
-			skipped++
+			stats.skipped.Add(1)
 		}
 
-		if totalScanned%logInterval == 0 {
+		if stats.scanned.Load()%uint64(logInterval) == 0 {
 			slog.InfoContext(
 				ctx,
 				"indexing progress",
 				"scanned",
-				totalScanned,
+				stats.scanned.Load(),
+				"imported",
+				stats.imported.Load(),
 				"skipped",
-				skipped,
+				stats.skipped.Load(),
 			)
 		}
 	}
-	return totalScanned, skipped, scanner.Err()
+	return scanner.Err()
 }
 
 func buildWorkItem(obj osmapi.Object, nodeCoords nodeCache) *workItem {
@@ -1081,6 +1104,7 @@ type workerParams struct {
 	wdLookup   *WikidataLookup
 	ont        *PlaceTypeOntology
 	geosCtx    *geos.Context
+	stats      *importStats
 }
 
 func processWorker(ctx context.Context, p workerParams) error {
@@ -1101,11 +1125,13 @@ func processWorker(ctx context.Context, p workerParams) error {
 			classifications := ClassifyMulti(item.Tags, &p.conf.Importance, p.ont)
 			if len(classifications) == 0 {
 				p.resultChan <- &processedItem{ID: item.ID}
+				p.stats.skipped.Add(1)
 				continue
 			}
 
 			if p.conf.OnlyNamed && !hasAnyName(item.Tags, p.conf.Languages) {
 				p.resultChan <- &processedItem{ID: item.ID}
+				p.stats.skipped.Add(1)
 				continue
 			}
 
@@ -1125,6 +1151,7 @@ func processWorker(ctx context.Context, p workerParams) error {
 				)
 				if err != nil {
 					p.resultChan <- &processedItem{ID: item.ID}
+					p.stats.skipped.Add(1)
 					continue
 				}
 			}
