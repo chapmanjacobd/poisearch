@@ -9,8 +9,8 @@ import (
 )
 
 type Classification struct {
-	Class      string
-	Subtype    string
+	Key      string
+	Value    string
 	Importance float64
 	OntLevel   int // Ontological level (0-6), -1 if not applicable
 }
@@ -55,19 +55,19 @@ func ClassifyMulti(
 			continue
 		}
 
-		class := k
-		subtype := v
+		key := k
+		value := v
 
-		// Map OSM keys to our simplified classes
+		// Map OSM keys to our simplified keys
 		if k == "highway" {
-			class = "street"
+			key = "street"
 		}
 
 		// Calculate base importance
 		importance := getTypeDefaultImportance(k, v)
 		boostFound := false
 		for i, pattern := range weights.Boosts {
-			if matchBoostPattern(class, subtype, pattern) {
+			if matchBoostPattern(key, value, pattern) {
 				// Strict bifurcation: boosted items get 1000+ score to sort above non-boosted matches.
 				// First match in the array gets the highest priority.
 				importance = 1000.0 + float64(len(weights.Boosts)-i)*10.0
@@ -109,8 +109,8 @@ func ClassifyMulti(
 		}
 
 		results = append(results, &Classification{
-			Class:      class,
-			Subtype:    subtype,
+			Key:      key,
+			Value:    value,
 			Importance: importance,
 			OntLevel:   ontLevel,
 		})
@@ -119,29 +119,29 @@ func ClassifyMulti(
 	return results
 }
 
-// matchBoostPattern evaluates if a class/subtype pair matches a boost pattern.
+// matchBoostPattern evaluates if a key/value pair matches a boost pattern.
 // Supported patterns:
-//   - "hospital"         : Match if class="hospital" OR subtype="hospital"
-//   - "amenity=hospital" : Match class="amenity" AND subtype="hospital"
-//   - "hospital=*"       : Match class="hospital" AND any subtype
-//   - "hospital="        : Match class="hospital" AND any subtype
-//   - "*=big" or "=big"  : Match any class AND subtype="big"
-func matchBoostPattern(class, subtype, pattern string) bool {
+//   - "hospital"         : Match if key="hospital" OR value="hospital"
+//   - "amenity=hospital" : Match key="amenity" AND value="hospital"
+//   - "hospital=*"       : Match key="hospital" AND any value
+//   - "hospital="        : Match key="hospital" AND any value
+//   - "*=big" or "=big"  : Match any key AND value="big"
+func matchBoostPattern(key, value, pattern string) bool {
 	if strings.Contains(pattern, "=") {
 		parts := strings.SplitN(pattern, "=", 2)
-		pClass := parts[0]
-		pSubtype := parts[1]
+		pKey := parts[0]
+		pValue := parts[1]
 
-		matchClass := pClass == "" || pClass == "*" || pClass == class
-		matchSubtype := pSubtype == "" || pSubtype == "*" || pSubtype == subtype
-		return matchClass && matchSubtype
+		matchKey := pKey == "" || pKey == "*" || pKey == key
+		matchValue := pValue == "" || pValue == "*" || pValue == value
+		return matchKey && matchValue
 	}
-	// No '=', match if pattern equals class or pattern equals subtype
-	return pattern == class || pattern == subtype
+	// No '=', match if pattern equals key or pattern equals value
+	return pattern == key || pattern == value
 }
 
 // Classify returns the first (highest priority) classification for a set of OSM tags.
-// Kept for backward compatibility. Use ClassifyMulti for multi-class support.
+// Kept for backward compatibility. Use ClassifyMulti for multi-key support.
 func Classify(tags map[string]string, weights *config.ImportanceWeights) *Classification {
 	return ClassifyWithOntology(tags, weights, nil)
 }
@@ -166,9 +166,9 @@ func ClassifyWithOntology(
 	return best
 }
 
-// ParseClasses parses a comma-separated class filter string into a slice.
-// Supports wildcard syntax: "shop=*" returns class "shop" with any subtype.
-func ParseClasses(s string) []string {
+// ParseKeys parses a comma-separated key filter string into a slice.
+// Supports wildcard syntax: "shop=*" returns key "shop" with any value.
+func ParseKeys(s string) []string {
 	if s == "" {
 		return nil
 	}
@@ -183,8 +183,8 @@ func ParseClasses(s string) []string {
 	return result
 }
 
-// ParseSubtypes parses a comma-separated subtype filter string into a slice.
-func ParseSubtypes(s string) []string {
+// ParseValues parses a comma-separated value filter string into a slice.
+func ParseValues(s string) []string {
 	if s == "" {
 		return nil
 	}
@@ -296,9 +296,9 @@ func parsePopulation(tags map[string]string) int {
 }
 
 // parsePopulationForClassification is a placeholder for classification-specific population.
-// Currently uses the same population tag since OSM doesn't have per-class populations.
-func parsePopulationForClassification(class, subtype string, tags map[string]string) int {
-	_ = class // Currently unused, reserved for future per-class population logic
-	_ = subtype
+// Currently uses the same population tag since OSM doesn't have per-key populations.
+func parsePopulationForClassification(key, value string, tags map[string]string) int {
+	_ = key // Currently unused, reserved for future per-key population logic
+	_ = value
 	return parsePopulation(tags)
 }

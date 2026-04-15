@@ -377,8 +377,8 @@ func TestSearch_GeoFilter(t *testing.T) {
 	}
 }
 
-// TestSearch_ClassFilter tests filtering by class.
-func TestSearch_ClassFilter(t *testing.T) {
+// TestSearch_KeyFilter tests filtering by key.
+func TestSearch_KeyFilter(t *testing.T) {
 	pbfPath := downloadPBF(t)
 	conf := defaultTestConfig()
 	conf.NameAnalyzer = "standard"
@@ -388,18 +388,18 @@ func TestSearch_ClassFilter(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		class     string
+		key     string
 		expectMin int
 	}{
-		{"place class", "place", 1},
-		{"amenity class", "amenity", 0}, // May have results
+		{"place key", "place", 1},
+		{"amenity key", "amenity", 0}, // May have results
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := search.SearchParams{
 				Query:    "",
-				Class:    tt.class,
+				Key:    tt.key,
 				Limit:    50,
 				GeoMode:  "geopoint-centroid",
 				Langs:    conf.Languages,

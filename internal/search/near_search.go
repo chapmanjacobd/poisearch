@@ -116,10 +116,10 @@ func NearSearch(index bleve.Index, baseParams SearchParams, category, referenceP
 		GeoMode:  baseParams.GeoMode,
 		Langs:    baseParams.Langs,
 		Analyzer: baseParams.Analyzer,
-		Class:    baseParams.Class,   // Preserve class filter if set
-		Subtype:  baseParams.Subtype, // Preserve subtype filter if set
-		Classes:  baseParams.Classes,
-		Subtypes: baseParams.Subtypes,
+		Key:    baseParams.Key,   // Preserve key filter if set
+		Value:  baseParams.Value, // Preserve value filter if set
+		Keys:  baseParams.Keys,
+		Values: baseParams.Values,
 	}
 
 	results, err := Search(index, searchParams)

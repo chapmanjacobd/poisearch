@@ -235,33 +235,33 @@ func extractOMTTags(feature *geojson.Feature, layerName string, languages []stri
 	NormalizeNameTag(tags, languages)
 	EnhanceName(tags)
 
-	// Map OpenMapTiles 'class' to OSM-style tags for classification
-	if class, ok := tags["class"]; ok {
+	// Map OpenMapTiles 'key' to OSM-style tags for classification
+	if key, ok := tags["key"]; ok {
 		switch layerName {
 		case "place", "places":
-			tags["place"] = class
+			tags["place"] = key
 		case "pois", "poi", "point":
 			if _, ok := tags["amenity"]; !ok {
-				tags["amenity"] = class
+				tags["amenity"] = key
 			}
 			// Map to other common keys too just in case
 			if _, ok := tags["shop"]; !ok {
-				tags["shop"] = class
+				tags["shop"] = key
 			}
 			if _, ok := tags["tourism"]; !ok {
-				tags["tourism"] = class
+				tags["tourism"] = key
 			}
 		case "transportation":
-			tags["highway"] = class
+			tags["highway"] = key
 		case "water", "waterway":
 			if _, ok := tags["natural"]; !ok {
 				tags["natural"] = "water"
 			}
-			tags["water"] = class
+			tags["water"] = key
 		case "aerodrome_label":
 			tags["aeroway"] = "aerodrome"
 		case "landuse":
-			tags["landuse"] = class
+			tags["landuse"] = key
 		case "building":
 			tags["building"] = "yes"
 		}

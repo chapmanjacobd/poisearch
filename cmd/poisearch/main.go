@@ -170,6 +170,33 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 		slog.Warn("failed to create query cache, continuing without it", "error", err)
 	}
 
+	// Initialize CategoryMapper from ontology
+	ont := osm.DefaultOntology()
+	if conf.OntologyPath != "" {
+		var ontErr error
+		ont, ontErr = osm.LoadOntologyFromCSV(conf.OntologyPath)
+		if ontErr != nil {
+			slog.Warn("failed to load ontology, using default", "error", ontErr)
+			ont = osm.DefaultOntology()
+		}
+	}
+	search.CategoryMapper = func(q string) []search.CategoryMatch {
+		q = strings.ToLower(q)
+		matches := ont.GetTagsForLabel(q)
+		if len(matches) == 0 && strings.HasSuffix(q, "s") {
+			// Try singular if plural failed
+			matches = ont.GetTagsForLabel(q[:len(q)-1])
+		}
+		if len(matches) == 0 {
+			return nil
+		}
+		result := make([]search.CategoryMatch, len(matches))
+		for i, m := range matches {
+			result[i] = search.CategoryMatch{Key: m.Key, Value: m.Value}
+		}
+		return result
+	}
+
 	srv := &Server{
 		index:       idx,
 		conf:        conf,

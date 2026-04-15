@@ -4,5 +4,5 @@ geometry_mode = "no-geo"
 nodes_only = true
 disable_alt_names = true
 disable_importance = true
-disable_class_subtype = true
+disable_key_value = true
 only_named = true

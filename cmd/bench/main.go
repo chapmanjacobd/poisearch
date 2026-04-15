@@ -154,12 +154,12 @@ func runFullBench(pbf string, conf *config.Config) {
 
 	lat, lon := 47.14, 9.52 // Vaduz
 	city := "Vaduz"
-	subtype := "town"
+	value := "town"
 	pmtiles := "liechtenstein.pmtiles"
 	if pbf == "taiwan-latest.osm.pbf" {
 		lat, lon = 25.03, 121.56 // Taipei
 		city = "Taipei"
-		subtype = "city"
+		value = "city"
 	}
 	radius := "1000m"
 	dLat := 0.0045
@@ -180,14 +180,14 @@ func runFullBench(pbf string, conf *config.Config) {
 
 		if s.Minimal {
 			conf.DisableAltNames = true
-			conf.DisableClassSubtype = true
+			conf.DisableKeyValues = true
 			conf.DisableImportance = true
 			conf.OnlyNamed = true
 			conf.StoreMetadata = false
 			conf.StoreGeometry = false
 		} else {
 			conf.DisableAltNames = false
-			conf.DisableClassSubtype = false
+			conf.DisableKeyValues = false
 			conf.DisableImportance = false
 		}
 
@@ -236,28 +236,28 @@ func runFullBench(pbf string, conf *config.Config) {
 			},
 		}
 
-		if !conf.DisableClassSubtype {
+		if !conf.DisableKeyValues {
 			searchScenarios = append(searchScenarios,
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Class Filter", search.SearchParams{Query: city, Class: "place", GeoMode: s.Mode, Limit: 50}},
+				}{"Key Filter", search.SearchParams{Query: city, Key: "place", GeoMode: s.Mode, Limit: 50}},
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Subtype Filter", search.SearchParams{Query: city, Subtype: subtype, GeoMode: s.Mode, Limit: 50}},
+				}{"Value Filter", search.SearchParams{Query: city, Value: value, GeoMode: s.Mode, Limit: 50}},
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Combined (Fuzzy+Class)", search.SearchParams{Query: city[:len(city)-1], Fuzzy: true, Class: "place", GeoMode: s.Mode, Limit: 50}},
+				}{"Combined (Fuzzy+Key)", search.SearchParams{Query: city[:len(city)-1], Fuzzy: true, Key: "place", GeoMode: s.Mode, Limit: 50}},
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Shop Search", search.SearchParams{Subtype: "bakery", GeoMode: s.Mode, Limit: 50}},
+				}{"Shop Search", search.SearchParams{Value: "bakery", GeoMode: s.Mode, Limit: 50}},
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Tourism Search", search.SearchParams{Subtype: "museum", GeoMode: s.Mode, Limit: 50}},
+				}{"Tourism Search", search.SearchParams{Value: "museum", GeoMode: s.Mode, Limit: 50}},
 			)
 		}
 

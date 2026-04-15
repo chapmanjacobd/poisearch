@@ -9,7 +9,7 @@ import (
 
 func TestMatchBoostPattern(t *testing.T) {
 	tests := []struct {
-		class, subtype, pattern string
+		key, value, pattern string
 		expected                bool
 	}{
 		{"amenity", "hospital", "hospital", true},
@@ -27,9 +27,9 @@ func TestMatchBoostPattern(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := matchBoostPattern(tt.class, tt.subtype, tt.pattern)
+		got := matchBoostPattern(tt.key, tt.value, tt.pattern)
 		if got != tt.expected {
-			t.Errorf("matchBoostPattern(%s, %s, %s) = %v, want %v", tt.class, tt.subtype, tt.pattern, got, tt.expected)
+			t.Errorf("matchBoostPattern(%s, %s, %s) = %v, want %v", tt.key, tt.value, tt.pattern, got, tt.expected)
 		}
 	}
 }
@@ -52,8 +52,8 @@ func TestClassify(t *testing.T) {
 			name: "City (matches boost 'city')",
 			tags: map[string]string{"place": "city"},
 			expected: &Classification{
-				Class:      "place",
-				Subtype:    "city",
+				Key:      "place",
+				Value:    "city",
 				Importance: 1040.0,
 			},
 		},
@@ -61,8 +61,8 @@ func TestClassify(t *testing.T) {
 			name: "Pharmacy (matches boost 'amenity=pharmacy')",
 			tags: map[string]string{"amenity": "pharmacy"},
 			expected: &Classification{
-				Class:      "amenity",
-				Subtype:    "pharmacy",
+				Key:      "amenity",
+				Value:    "pharmacy",
 				Importance: 1030.0,
 			},
 		},
@@ -70,8 +70,8 @@ func TestClassify(t *testing.T) {
 			name: "Any=big (matches boost '*=big')",
 			tags: map[string]string{"shop": "big"},
 			expected: &Classification{
-				Class:      "shop",
-				Subtype:    "big",
+				Key:      "shop",
+				Value:    "big",
 				Importance: 1020.0,
 			},
 		},
@@ -79,8 +79,8 @@ func TestClassify(t *testing.T) {
 			name: "Hospital (matches boost 'hospital')",
 			tags: map[string]string{"healthcare": "hospital"},
 			expected: &Classification{
-				Class:      "healthcare",
-				Subtype:    "hospital",
+				Key:      "healthcare",
+				Value:    "hospital",
 				Importance: 1010.0,
 			},
 		},
@@ -88,8 +88,8 @@ func TestClassify(t *testing.T) {
 			name: "Restaurant (unboosted fallback to default)",
 			tags: map[string]string{"amenity": "restaurant"},
 			expected: &Classification{
-				Class:      "amenity",
-				Subtype:    "restaurant",
+				Key:      "amenity",
+				Value:    "restaurant",
 				Importance: 2.0,
 			},
 		},
@@ -97,8 +97,8 @@ func TestClassify(t *testing.T) {
 			name: "City with population boost",
 			tags: map[string]string{"place": "city", "population": "1000"},
 			expected: &Classification{
-				Class:      "place",
-				Subtype:    "city",
+				Key:      "place",
+				Value:    "city",
 				Importance: 1040.0 + 6.90875, // 1040 + ln(1001) ≈ 1040 + 6.90875
 			},
 		},
@@ -121,13 +121,13 @@ func TestClassify(t *testing.T) {
 			if got == nil {
 				t.Fatalf("expected %v, got nil", tt.expected)
 			}
-			if got.Class != tt.expected.Class || got.Subtype != tt.expected.Subtype {
+			if got.Key != tt.expected.Key || got.Value != tt.expected.Value {
 				t.Errorf(
-					"expected class/subtype %s/%s, got %s/%s",
-					tt.expected.Class,
-					tt.expected.Subtype,
-					got.Class,
-					got.Subtype,
+					"expected key/value %s/%s, got %s/%s",
+					tt.expected.Key,
+					tt.expected.Value,
+					got.Key,
+					got.Value,
 				)
 			}
 			if (got.Importance - tt.expected.Importance) > 0.01 {

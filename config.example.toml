@@ -30,9 +30,9 @@ name_analyzer = "standard"
 nodes_only = false                # Index only nodes (skip ways/relations)
 disable_alt_names = false         # Skip alt_name, old_name, short_name fields
 disable_importance = false        # Set all importance scores to 0
-disable_class_subtype = false     # Skip class/subtype indexing
+disable_key_value = false     # Skip key/value indexing
 only_named = true                 # Only index objects with a name tag
-store_metadata = false            # Store class/subtype/importance in index (increases size)
+store_metadata = false            # Store key/value/importance in index (increases size)
 store_geometry = false            # Store geometry in index (increases size)
 store_address = false             # Index addr:* tags for address search
 index_wikidata_redirects = false  # Index Wikipedia redirect titles as alternate names (increases size)
@@ -58,12 +58,12 @@ population_boost_weight = 0.2     # importance += ln(pop+1) * weight
 capital_boost = 2.0               # Added if capital=yes
 wikipedia_boost = 1.5             # Added if wikipedia or wikidata tag present
 
-# Boosts allow prioritizing specific classes and subtypes.
+# Boosts allow prioritizing specific keys and values.
 # Patterns can be:
-#   - "hospital"         : Match if class="hospital" OR subtype="hospital"
-#   - "amenity=hospital" : Match class="amenity" AND subtype="hospital"
-#   - "hospital=*"       : Match class="hospital" AND any subtype
-#   - "*=big" or "=big"  : Match any class AND subtype="big"
+#   - "hospital"         : Match if key="hospital" OR value="hospital"
+#   - "amenity=hospital" : Match key="amenity" AND value="hospital"
+#   - "hospital=*"       : Match key="hospital" AND any value
+#   - "*=big" or "=big"  : Match any key AND value="big"
 #
 # Order matters: first match gets highest boost.
 # Boosted items receive a high baseline score (e.g. 1000+) to sort above non-boosted matches.

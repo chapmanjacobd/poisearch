@@ -21,15 +21,23 @@ type PlaceTypeOntology struct {
 	labels map[string]string
 	// Reverse mapping: OSM key/value -> list of QIDs
 	osmToQIDs map[string][]string
+	// Reverse mapping: label -> list of OSM key/value pairs
+	labelToTags map[string][]tagMatch
+}
+
+type tagMatch struct {
+	Key   string
+	Value string
 }
 
 // DefaultOntology returns a built-in place type ontology based on common
 // Wikidata place types and their OSM tag equivalents.
 func DefaultOntology() *PlaceTypeOntology {
 	ont := &PlaceTypeOntology{
-		levels:    make(map[string]int),
-		labels:    make(map[string]string),
-		osmToQIDs: make(map[string][]string),
+		levels:      make(map[string]int),
+		labels:      make(map[string]string),
+		osmToQIDs:   make(map[string][]string),
+		labelToTags: make(map[string][]tagMatch),
 	}
 
 	// Define place types with ontological levels
@@ -99,6 +107,7 @@ func DefaultOntology() *PlaceTypeOntology {
 		ont.labels[t.qid] = t.label
 		key := t.osmKey + "=" + t.osmVal
 		ont.osmToQIDs[key] = append(ont.osmToQIDs[key], t.qid)
+		ont.labelToTags[t.label] = append(ont.labelToTags[t.label], tagMatch{Key: t.osmKey, Value: t.osmVal})
 	}
 
 	return ont
@@ -123,9 +132,10 @@ func LoadOntologyFromCSV(path string) (*PlaceTypeOntology, error) {
 	}
 
 	ont := &PlaceTypeOntology{
-		levels:    make(map[string]int),
-		labels:    make(map[string]string),
-		osmToQIDs: make(map[string][]string),
+		levels:      make(map[string]int),
+		labels:      make(map[string]string),
+		osmToQIDs:   make(map[string][]string),
+		labelToTags: make(map[string][]tagMatch),
 	}
 
 	for _, record := range records {
@@ -146,6 +156,7 @@ func LoadOntologyFromCSV(path string) (*PlaceTypeOntology, error) {
 		ont.labels[qid] = label
 		key := osmKey + "=" + osmVal
 		ont.osmToQIDs[key] = append(ont.osmToQIDs[key], qid)
+		ont.labelToTags[label] = append(ont.labelToTags[label], tagMatch{Key: osmKey, Value: osmVal})
 	}
 
 	return ont, nil
@@ -200,6 +211,14 @@ func (p *PlaceTypeOntology) GetMinLevelForOSM(osmKey, osmVal string) int {
 		}
 	}
 	return minLevel
+}
+
+// GetTagsForLabel returns the OSM key/value pairs for a given human-readable label.
+func (p *PlaceTypeOntology) GetTagsForLabel(label string) []tagMatch {
+	if p == nil {
+		return nil
+	}
+	return p.labelToTags[strings.ToLower(label)]
 }
 
 // BoostByOntology returns a boost factor based on the ontological level.

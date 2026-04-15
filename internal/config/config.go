@@ -34,7 +34,7 @@ type Config struct {
 	NodesOnly              bool              `toml:"nodes_only"`
 	DisableAltNames        bool              `toml:"disable_alt_names"`
 	DisableImportance      bool              `toml:"disable_importance"`
-	DisableClassSubtype    bool              `toml:"disable_class_subtype"`
+	DisableKeyValues    bool              `toml:"disable_key_value"`
 	OnlyNamed              bool              `toml:"only_named"`
 	StoreMetadata          bool              `toml:"store_metadata"`
 	StoreGeometry          bool              `toml:"store_geometry"`
@@ -53,7 +53,7 @@ type Config struct {
 }
 
 type ImportanceWeights struct {
-	Boosts   []string `toml:"boosts"` // List of classes/subtypes to prioritize (first = highest)
+	Boosts   []string `toml:"boosts"` // List of keys/values to prioritize (first = highest)
 	Default  float64  `toml:"default"`
 	PopBoost float64  `toml:"population_boost_weight"` // importance += math.Log(pop+1) * weight
 	Capital  float64  `toml:"capital_boost"`

@@ -82,7 +82,7 @@ func BuildIndexMapping(conf *config.Config) mapping.IndexMapping {
 	}
 
 	addNameFields(docMapping, conf, nameAnalyzer)
-	addClassSubtypeFields(docMapping, conf)
+	addKeyValuesFields(docMapping, conf)
 	addImportanceField(docMapping, conf)
 	addGeometryField(docMapping, conf)
 	addAddressFields(docMapping, conf)
@@ -125,17 +125,17 @@ func addNameFields(docMapping *mapping.DocumentMapping, conf *config.Config, nam
 	}
 }
 
-func addClassSubtypeFields(docMapping *mapping.DocumentMapping, conf *config.Config) {
+func addKeyValuesFields(docMapping *mapping.DocumentMapping, conf *config.Config) {
 	keywordMapping := bleve.NewTextFieldMapping()
 	keywordMapping.Analyzer = "keyword"
 	keywordMapping.IncludeInAll = true
 	keywordMapping.IncludeTermVectors = false
 	keywordMapping.Store = conf.StoreMetadata
 
-	docMapping.AddFieldMappingsAt("class", keywordMapping)
-	docMapping.AddFieldMappingsAt("subtype", keywordMapping)
-	docMapping.AddFieldMappingsAt("classes", keywordMapping)
-	docMapping.AddFieldMappingsAt("subtypes", keywordMapping)
+	docMapping.AddFieldMappingsAt("key", keywordMapping)
+	docMapping.AddFieldMappingsAt("value", keywordMapping)
+	docMapping.AddFieldMappingsAt("keys", keywordMapping)
+	docMapping.AddFieldMappingsAt("values", keywordMapping)
 }
 
 func addImportanceField(docMapping *mapping.DocumentMapping, conf *config.Config) {

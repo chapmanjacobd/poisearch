@@ -25,12 +25,12 @@ type SearchParams struct {
 	// Advanced features
 	Fuzzy   bool
 	Prefix  bool
-	Class   string
-	Subtype string
+	Key   string
+	Value string
 
-	// Multi-value class/subtype filters (OR within each)
-	Classes  []string
-	Subtypes []string
+	// Multi-value key/value filters (OR within each)
+	Keys  []string
+	Values []string
 
 	// Analyzer type used during indexing (affects query strategy)
 	Analyzer string
@@ -206,62 +206,62 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		q = bleve.NewMatchAllQuery()
 	}
 
-	// Filter by class and subtype (single value)
-	classFilter := params.Class
-	subtypeFilter := params.Subtype
+	// Filter by key and value (single value)
+	keyFilter := params.Key
+	valueFilter := params.Value
 
-	// Filter by class and subtype (multi-value, OR within each)
-	if len(params.Classes) > 0 {
-		classList := make([]string, 0, len(params.Classes)+1)
-		classList = append(classList, params.Classes...)
-		if classFilter != "" {
-			classList = append(classList, classFilter)
+	// Filter by key and value (multi-value, OR within each)
+	if len(params.Keys) > 0 {
+		keyList := make([]string, 0, len(params.Keys)+1)
+		keyList = append(keyList, params.Keys...)
+		if keyFilter != "" {
+			keyList = append(keyList, keyFilter)
 		}
-		classQueries := make([]query.Query, 0, len(classList)*2)
-		for _, c := range classList {
+		keyQueries := make([]query.Query, 0, len(keyList)*2)
+		for _, c := range keyList {
 			cq1 := bleve.NewMatchQuery(c)
-			cq1.SetField("class")
+			cq1.SetField("key")
 			cq2 := bleve.NewMatchQuery(c)
-			cq2.SetField("classes")
-			classQueries = append(classQueries, cq1, cq2)
+			cq2.SetField("keys")
+			keyQueries = append(keyQueries, cq1, cq2)
 		}
-		q = bleve.NewConjunctionQuery(q, bleve.NewDisjunctionQuery(classQueries...))
-		classFilter = "" // Already handled
+		q = bleve.NewConjunctionQuery(q, bleve.NewDisjunctionQuery(keyQueries...))
+		keyFilter = "" // Already handled
 	}
 
-	if len(params.Subtypes) > 0 {
-		subtypeList := make([]string, 0, len(params.Subtypes)+1)
-		subtypeList = append(subtypeList, params.Subtypes...)
-		if subtypeFilter != "" {
-			subtypeList = append(subtypeList, subtypeFilter)
+	if len(params.Values) > 0 {
+		valueList := make([]string, 0, len(params.Values)+1)
+		valueList = append(valueList, params.Values...)
+		if valueFilter != "" {
+			valueList = append(valueList, valueFilter)
 		}
-		subtypeQueries := make([]query.Query, 0, len(subtypeList)*2)
-		for _, s := range subtypeList {
+		valueQueries := make([]query.Query, 0, len(valueList)*2)
+		for _, s := range valueList {
 			sq1 := bleve.NewMatchQuery(s)
-			sq1.SetField("subtype")
+			sq1.SetField("value")
 			sq2 := bleve.NewMatchQuery(s)
-			sq2.SetField("subtypes")
-			subtypeQueries = append(subtypeQueries, sq1, sq2)
+			sq2.SetField("values")
+			valueQueries = append(valueQueries, sq1, sq2)
 		}
-		q = bleve.NewConjunctionQuery(q, bleve.NewDisjunctionQuery(subtypeQueries...))
-		subtypeFilter = "" // Already handled
+		q = bleve.NewConjunctionQuery(q, bleve.NewDisjunctionQuery(valueQueries...))
+		valueFilter = "" // Already handled
 	}
 
-	if classFilter != "" || subtypeFilter != "" {
+	if keyFilter != "" || valueFilter != "" {
 		conjunctions := []query.Query{q}
-		if classFilter != "" {
-			// Search both primary and multi-class fields
-			cq1 := bleve.NewMatchQuery(classFilter)
-			cq1.SetField("class")
-			cq2 := bleve.NewMatchQuery(classFilter)
-			cq2.SetField("classes")
+		if keyFilter != "" {
+			// Search both primary and multi-key fields
+			cq1 := bleve.NewMatchQuery(keyFilter)
+			cq1.SetField("key")
+			cq2 := bleve.NewMatchQuery(keyFilter)
+			cq2.SetField("keys")
 			conjunctions = append(conjunctions, bleve.NewDisjunctionQuery(cq1, cq2))
 		}
-		if subtypeFilter != "" {
-			sq1 := bleve.NewMatchQuery(subtypeFilter)
-			sq1.SetField("subtype")
-			sq2 := bleve.NewMatchQuery(subtypeFilter)
-			sq2.SetField("subtypes")
+		if valueFilter != "" {
+			sq1 := bleve.NewMatchQuery(valueFilter)
+			sq1.SetField("value")
+			sq2 := bleve.NewMatchQuery(valueFilter)
+			sq2.SetField("values")
 			conjunctions = append(conjunctions, bleve.NewDisjunctionQuery(sq1, sq2))
 		}
 		q = bleve.NewConjunctionQuery(conjunctions...)
@@ -396,10 +396,10 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		"alt_name",
 		"old_name",
 		"short_name",
-		"class",
-		"subtype",
-		"classes",
-		"subtypes",
+		"key",
+		"value",
+		"keys",
+		"values",
 		"importance",
 		"geometry",
 		"distance_meters",

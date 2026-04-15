@@ -35,8 +35,8 @@ type SearchHit struct {
 	ID       string  `json:"id"`
 	Score    float64 `json:"score"`
 	Name     string  `json:"name,omitempty"`
-	Class    string  `json:"class,omitempty"`
-	Subtype  string  `json:"subtype,omitempty"`
+	Key    string  `json:"key,omitempty"`
+	Value  string  `json:"value,omitempty"`
 	Geometry any     `json:"geometry,omitempty"`
 }
 
@@ -241,10 +241,10 @@ func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams
 	langsStr := r.URL.Query().Get("langs")
 	fuzzy := r.URL.Query().Get("fuzzy") == "1" || r.URL.Query().Get("fuzzy") == "true"
 	prefix := r.URL.Query().Get("prefix") == "1" || r.URL.Query().Get("prefix") == "true"
-	class := r.URL.Query().Get("class")
-	subtype := r.URL.Query().Get("subtype")
-	classes := r.URL.Query().Get("classes")   // comma-separated multi-class
-	subtypes := r.URL.Query().Get("subtypes") // comma-separated multi-subtype
+	key := r.URL.Query().Get("key")
+	value := r.URL.Query().Get("value")
+	keys := r.URL.Query().Get("keys")   // comma-separated multi-key
+	values := r.URL.Query().Get("values") // comma-separated multi-value
 
 	// Address search params
 	street := r.URL.Query().Get("street")
@@ -299,13 +299,13 @@ func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams
 	}
 
 	// Parse multi-value filters
-	var classList []string
-	if classes != "" {
-		classList = strings.Split(classes, ",")
+	var keyList []string
+	if keys != "" {
+		keyList = strings.Split(keys, ",")
 	}
-	var subtypeList []string
-	if subtypes != "" {
-		subtypeList = strings.Split(subtypes, ",")
+	var valueList []string
+	if values != "" {
+		valueList = strings.Split(values, ",")
 	}
 
 	return search.SearchParams{
@@ -319,10 +319,10 @@ func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams
 		GeoMode:      conf.GeometryMode,
 		Fuzzy:        fuzzy,
 		Prefix:       prefix,
-		Class:        class,
-		Subtype:      subtype,
-		Classes:      classList,
-		Subtypes:     subtypeList,
+		Key:        key,
+		Value:      value,
+		Keys:      keyList,
+		Values:     valueList,
 		Street:       street,
 		HouseNumber:  housenumber,
 		Postcode:     postcode,
@@ -358,17 +358,17 @@ func writeTextResponse(w http.ResponseWriter, res *bleve.SearchResult, langs []s
 		if name, ok := hit.Fields["name"].(string); ok && name != "" {
 			fmt.Fprintf(w, "name: %s\n", name)
 		}
-		if class, ok := hit.Fields["class"].(string); ok && class != "" {
-			fmt.Fprintf(w, "class: %s\n", class)
+		if key, ok := hit.Fields["key"].(string); ok && key != "" {
+			fmt.Fprintf(w, "key: %s\n", key)
 		}
-		if subtype, ok := hit.Fields["subtype"].(string); ok && subtype != "" {
-			fmt.Fprintf(w, "subtype: %s\n", subtype)
+		if value, ok := hit.Fields["value"].(string); ok && value != "" {
+			fmt.Fprintf(w, "value: %s\n", value)
 		}
-		if classes, ok := hit.Fields["classes"].(string); ok && classes != "" {
-			fmt.Fprintf(w, "classes: %s\n", classes)
+		if keys, ok := hit.Fields["keys"].(string); ok && keys != "" {
+			fmt.Fprintf(w, "keys: %s\n", keys)
 		}
-		if subtypes, ok := hit.Fields["subtypes"].(string); ok && subtypes != "" {
-			fmt.Fprintf(w, "subtypes: %s\n", subtypes)
+		if values, ok := hit.Fields["values"].(string); ok && values != "" {
+			fmt.Fprintf(w, "values: %s\n", values)
 		}
 		if importance, ok := hit.Fields["importance"].(float64); ok {
 			fmt.Fprintf(w, "importance: %.6f\n", importance)

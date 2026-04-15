@@ -13,10 +13,10 @@ type Feature struct {
 	ID                string            `json:"id"`
 	Name              string            `json:"name"`
 	Names             map[string]string `json:"names"` // name:en, name:zh, etc.
-	Class             string            `json:"class"`
-	Subtype           string            `json:"subtype"`
-	Classes           []string          `json:"classes,omitempty"`  // multi-class support
-	Subtypes          []string          `json:"subtypes,omitempty"` // multi-class support
+	Key             string            `json:"key"`
+	Value           string            `json:"value"`
+	Keys           []string          `json:"keys,omitempty"`  // multi-key support
+	Values          []string          `json:"values,omitempty"` // multi-key support
 	Importance        float64           `json:"importance"`
 	Geometry          any               `json:"geometry"`
 	Address           map[string]string `json:"address,omitempty"`            // addr:housenumber, addr:street, etc.
@@ -48,20 +48,20 @@ func FeatureToMap(f *Feature) map[string]any {
 	// Bleve already stores it as the primary key of the document.
 	m := map[string]any{
 		"name":       f.Name,
-		"class":      f.Class,
-		"subtype":    f.Subtype,
+		"key":      f.Key,
+		"value":    f.Value,
 		"importance": f.Importance,
 		"geometry":   f.Geometry,
 	}
 	for k, v := range f.Names {
 		m[k] = v
 	}
-	// Store multi-class fields for filtering
-	if len(f.Classes) > 0 {
-		m["classes"] = f.Classes
+	// Store multi-key fields for filtering
+	if len(f.Keys) > 0 {
+		m["keys"] = f.Keys
 	}
-	if len(f.Subtypes) > 0 {
-		m["subtypes"] = f.Subtypes
+	if len(f.Values) > 0 {
+		m["values"] = f.Values
 	}
 	// Store address fields when configured
 	if len(f.Address) > 0 {

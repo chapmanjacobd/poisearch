@@ -46,8 +46,8 @@ type SerializedHit struct {
 	ID      string  `json:"id"`
 	Score   float64 `json:"score"`
 	Name    string  `json:"name,omitempty"`
-	Class   string  `json:"class,omitempty"`
-	Subtype string  `json:"subtype,omitempty"`
+	Key   string  `json:"key,omitempty"`
+	Value string  `json:"value,omitempty"`
 	Lat     float64 `json:"lat,omitempty"`
 	Lon     float64 `json:"lon,omitempty"`
 }
@@ -132,16 +132,16 @@ func BuildCacheKey(params SearchParams) string {
 	// Always include these base parameters
 	fmt.Fprintf(
 		h,
-		"q=%s&limit=%d&from=%d&fuzzy=%t&prefix=%t&class=%s&subtype=%s&classes=%v&subtypes=%v&street=%s&housenumber=%s&postcode=%s&city=%s&country=%s",
+		"q=%s&limit=%d&from=%d&fuzzy=%t&prefix=%t&key=%s&value=%s&keys=%v&values=%v&street=%s&housenumber=%s&postcode=%s&city=%s&country=%s",
 		params.Query,
 		params.Limit,
 		params.From,
 		params.Fuzzy,
 		params.Prefix,
-		params.Class,
-		params.Subtype,
-		params.Classes,
-		params.Subtypes,
+		params.Key,
+		params.Value,
+		params.Keys,
+		params.Values,
 		params.Street,
 		params.HouseNumber,
 		params.Postcode,
@@ -184,11 +184,11 @@ func SerializeResult(result *bleve.SearchResult) *SerializedResult {
 		if name, ok := hit.Fields["name"].(string); ok {
 			sHit.Name = name
 		}
-		if class, ok := hit.Fields["class"].(string); ok {
-			sHit.Class = class
+		if key, ok := hit.Fields["key"].(string); ok {
+			sHit.Key = key
 		}
-		if subtype, ok := hit.Fields["subtype"].(string); ok {
-			sHit.Subtype = subtype
+		if value, ok := hit.Fields["value"].(string); ok {
+			sHit.Value = value
 		}
 
 		// Extract geometry

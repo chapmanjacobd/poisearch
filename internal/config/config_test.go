@@ -117,8 +117,8 @@ default = 1.0
 	if conf.DisableImportance {
 		t.Error("disable_importance should default to false")
 	}
-	if conf.DisableClassSubtype {
-		t.Error("disable_class_subtype should default to false")
+	if conf.DisableKeyValues {
+		t.Error("disable_key_value should default to false")
 	}
 	if conf.OnlyNamed {
 		t.Error("only_named should default to false")

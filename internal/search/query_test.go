@@ -31,8 +31,8 @@ func createTestIndexForQuery(t *testing.T) bleve.Index {
 	testDocs := []struct {
 		id           string
 		name         string
-		class        string
-		subtype      string
+		key        string
+		value      string
 		importance   float64
 		lat, lon     float64
 		street       string
@@ -50,8 +50,8 @@ func createTestIndexForQuery(t *testing.T) bleve.Index {
 		{
 			id:           "node/1",
 			name:         "Berlin",
-			class:        "place",
-			subtype:      "city",
+			key:        "place",
+			value:      "city",
 			importance:   10.0,
 			lat:          52.52,
 			lon:          13.40,
@@ -67,8 +67,8 @@ func createTestIndexForQuery(t *testing.T) bleve.Index {
 		{
 			id:         "node/2",
 			name:       "Munich",
-			class:      "place",
-			subtype:    "city",
+			key:      "place",
+			value:    "city",
 			importance: 9.0,
 			lat:        48.13,
 			lon:        11.58,
@@ -82,8 +82,8 @@ func createTestIndexForQuery(t *testing.T) bleve.Index {
 		{
 			id:           "node/3",
 			name:         "Restaurant Alpha",
-			class:        "amenity",
-			subtype:      "restaurant",
+			key:        "amenity",
+			value:      "restaurant",
 			importance:   5.0,
 			lat:          52.53,
 			lon:          13.41,
@@ -103,8 +103,8 @@ func createTestIndexForQuery(t *testing.T) bleve.Index {
 	for _, doc := range testDocs {
 		data := map[string]any{
 			"name":       doc.name,
-			"class":      doc.class,
-			"subtype":    doc.subtype,
+			"key":      doc.key,
+			"value":    doc.value,
 			"importance": doc.importance,
 			"geometry":   []float64{doc.lon, doc.lat},
 		}
@@ -429,7 +429,7 @@ func TestSearch_MetadataFilters(t *testing.T) {
 	}
 }
 
-func TestSearch_MultiClassSubtypeFilters(t *testing.T) {
+func TestSearch_MultiKeyValuesFilters(t *testing.T) {
 	index := createTestIndexForQuery(t)
 	defer index.Close()
 
@@ -439,10 +439,10 @@ func TestSearch_MultiClassSubtypeFilters(t *testing.T) {
 		expectMin int
 	}{
 		{
-			name: "single class filter",
+			name: "single key filter",
 			params: search.SearchParams{
 				Query:   "",
-				Class:   "amenity",
+				Key:   "amenity",
 				Limit:   10,
 				Langs:   []string{"en"},
 				GeoMode: "geopoint",
@@ -450,10 +450,10 @@ func TestSearch_MultiClassSubtypeFilters(t *testing.T) {
 			expectMin: 2,
 		},
 		{
-			name: "multi-class filter OR",
+			name: "multi-key filter OR",
 			params: search.SearchParams{
 				Query:   "",
-				Classes: []string{"amenity", "shop"},
+				Keys: []string{"amenity", "shop"},
 				Limit:   10,
 				Langs:   []string{"en"},
 				GeoMode: "geopoint",
@@ -461,10 +461,10 @@ func TestSearch_MultiClassSubtypeFilters(t *testing.T) {
 			expectMin: 3,
 		},
 		{
-			name: "single subtype filter",
+			name: "single value filter",
 			params: search.SearchParams{
 				Query:   "",
-				Subtype: "restaurant",
+				Value: "restaurant",
 				Limit:   10,
 				Langs:   []string{"en"},
 				GeoMode: "geopoint",
@@ -472,10 +472,10 @@ func TestSearch_MultiClassSubtypeFilters(t *testing.T) {
 			expectMin: 1,
 		},
 		{
-			name: "multi-subtype filter OR",
+			name: "multi-value filter OR",
 			params: search.SearchParams{
 				Query:    "",
-				Subtypes: []string{"restaurant", "cafe"},
+				Values: []string{"restaurant", "cafe"},
 				Limit:    10,
 				Langs:    []string{"en"},
 				GeoMode:  "geopoint",
@@ -655,8 +655,8 @@ func TestSearch_BoostedPriority(t *testing.T) {
 	// We'll index a new item with high importance.
 	highImpDoc := map[string]any{
 		"name":       "Priority Pharmacy",
-		"class":      "amenity",
-		"subtype":    "pharmacy",
+		"key":      "amenity",
+		"value":    "pharmacy",
 		"importance": 1000.0,
 		"geometry":   []float64{13.42, 52.54},
 	}

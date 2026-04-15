@@ -18,6 +18,16 @@ type QueryInterpretation struct {
 	Penalty float64
 }
 
+// CategoryMatch represents a possible OSM key/value pair for a category name.
+type CategoryMatch struct {
+	Key   string
+	Value string
+}
+
+// CategoryMapper is a global hook to allow resolving category names (e.g., "restaurants")
+// to OSM key/value pairs. Set this at startup from the osm package.
+var CategoryMapper func(query string) []CategoryMatch
+
 // generateInterpretations creates multiple interpretations of a multi-word query.
 // Inspired by Nominatim's query DAG approach where "Berlin Mitte" could be:
 // 1. [name="Berlin Mitte"] (full phrase)
@@ -25,20 +35,11 @@ type QueryInterpretation struct {
 // 3. [name="Berlin", address="Mitte"] (city + district)
 func generateInterpretations(q string, params SearchParams, analyzer string) []QueryInterpretation {
 	terms := strings.Fields(q)
-	if len(terms) <= 1 {
-		// Single term: only one interpretation
-		return []QueryInterpretation{
-			{
-				Description: "single term",
-				Queries: []query.Query{
-					addNameQuery(q, params.Fuzzy, params.Prefix, "name", analyzer),
-				},
-				Penalty: 0.0,
-			},
-		}
+	if len(terms) == 0 {
+		return nil
 	}
 
-	interpretations := make([]QueryInterpretation, 0, 3)
+	interpretations := make([]QueryInterpretation, 0, 5)
 
 	// Interpretation 1: Full phrase match (highest quality, lowest penalty)
 	fullQuery := addNameQuery(q, params.Fuzzy, params.Prefix, "name", analyzer)
@@ -48,7 +49,31 @@ func generateInterpretations(q string, params SearchParams, analyzer string) []Q
 		Penalty:     0.0,
 	})
 
-	// Interpretation 2: All terms as separate conjuncts (medium quality)
+	// Interpretation 2: Check for category match (e.g. "restaurants")
+	if CategoryMapper != nil {
+		matches := CategoryMapper(q)
+		if len(matches) > 0 {
+			catQueries := make([]query.Query, 0, len(matches)*2)
+			for _, m := range matches {
+				cq1 := bleve.NewMatchQuery(m.Value)
+				cq1.SetField("value")
+				cq2 := bleve.NewMatchQuery(m.Value)
+				cq2.SetField("values")
+				catQueries = append(catQueries, cq1, cq2)
+			}
+			interpretations = append(interpretations, QueryInterpretation{
+				Description: "category match",
+				Queries:     []query.Query{bleve.NewDisjunctionQuery(catQueries...)},
+				Penalty:     0.0, // Categories are high-intent
+			})
+		}
+	}
+
+	if len(terms) <= 1 {
+		return interpretations
+	}
+
+	// Interpretation 3: All terms as separate conjuncts (medium quality)
 	termQueries := make([]query.Query, 0, len(terms))
 	for _, term := range terms {
 		termQueries = append(termQueries, addNameQuery(term, params.Fuzzy, false, "name", analyzer))
@@ -59,7 +84,28 @@ func generateInterpretations(q string, params SearchParams, analyzer string) []Q
 		Penalty:     0.1, // Small penalty for word breaks
 	})
 
-	// Interpretation 3: First term as primary, rest as qualifiers
+	// Interpretation 4: First term as category, rest as name (e.g. "restaurant Berlin")
+	if CategoryMapper != nil {
+		catMatches := CategoryMapper(terms[0])
+		if len(catMatches) > 0 && len(terms) > 1 {
+			catQueries := make([]query.Query, 0, len(catMatches)*2)
+			for _, m := range catMatches {
+				cq1 := bleve.NewMatchQuery(m.Value)
+				cq1.SetField("value")
+				cq2 := bleve.NewMatchQuery(m.Value)
+				cq2.SetField("values")
+				catQueries = append(catQueries, cq1, cq2)
+			}
+			nameQuery := addNameQuery(strings.Join(terms[1:], " "), params.Fuzzy, params.Prefix, "name", analyzer)
+			interpretations = append(interpretations, QueryInterpretation{
+				Description: "category + name",
+				Queries:     []query.Query{bleve.NewDisjunctionQuery(catQueries...), nameQuery},
+				Penalty:     0.1,
+			})
+		}
+	}
+
+	// Interpretation 5: First term as primary, rest as qualifiers
 	// This handles cases like "Berlin Mitte" where first is city, second is district
 	if len(terms) >= 2 {
 		primaryQuery := addNameQuery(terms[0], params.Fuzzy, params.Prefix, "name", analyzer)

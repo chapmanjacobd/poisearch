@@ -597,7 +597,7 @@ func selectBestClassification(classifications []*Classification, tags map[string
 				best = c
 			} else if c.OntLevel == best.OntLevel {
 				cPop := parsePopulation(tags)
-				bestPop := parsePopulationForClassification(best.Class, best.Subtype, tags)
+				bestPop := parsePopulationForClassification(best.Key, best.Value, tags)
 				if cPop > bestPop {
 					best = c
 				}
@@ -649,8 +649,8 @@ func buildFeatureFromTags(p featureParams) *search.Feature {
 		Names:        make(map[string]string),
 		Importance:   p.best.Importance,
 		Geometry:     p.geom,
-		Class:        p.best.Class,
-		Subtype:      p.best.Subtype,
+		Key:        p.best.Key,
+		Value:      p.best.Value,
 		Phone:        p.tags["phone"],
 		Wheelchair:   p.tags["wheelchair"],
 		OpeningHours: p.tags["opening_hours"],
@@ -664,15 +664,15 @@ func buildFeatureFromTags(p featureParams) *search.Feature {
 		feature.Importance = 0
 	}
 
-	if !p.conf.DisableClassSubtype {
-		classes := make([]string, len(p.classifications))
-		subtypes := make([]string, len(p.classifications))
+	if !p.conf.DisableKeyValues {
+		keys := make([]string, len(p.classifications))
+		values := make([]string, len(p.classifications))
 		for i, c := range p.classifications {
-			classes[i] = c.Class
-			subtypes[i] = c.Subtype
+			keys[i] = c.Key
+			values[i] = c.Value
 		}
-		feature.Classes = classes
-		feature.Subtypes = subtypes
+		feature.Keys = keys
+		feature.Values = values
 	}
 
 	addNamesToFeature(feature, p.tags, p.conf)

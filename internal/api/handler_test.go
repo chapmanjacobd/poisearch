@@ -32,8 +32,8 @@ func createTestIndex(t *testing.T) bleve.Index {
 	// Name fields
 	nameFieldMapping := bleve.NewTextFieldMapping()
 	docMapping.AddFieldMappingsAt("name", nameFieldMapping)
-	docMapping.AddFieldMappingsAt("class", bleve.NewTextFieldMapping())
-	docMapping.AddFieldMappingsAt("subtype", bleve.NewTextFieldMapping())
+	docMapping.AddFieldMappingsAt("key", bleve.NewTextFieldMapping())
+	docMapping.AddFieldMappingsAt("value", bleve.NewTextFieldMapping())
 
 	numMapping := bleve.NewNumericFieldMapping()
 	docMapping.AddFieldMappingsAt("importance", numMapping)
@@ -58,8 +58,8 @@ func createTestIndex(t *testing.T) bleve.Index {
 	testData := []struct {
 		id         string
 		name       string
-		class      string
-		subtype    string
+		key      string
+		value    string
 		importance float64
 		lat, lon   float64
 		street     string
@@ -76,8 +76,8 @@ func createTestIndex(t *testing.T) bleve.Index {
 	for _, td := range testData {
 		doc := map[string]any{
 			"name":       td.name,
-			"class":      td.class,
-			"subtype":    td.subtype,
+			"key":      td.key,
+			"value":    td.value,
 			"importance": td.importance,
 			"geometry":   map[string]float64{"lat": td.lat, "lon": td.lon},
 		}
@@ -355,14 +355,14 @@ func TestHandler_QueryParameterParsing(t *testing.T) {
 			description: "Should handle prefix=true parameter",
 		},
 		{
-			name:        "class filter",
-			url:         "/search?&class=amenity",
-			description: "Should handle class filter",
+			name:        "key filter",
+			url:         "/search?&key=amenity",
+			description: "Should handle key filter",
 		},
 		{
-			name:        "multi-class filter",
-			url:         "/search?&classes=amenity,shop",
-			description: "Should handle multi-class filter",
+			name:        "multi-key filter",
+			url:         "/search?&keys=amenity,shop",
+			description: "Should handle multi-key filter",
 		},
 		{
 			name:        "custom languages",

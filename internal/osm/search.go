@@ -332,8 +332,8 @@ func processPBFEntity(
 		Score: classifications[0].Importance,
 		Fields: map[string]any{
 			"name":          tags["name"],
-			"class":         classifications[0].Class,
-			"subtype":       classifications[0].Subtype,
+			"key":         classifications[0].Key,
+			"value":       classifications[0].Value,
 			"phone":         tags["phone"],
 			"wheelchair":    tags["wheelchair"],
 			"opening_hours": tags["opening_hours"],
@@ -367,7 +367,7 @@ func matchFilters(
 	params search.SearchParams,
 	queryLower string,
 ) bool {
-	if !matchClassSubtype(classifications, params) {
+	if !matchKeyValue(classifications, params) {
 		return false
 	}
 	if !MatchTextQuery(tags, params, queryLower) {
@@ -382,37 +382,37 @@ func matchFilters(
 	return true
 }
 
-func matchClassSubtype(classifications []*Classification, params search.SearchParams) bool {
-	classMatched := params.Class == ""
-	subtypeMatched := params.Subtype == ""
+func matchKeyValue(classifications []*Classification, params search.SearchParams) bool {
+	keyMatched := params.Key == ""
+	valueMatched := params.Value == ""
 
 	for _, c := range classifications {
-		if !classMatched && c.Class == params.Class {
-			classMatched = true
+		if !keyMatched && c.Key == params.Key {
+			keyMatched = true
 		}
-		if !subtypeMatched && c.Subtype == params.Subtype {
-			subtypeMatched = true
+		if !valueMatched && c.Value == params.Value {
+			valueMatched = true
 		}
 	}
-	if !classMatched || !subtypeMatched {
+	if !keyMatched || !valueMatched {
 		return false
 	}
 
-	if len(params.Classes) > 0 && !matchMultiFilter(classifications, params.Classes, true) {
+	if len(params.Keys) > 0 && !matchMultiFilter(classifications, params.Keys, true) {
 		return false
 	}
-	if len(params.Subtypes) > 0 && !matchMultiFilter(classifications, params.Subtypes, false) {
+	if len(params.Values) > 0 && !matchMultiFilter(classifications, params.Values, false) {
 		return false
 	}
 	return true
 }
 
-func matchMultiFilter(classifications []*Classification, filters []string, isClass bool) bool {
+func matchMultiFilter(classifications []*Classification, filters []string, isKey bool) bool {
 	for _, f := range filters {
 		for _, c := range classifications {
-			val := c.Subtype
-			if isClass {
-				val = c.Class
+			val := c.Value
+			if isKey {
+				val = c.Key
 			}
 			if val == f {
 				return true
