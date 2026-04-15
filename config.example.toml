@@ -13,9 +13,6 @@ index_path = "pois.bleve"
 # Supports .gz compression. Boosts POIs with wikidata tags based on Wikipedia link prominence.
 # wikidata_importance = "wikimedia-importance-2025-11.csv.gz"
 
-# Optional: path to custom place type ontology CSV (qid, level, label, osm_key, osm_value)
-# If not set, a default built-in ontology (~70 place types) is used.
-# ontology_path = "wikidata_place_types.csv"
 
 languages = ["en", "zh", "hi", "es", "ar", "fr", "bn", "pt", "ur", "ru", "de", "ja", "pcm", "arz"]
 geometry_mode = "geopoint"
@@ -30,37 +27,36 @@ simplification_tolerance = 0.0001
 name_analyzer = "standard"
 
 # Toggle optional features
-# nodes_only = false           # Index only nodes (skip ways/relations)
-# disable_alt_names = false    # Skip alt_name, old_name, short_name fields
-# disable_importance = false   # Set all importance scores to 0
-# disable_class_subtype = false # Skip class/subtype indexing
-# only_named = true            # Only index objects with a name tag
-# store_metadata = false       # Store class/subtype/importance in index (increases size)
-# store_geometry = false       # Store geometry in index (increases size)
-# store_address = false        # Index addr:* tags for address search
-# index_wikidata_redirects = false # Index Wikipedia redirect titles as alternate names (increases size)
+nodes_only = false                # Index only nodes (skip ways/relations)
+disable_alt_names = false         # Skip alt_name, old_name, short_name fields
+disable_importance = false        # Set all importance scores to 0
+disable_class_subtype = false     # Skip class/subtype indexing
+only_named = true                 # Only index objects with a name tag
+store_metadata = false            # Store class/subtype/importance in index (increases size)
+store_geometry = false            # Store geometry in index (increases size)
+store_address = false             # Index addr:* tags for address search
+index_wikidata_redirects = false  # Index Wikipedia redirect titles as alternate names (increases size)
 
-# Build optimization (optional, defaults shown)
-# build_workers = 1            # Parallel workers for index building (1-8, default: 1)
-# geo_batch_size = 200         # Batch size for geometry operations (50-1000, default: 200)
+# Build optimization
+build_workers = 8                 # Parallel workers for index building (1-32)
+geo_batch_size = 500              # Batch size for geometry operations (50-1000)
 
-# Query cache (optional, disabled by default)
-# cache_enabled = false        # Enable query result caching
-# cache_size = 1000            # Cache capacity in entries (default: 1000)
-# cache_ttl = "5m"             # Cache entry TTL, e.g. "5m", "1h" (default: 5m)
+# Query cache
+cache_enabled = false             # Enable query result caching
+cache_size = 1000                 # Cache capacity in entries (default: 1000)
+cache_ttl = "5m"                  # Cache entry TTL, e.g. "5m", "1h" (default: 5m)
 
 [server]
 host = "0.0.0.0"
 port = 9889
-# Allowed origins for CORS (e.g. ["http://localhost:3000", "https://example.com"]).
-# Use ["*"] to allow all origins.
-# allowed_origins = ["*"]
+# CORS (disabled by default)
+# allowed_origins = ["http://localhost:3000", "https://example.com"]
 
 [importance]
 default = 1.0
-population_boost_weight = 0.2  # importance += ln(pop+1) * weight
-capital_boost = 2.0            # Added if capital=yes
-wikipedia_boost = 1.5          # Added if wikipedia or wikidata tag present
+population_boost_weight = 0.2     # importance += ln(pop+1) * weight
+capital_boost = 2.0               # Added if capital=yes
+wikipedia_boost = 1.5             # Added if wikipedia or wikidata tag present
 
 # Boosts allow prioritizing specific classes and subtypes.
 # Patterns can be:
@@ -71,4 +67,4 @@ wikipedia_boost = 1.5          # Added if wikipedia or wikidata tag present
 #
 # Order matters: first match gets highest boost.
 # Boosted items receive a high baseline score (e.g. 1000+) to sort above non-boosted matches.
-boosts = ["city", "town", "village", "hospital", "pharmacy", "restaurant", "cafe"]
+# boosts = ["city", "town", "village", "hospital", "pharmacy", "restaurant", "cafe"]

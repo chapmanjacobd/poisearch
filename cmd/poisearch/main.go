@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -72,6 +73,74 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	handler.ServeHTTP(w, r)
 }
 
+//nolint:nilnil // returning nil index is intended when path is empty
+func (s *ServeCmd) initIndex(conf *config.Config) (bleve.Index, error) {
+	if conf.IndexPath == "" {
+		return nil, nil
+	}
+
+	if _, err := os.Stat(conf.IndexPath); err == nil {
+		idx, openErr := bleve.Open(conf.IndexPath)
+		if openErr != nil {
+			return nil, fmt.Errorf("could not open index: %w", openErr)
+		}
+		return idx, nil
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("error checking index path: %w", err)
+	}
+
+	slog.Warn("index path does not exist, skipping index load", "path", conf.IndexPath)
+	return nil, nil
+}
+
+func (s *ServeCmd) validateSources(index bleve.Index, conf *config.Config) error {
+	if index != nil {
+		return nil
+	}
+
+	pbfExists := false
+	if conf.PBFPath != "" {
+		if _, err := os.Stat(conf.PBFPath); err == nil {
+			pbfExists = true
+		}
+	}
+	pmtilesExists := false
+	if conf.PMTilesPath != "" {
+		if _, err := os.Stat(conf.PMTilesPath); err == nil {
+			pmtilesExists = true
+		}
+	}
+
+	if !pbfExists && !pmtilesExists {
+		return errors.New("could not open index and neither pbf_path nor pmtiles_path exist")
+	}
+	return nil
+}
+
+//nolint:nilnil // returning nil cache is intended when disabled
+func (s *ServeCmd) initQueryCache(conf *config.Config) (*search.QueryCache, error) {
+	if !conf.CacheEnabled {
+		return nil, nil
+	}
+
+	cacheSize := conf.CacheSize
+	if cacheSize <= 0 {
+		cacheSize = config.DefaultCacheSize
+	}
+	cacheTTL := conf.CacheTTL
+	if cacheTTL <= 0 {
+		cacheTTL = config.DefaultCacheTTL
+	}
+
+	c, err := search.NewQueryCache(cacheSize, cacheTTL)
+	if err != nil {
+		return nil, err
+	}
+
+	slog.Info("query cache initialized", "size", cacheSize, "ttl", cacheTTL)
+	return c, nil
+}
+
 func (s *ServeCmd) Run(conf *config.Config) error {
 	slog.Info(
 		"serving",
@@ -87,34 +156,22 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 		conf.PMTilesPath,
 	)
 
-	index, err := bleve.Open(conf.IndexPath)
+	idx, err := s.initIndex(conf)
 	if err != nil {
-		return fmt.Errorf("could not open index: %w", err)
+		return err
 	}
 
-	// Initialize query cache if enabled
-	var cache *search.QueryCache
-	if conf.CacheEnabled {
-		cacheSize := conf.CacheSize
-		if cacheSize <= 0 {
-			cacheSize = config.DefaultCacheSize
-		}
-		cacheTTL := conf.CacheTTL
-		if cacheTTL <= 0 {
-			cacheTTL = config.DefaultCacheTTL
-		}
+	if validateErr := s.validateSources(idx, conf); validateErr != nil {
+		return validateErr
+	}
 
-		cache, err = search.NewQueryCache(cacheSize, cacheTTL)
-		if err != nil {
-			slog.Warn("failed to create query cache, continuing without it", "error", err)
-			cache = nil
-		} else {
-			slog.Info("query cache initialized", "size", cacheSize, "ttl", cacheTTL)
-		}
+	cache, err := s.initQueryCache(conf)
+	if err != nil {
+		slog.Warn("failed to create query cache, continuing without it", "error", err)
 	}
 
 	srv := &Server{
-		index:       index,
+		index:       idx,
 		conf:        conf,
 		pbfPath:     conf.PBFPath,
 		pmtilesPath: conf.PMTilesPath,
@@ -136,6 +193,10 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 			switch sig {
 			case syscall.SIGHUP:
 				slog.Info("received SIGHUP, reloading index")
+				if conf.IndexPath == "" {
+					slog.Warn("skipping reload because index_path is empty")
+					continue
+				}
 				newIndex, err := bleve.Open(conf.IndexPath)
 				if err != nil {
 					slog.Error("failed to reload index", "error", err)
@@ -150,7 +211,9 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 					slog.Info("query cache cleared on index reload")
 				}
 				srv.indexLock.Unlock()
-				oldIndex.Close()
+				if oldIndex != nil {
+					oldIndex.Close()
+				}
 				slog.Info("index reloaded")
 			case syscall.SIGINT, syscall.SIGTERM:
 				slog.Info("shutting down")
@@ -168,7 +231,9 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 	}
 
 	srv.indexLock.Lock()
-	srv.index.Close()
+	if srv.index != nil {
+		srv.index.Close()
+	}
 	srv.indexLock.Unlock()
 
 	return nil

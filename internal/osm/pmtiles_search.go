@@ -226,14 +226,13 @@ func processTile(ctx context.Context, p *processTileOptions) error {
 	return nil
 }
 
-//nolint:revive // feature processing is always complex
-func processMVTFeature(feature *geojson.Feature, layerName string, p *processTileOptions) bool {
+func extractOMTTags(feature *geojson.Feature, layerName string, languages []string) map[string]string {
 	tags := make(map[string]string)
 	for k, v := range feature.Properties {
 		tags[k] = fmt.Sprint(v)
 	}
 
-	NormalizeNameTag(tags, p.conf.Languages)
+	NormalizeNameTag(tags, languages)
 	EnhanceName(tags)
 
 	// Map OpenMapTiles 'class' to OSM-style tags for classification
@@ -283,6 +282,28 @@ func processMVTFeature(feature *geojson.Feature, layerName string, p *processTil
 			tags["addr:"+k] = v
 		}
 	}
+	return tags
+}
+
+func extractFeatureID(fid any) int64 {
+	if fid == nil {
+		return 0
+	}
+	switch v := fid.(type) {
+	case int64:
+		return v
+	case uint64:
+		return int64(v)
+	case float64:
+		return int64(v)
+	case int:
+		return int64(v)
+	}
+	return 0
+}
+
+func processMVTFeature(feature *geojson.Feature, layerName string, p *processTileOptions) bool {
+	tags := extractOMTTags(feature, layerName, p.conf.Languages)
 
 	// Fast path: use first coordinate for initial spatial filtering
 	coords := featureToCoords(feature.Geometry)
@@ -310,19 +331,7 @@ func processMVTFeature(feature *geojson.Feature, layerName string, p *processTil
 		}
 	}
 
-	id := int64(0)
-	if feature.ID != nil {
-		switch v := feature.ID.(type) {
-		case int64:
-			id = v
-		case uint64:
-			id = int64(v)
-		case float64:
-			id = int64(v)
-		case int:
-			id = int64(v)
-		}
-	}
+	id := extractFeatureID(feature.ID)
 
 	if hit := processPBFEntity("pmtiles", id, tags, coords,
 		p.queryLower, p.params, p.conf, p.ont, p.geosCtx); hit != nil {

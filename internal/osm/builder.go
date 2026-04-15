@@ -884,27 +884,28 @@ func buildIndexParallel(
 	var collectorErr error
 	var collectorWg sync.WaitGroup
 	collectorWg.Go(func() {
-		collectorErr = runCollector(egCtx, index, resultChan, cancel)
+		collectorErr = runCollector(ctx, index, resultChan, cancel)
 	})
 
-	totalScanned, scannerSkipped, err := runProducer(egCtx, inputPath, conf, nodeCoords, workChan)
+	totalScanned, scannerSkipped, producerErr := runProducer(egCtx, inputPath, conf, nodeCoords, workChan)
 	close(workChan)
 
-	if err != nil {
-		return err
-	}
+	// Wait for workers to finish
+	workersErr := g.Wait()
 
-	if err := g.Wait(); err != nil {
-		cancel()
-		drainResultChan(resultChan)
-		return err
-	}
-
+	// Now that workers are done, we can close resultChan to signal collector to finish
 	close(resultChan)
 	collectorWg.Wait()
 
+	// Prioritize errors:
 	if collectorErr != nil {
 		return collectorErr
+	}
+	if workersErr != nil {
+		return workersErr
+	}
+	if producerErr != nil {
+		return producerErr
 	}
 
 	slog.Info("Finished!", "scanned", totalScanned, "skipped", scannerSkipped)
@@ -951,14 +952,6 @@ func runCollector(
 			}
 		}
 	}
-}
-
-func drainResultChan(resultChan <-chan *processedItem) {
-	go func() {
-		for range resultChan {
-			continue
-		}
-	}()
 }
 
 func runProducer(

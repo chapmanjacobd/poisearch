@@ -409,7 +409,7 @@ linters:
 
     whitespace:
       multi-if: true
-      multi-func: true
+      multi-func: false
 
   exclusions:
     # Log a warning if an exclusion rule is unused.

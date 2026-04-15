@@ -114,16 +114,30 @@ func RegisterHandlersWithPBF(mux *http.ServeMux, opts HandlerOptions) {
 	})
 
 	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
-		// If PBF path is configured and ?mode=pbf is set, use direct PBF search
-		if opts.PBFPath != "" && r.URL.Query().Get("mode") == "pbf" {
+		mode := r.URL.Query().Get("mode")
+
+		// If PBF path is configured and (mode=pbf or (no mode and index is nil)), use direct PBF search
+		if opts.PBFPath != "" && (mode == "pbf" || (mode == "" && opts.Index == nil)) {
 			handlePBFSearch(w, r, opts.PBFPath, opts.Conf)
 			return
 		}
-		// If PMTiles path is configured and ?mode=pmtiles is set, use direct PMTiles search
-		if opts.PMTilesPath != "" && r.URL.Query().Get("mode") == "pmtiles" {
+
+		// If PMTiles path is configured and (mode=pmtiles or (no mode, index is nil and no PBF)), use direct PMTiles search
+		if opts.PMTilesPath != "" && (mode == "pmtiles" || (mode == "" && opts.Index == nil && opts.PBFPath == "")) {
 			handlePMTilesSearch(w, r, opts.PMTilesPath, opts.Conf)
 			return
 		}
+
+		if opts.Index == nil {
+			writeJSONError(
+				w,
+				http.StatusBadRequest,
+				"no_index",
+				"No index is loaded. Try mode=pbf or mode=pmtiles if available.",
+			)
+			return
+		}
+
 		handleIndexSearch(w, r, opts.Index, opts.Conf, opts.Cache)
 	})
 }

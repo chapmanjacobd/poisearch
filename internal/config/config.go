@@ -20,7 +20,7 @@ const (
 )
 
 type Config struct {
-	IndexPath              string            `toml:"index_path"`
+	IndexPath              string            `toml:"index_path"`          // Optional: path to Bleve index. If missing, falls back to PBF/PMTiles.
 	PBFPath                string            `toml:"pbf_path"`            // Optional: path to PBF for direct (no-index) search
 	PMTilesPath            string            `toml:"pmtiles_path"`        // Optional: path to PMTiles for direct (no-index) search
 	WikidataImportance     string            `toml:"wikidata_importance"` // Optional: path to wikimedia_importance.tsv.gz
