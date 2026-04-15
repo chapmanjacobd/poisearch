@@ -535,7 +535,7 @@ func processEntity(
 	return true
 }
 
-func enhanceName(tags map[string]string) {
+func EnhanceName(tags map[string]string) {
 	name := tags["name"]
 	if name == "" {
 		return
@@ -640,7 +640,7 @@ type featureParams struct {
 
 func buildFeatureFromTags(p featureParams) *search.Feature {
 	NormalizeNameTag(p.tags, p.conf.Languages)
-	enhanceName(p.tags) // Add brand/operator/etc in parentheses
+	EnhanceName(p.tags) // Add brand/operator/etc in parentheses
 
 	feature := &search.Feature{
 		ID:           fmt.Sprintf("%s/%d", p.entityType, p.id),

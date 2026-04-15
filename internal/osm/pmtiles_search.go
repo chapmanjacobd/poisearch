@@ -234,7 +234,7 @@ func processMVTFeature(feature *geojson.Feature, layerName string, p *processTil
 	}
 
 	NormalizeNameTag(tags, p.conf.Languages)
-	enhanceName(tags)
+	EnhanceName(tags)
 
 	// Map OpenMapTiles 'class' to OSM-style tags for classification
 	if class, ok := tags["class"]; ok {

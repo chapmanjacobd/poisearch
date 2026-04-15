@@ -1,7 +1,9 @@
-package osm
+package osm_test
 
 import (
 	"testing"
+
+	"github.com/chapmanjacobd/poisearch/internal/osm"
 )
 
 func TestEnhanceName(t *testing.T) {
@@ -38,18 +40,22 @@ func TestEnhanceName(t *testing.T) {
 		{
 			name:     "religion and denomination",
 			tags:     map[string]string{"name": "St. Mary's", "religion": "christian", "denomination": "catholic"},
-			expected: "St. Mary's (christian)", // enhanceName returns after first match
+			expected: "St. Mary's (christian)", // EnhanceName returns after first match
 		},
 		{
-			name:     "religion in name",
-			tags:     map[string]string{"name": "St. Mary's Christian Church", "religion": "christian", "denomination": "catholic"},
+			name: "religion in name",
+			tags: map[string]string{
+				"name":         "St. Mary's Christian Church",
+				"religion":     "christian",
+				"denomination": "catholic",
+			},
 			expected: "St. Mary's Christian Church (catholic)",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			enhanceName(tt.tags)
+			osm.EnhanceName(tt.tags)
 			if tt.tags["name"] != tt.expected {
 				t.Errorf("expected %s, got %s", tt.expected, tt.tags["name"])
 			}

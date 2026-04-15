@@ -17,6 +17,7 @@ func TestMatchBoostPattern(t *testing.T) {
 		{"amenity", "pharmacy", "amenity=pharmacy", true},
 		{"shop", "pharmacy", "amenity=pharmacy", false},
 		{"hospital", "clinic", "hospital=*", true},
+		{"hospital", "clinic", "hospital=", true},
 		{"amenity", "hospital", "hospital=*", false},
 		{"amenity", "hospital", "*=hospital", true},
 		{"amenity", "hospital", "=hospital", true},

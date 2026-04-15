@@ -40,11 +40,15 @@ func main() {
 	conf := &config.Config{
 		Languages: []string{"en"},
 		Importance: config.ImportanceWeights{
-			Place:    map[string]float64{"city": 5, "town": 4, "village": 3},
-			Amenity:  map[string]float64{"restaurant": 2},
-			Highway:  map[string]float64{"primary": 1.5},
-			Shop:     map[string]float64{"bakery": 1.2},
-			Tourism:  map[string]float64{"museum": 2.5},
+			Boosts: []string{
+				"city",
+				"town",
+				"village",
+				"museum",
+				"restaurant",
+				"primary",
+				"bakery",
+			},
 			Default:  1.0,
 			PopBoost: 0.2,
 		},
@@ -125,7 +129,7 @@ func runFullBench(pbf string, conf *config.Config) {
 		Label         string
 		Mode          string
 		NodesOnly     bool
-		Lean          bool
+		Minimal       bool
 		PBFOnly       bool
 		PMTilesOnly   bool
 		StoreAddress  bool
@@ -138,7 +142,7 @@ func runFullBench(pbf string, conf *config.Config) {
 		{"Centroids (Simple)", "geopoint-centroid", false, false, false, false, false, false, false},
 		{"Representative Pts", "geopoint", false, false, false, false, false, false, false},
 		{"Bounding Boxes", "geoshape-bbox", false, false, false, false, false, false, false},
-		{"Raw PBF Scan", "no-geo", false, false, true, false, false, false, false},
+		{"PBF Scan", "no-geo", false, false, true, false, false, false, false},
 		{"PMTiles Scan", "geopoint", false, false, false, true, false, false, false},
 		{"Addresses", "geopoint-centroid", false, false, false, false, true, false, false},
 		{"Wiki Redirects", "geopoint-centroid", false, false, false, false, false, true, false},
@@ -174,7 +178,7 @@ func runFullBench(pbf string, conf *config.Config) {
 		conf.IndexWikidataRedirects = s.WikiRedirects
 		conf.CacheEnabled = s.CacheEnabled
 
-		if s.Lean {
+		if s.Minimal {
 			conf.DisableAltNames = true
 			conf.DisableClassSubtype = true
 			conf.DisableImportance = true
@@ -331,7 +335,7 @@ func runFullBench(pbf string, conf *config.Config) {
 	fmt.Fprintln(w, "------------------------------------------------------------")
 	for _, r := range modeResults {
 		sizeStr := formatSize(r.Size)
-		if r.Label == "Raw PBF Scan" || r.Label == "PMTiles Scan" {
+		if r.Label == "PBF Scan" || r.Label == "PMTiles Scan" {
 			sizeStr = "0 B (Live)"
 		}
 		fmt.Fprintf(w, "%-20s %-15s %-15s\n", r.Label, sizeStr, formatDuration(r.BuildTime))

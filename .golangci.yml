@@ -438,6 +438,8 @@ linters:
           - noctx
           - unused
           - funlen
+          - revive
+          - cyclop
       - path: internal/
         linters:
           - nestif

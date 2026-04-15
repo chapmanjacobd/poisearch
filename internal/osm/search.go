@@ -320,7 +320,7 @@ func processPBFEntity(
 	}
 
 	NormalizeNameTag(tags, conf.Languages)
-	enhanceName(tags)
+	EnhanceName(tags)
 
 	if !matchFilters(classifications, tags, params, queryLower) {
 		return nil
@@ -370,13 +370,13 @@ func matchFilters(
 	if !matchClassSubtype(classifications, params) {
 		return false
 	}
-	if !matchTextQuery(tags, params, queryLower) {
+	if !MatchTextQuery(tags, params, queryLower) {
 		return false
 	}
 	if !matchAddress(tags, params) {
 		return false
 	}
-	if !matchMetadata(tags, params) {
+	if !MatchMetadata(tags, params) {
 		return false
 	}
 	return true
@@ -422,7 +422,7 @@ func matchMultiFilter(classifications []*Classification, filters []string, isCla
 	return false
 }
 
-func matchTextQuery(tags map[string]string, params search.SearchParams, queryLower string) bool {
+func MatchTextQuery(tags map[string]string, params search.SearchParams, queryLower string) bool {
 	if params.Query == "" {
 		return true
 	}
@@ -479,7 +479,7 @@ func matchAddress(tags map[string]string, params search.SearchParams) bool {
 	return true
 }
 
-func matchMetadata(tags map[string]string, params search.SearchParams) bool {
+func MatchMetadata(tags map[string]string, params search.SearchParams) bool {
 	if params.Phone != "" && !strings.Contains(tags["phone"], params.Phone) &&
 		!strings.Contains(tags["contact:phone"], params.Phone) {
 

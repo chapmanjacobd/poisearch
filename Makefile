@@ -10,7 +10,7 @@ LIMIT?=10
         test integration fmt lint deps \
         build-index serve search \
         bench bench-slow \
-        open clean-index
+        open
 
 # Default target
 all: fmt lint build test
@@ -33,7 +33,6 @@ help:
 	@echo "  serve              Start the search API server"
 	@echo "  search [Q=] [LIMIT=] Run a search query"
 	@echo "  open               Open the search API in browser"
-	@echo "  clean-index        Remove the index directory"
 	@echo ""
 	@echo "Benchmarks:"
 	@echo "  bench              Run benchmarks (analyzer + geometry modes)"

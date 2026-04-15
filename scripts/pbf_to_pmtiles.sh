@@ -53,27 +53,29 @@ fi
 # Bounds for Liechtenstein (to make generation faster and smaller)
 # minlon, minlat, maxlon, maxlat
 BOUNDS="9.47,47.04,9.65,47.28"
+# Use local PBF if it exists, otherwise rely on planetiler download
+if [ -f "$ROOT_DIR/$PBF_FILE" ]; then
+    OSM_PATH="--osm-path=$ROOT_DIR/$PBF_FILE"
+    echo "Using local OSM PBF: $PBF_FILE"
+else
+    OSM_PATH=""
+    echo "Local PBF not found, planetiler will download for area: liechtenstein"
+fi
 
-echo "Generating MBTiles from $PBF_FILE using $SCHEMA schema..."
-MBTILES_TEMP=$(mktemp -u).mbtiles
+echo "Generating PMTiles for liechtenstein using $SCHEMA schema..."
 
 # Note: Using java -jar planetiler.jar
-# We use --area=liechtenstein and --bounds to limit the scope
+# We output directly to .pmtiles
 java -Xmx2g -jar "$PLANETILER_JAR" \
-    --osm-path="$ROOT_DIR/$PBF_FILE" \
-    --output="$MBTILES_TEMP" \
+    $OSM_PATH \
+    --output="$ROOT_DIR/$OUTPUT_FILE" \
     --bounds="$BOUNDS" \
     --area="liechtenstein" \
     --download \
     --fetch-wikidata \
     --nodemap-type=sparsearray \
-    --schema="$SCHEMA"
-
-echo "Converting MBTiles to PMTiles: $OUTPUT_FILE..."
-"$PMTILES_BIN" convert "$MBTILES_TEMP" "$ROOT_DIR/$OUTPUT_FILE"
-
-# Cleanup
-rm -f "$MBTILES_TEMP"
-rm -rf data/
+    --schema="$SCHEMA" \
+    --log-jts-exceptions=true
 
 echo "Done! PMTiles file created at $ROOT_DIR/$OUTPUT_FILE"
+

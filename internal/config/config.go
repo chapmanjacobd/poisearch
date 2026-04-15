@@ -53,11 +53,11 @@ type Config struct {
 }
 
 type ImportanceWeights struct {
-	Boosts     []string `toml:"boosts"`                   // List of classes/subtypes to prioritize (first = highest)
-	Default    float64  `toml:"default"`
-	PopBoost   float64  `toml:"population_boost_weight"` // importance += math.Log(pop+1) * weight
-	Capital    float64  `toml:"capital_boost"`
-	Wiki       float64  `toml:"wikipedia_boost"`
+	Boosts   []string `toml:"boosts"` // List of classes/subtypes to prioritize (first = highest)
+	Default  float64  `toml:"default"`
+	PopBoost float64  `toml:"population_boost_weight"` // importance += math.Log(pop+1) * weight
+	Capital  float64  `toml:"capital_boost"`
+	Wiki     float64  `toml:"wikipedia_boost"`
 }
 
 type ServerConfig struct {

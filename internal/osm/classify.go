@@ -124,6 +124,7 @@ func ClassifyMulti(
 //   - "hospital"         : Match if class="hospital" OR subtype="hospital"
 //   - "amenity=hospital" : Match class="amenity" AND subtype="hospital"
 //   - "hospital=*"       : Match class="hospital" AND any subtype
+//   - "hospital="        : Match class="hospital" AND any subtype
 //   - "*=big" or "=big"  : Match any class AND subtype="big"
 func matchBoostPattern(class, subtype, pattern string) bool {
 	if strings.Contains(pattern, "=") {

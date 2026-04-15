@@ -1,8 +1,9 @@
-package osm
+package osm_test
 
 import (
 	"testing"
 
+	"github.com/chapmanjacobd/poisearch/internal/osm"
 	"github.com/chapmanjacobd/poisearch/internal/search"
 )
 
@@ -53,7 +54,7 @@ func TestMatchTextQuery(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := matchTextQuery(tt.tags, tt.params, tt.queryLower)
+			got := osm.MatchTextQuery(tt.tags, tt.params, tt.queryLower)
 			if got != tt.expected {
 				t.Errorf("expected %v, got %v", tt.expected, got)
 			}
@@ -102,7 +103,7 @@ func TestMatchMetadata(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := matchMetadata(tt.tags, tt.params)
+			got := osm.MatchMetadata(tt.tags, tt.params)
 			if got != tt.expected {
 				t.Errorf("expected %v, got %v", tt.expected, got)
 			}

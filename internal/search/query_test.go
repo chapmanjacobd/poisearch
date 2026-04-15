@@ -660,7 +660,7 @@ func TestSearch_BoostedPriority(t *testing.T) {
 		"importance": 1000.0,
 		"geometry":   []float64{13.42, 52.54},
 	}
-	if err := index.Index("node/99", highImpDoc); err != nil {
+	if err = index.Index("node/99", highImpDoc); err != nil {
 		t.Fatal(err)
 	}
 
