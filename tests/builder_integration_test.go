@@ -33,7 +33,6 @@ func BenchmarkBuildIndex(b *testing.B) {
 				Languages:    []string{"en"},
 				GeometryMode: "geopoint",
 				NameAnalyzer: "standard",
-				BuildWorkers: workers,
 			}
 
 			mapping := search.BuildIndexMapping(conf)
@@ -83,7 +82,6 @@ func TestBuildIndex_ParallelWorkers(t *testing.T) {
 		Languages:    []string{"en"},
 		GeometryMode: "geopoint",
 		NameAnalyzer: "standard",
-		BuildWorkers: 2, // Use 2 workers for parallel test
 	}
 
 	mapping := search.BuildIndexMapping(conf)
@@ -108,8 +106,6 @@ func TestBuildIndex_ParallelWorkers(t *testing.T) {
 	if docCount == 0 {
 		t.Error("expected indexed documents, got 0")
 	}
-
-	t.Logf("Indexed %d documents with %d workers", docCount, conf.BuildWorkers)
 }
 
 // TestBuildIndex_Parallel_Search verifies that documents indexed with parallel workers
@@ -129,7 +125,6 @@ func TestBuildIndex_Parallel_Search(t *testing.T) {
 		Languages:    []string{"en"},
 		GeometryMode: "geopoint",
 		NameAnalyzer: "standard",
-		BuildWorkers: 2,
 	}
 
 	mapping := search.BuildIndexMapping(conf)

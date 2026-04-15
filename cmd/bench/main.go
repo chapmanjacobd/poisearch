@@ -146,7 +146,7 @@ func runFullBench(pbf string, conf *config.Config) {
 		{"PMTiles Scan", "geopoint", false, false, false, true, false, false, false},
 		{"Addresses", "geopoint-centroid", false, false, false, false, true, false, false},
 		{"Wiki Redirects", "geopoint-centroid", false, false, false, false, false, true, false},
-		{"Cached Searches", "geopoint-centroid", false, false, false, false, false, false, true},
+		// {"Cached Searches", "geopoint-centroid", false, false, false, false, false, false, true},
 	}
 
 	modeResults := make([]ModeResult, 0, len(scenarios))

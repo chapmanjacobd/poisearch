@@ -109,7 +109,7 @@ The following query parameters are supported on `/search`:
 
 `config.toml` defines both index creation time and runtime options. There are three main search strategies, each with different tradeoffs:
 
-| Feature/Tag | Bleve Index | PBF (`--mode=pbf`) | Raw PMTiles (`--mode=pmtiles`) |
+| Feature/Tag | Bleve Index | PBF (`--mode=pbf`) | PMTiles (`--mode=pmtiles`) |
 | :--- | :--- | :--- | :--- |
 | Searchable Fields | Explicitly mapped fields (Name, Address, Metadata, Key). Fast & Scalable. | Full Tag Set. Matches against all OSM tags via arbitrary data fallback. | Limited by PMTiles schema (default: OpenMapTiles). |
 | Performance | High. Optimized for large datasets and complex queries. | Low. Linear scan of the PBF file. Best for small files. | Medium. Spatial indexing allows fast lookups without a full index. |
@@ -117,7 +117,7 @@ The following query parameters are supported on `/search`:
 | Classification | Static. Pre-calculated at index time for maximum speed. | Dynamic. Re-calculates classification on every scan. | Heuristic. Re-maps generic OMT keys back to OSM tags. |
 | Custom Tags | Requires updating `mapping.go` and re-indexing. | High. Instant support for any tag via `TagMap()`. | Very Low. Limited to what `planetiler` preserves. |
 
-## Benchmark Results (liechtenstein-latest.osm.pbf, 3.52 MB)
+## Benchmark Results (liechtenstein-latest.osm.pbf, 3.19 MB)
 ```plain
 ============================================================
 INDEX SIZE COMPARISON
@@ -126,121 +126,120 @@ Scenario             Index Size      Build Time
 ------------------------------------------------------------
 PBF Scan             0 B (Live)      0s             
 PMTiles Scan         0 B (Live)      0s             
-Minimal Mode         1.30 MB         284.04ms       
-No Geo               13.21 MB        4.66s          
-Nodes Only           30.28 MB        3.44s          
-Representative Pts   60.40 MB        11.01s         
-Centroids (Simple)   60.42 MB        10.31s         
-Addresses            62.42 MB        10.55s         
-Cached Searches      62.70 MB        10.32s         
-Wiki Redirects       63.89 MB        10.57s         
-Bounding Boxes       92.24 MB        13.83s         
+Minimal Mode         1016.57 KB      469.57ms       
+No Geo               13.22 MB        4.88s          
+Nodes Only           25.12 MB        4.12s          
+Addresses            58.05 MB        10.81s         
+Representative Pts   60.44 MB        10.81s         
+Centroids (Simple)   61.74 MB        10.72s         
+Wiki Redirects       63.92 MB        10.80s         
+Bounding Boxes       98.19 MB        13.50s         
 
 ============================================================
 FULL PERFORMANCE REPORT (Sorted by Latency)
 ============================================================
 Spatial Mode         Scenario                  Avg Latency     Results   
 --------------------------------------------------------------------------------
-Cached Searches      Value Filter              1.66µs          1         
-Cached Searches      Key Filter                1.83µs          1         
-Cached Searches      Combined (Fuzzy+Key)      3.77µs          1         
-Cached Searches      Shop Search               5.49µs          10        
-Cached Searches      Prefix Search             10.28µs         186       
-Cached Searches      Fuzzy Search              12.63µs         183       
-Cached Searches      Basic Search              12.77µs         183       
-Cached Searches      Tourism Search            19.09µs         12        
-Cached Searches      Radius Search             78.42µs         3803      
-Cached Searches      BBox Search               98.62µs         2067      
-No Geo               Value Filter              103.11µs        1         
-Addresses            Value Filter              115.65µs        1         
-Centroids (Simple)   Value Filter              126.38µs        1         
-Nodes Only           Value Filter              149.69µs        1         
-Wiki Redirects       Value Filter              154.96µs        1         
-Nodes Only           Key Filter                165.68µs        1         
-Centroids (Simple)   Key Filter                166.01µs        1         
-Representative Pts   Value Filter              171.83µs        1         
-No Geo               Key Filter                174.66µs        1         
-Bounding Boxes       Value Filter              176.83µs        1         
-Representative Pts   Key Filter                195.26µs        1         
-Addresses            Key Filter                210.05µs        1         
-Wiki Redirects       Key Filter                214.78µs        1         
-Bounding Boxes       Key Filter                225.42µs        1         
-Minimal Mode         Prefix Search             419.44µs        127       
-No Geo               Combined (Fuzzy+Key)      424.68µs        1         
-Minimal Mode         Basic Search              446.01µs        126       
-Nodes Only           Combined (Fuzzy+Key)      504.76µs        1         
-Addresses            Combined (Fuzzy+Key)      517.72µs        1         
-Centroids (Simple)   Combined (Fuzzy+Key)      553.86µs        1         
-Representative Pts   Combined (Fuzzy+Key)      574.79µs        1         
-Wiki Redirects       Combined (Fuzzy+Key)      645.00µs        1         
-Minimal Mode         Fuzzy Search              645.06µs        126       
-Bounding Boxes       Combined (Fuzzy+Key)      735.44µs        1         
-No Geo               Shop Search               919.96µs        10        
-Centroids (Simple)   Shop Search               1.02ms          10        
-Bounding Boxes       Shop Search               1.04ms          10        
-PMTiles Scan         Radius Search             1.07ms          50        
-Nodes Only           Shop Search               1.10ms          10        
-Nodes Only           Tourism Search            1.15ms          7         
-Addresses            Shop Search               1.15ms          10        
-Nodes Only           Basic Search              1.17ms          126       
-Wiki Redirects       Shop Search               1.18ms          10        
-Representative Pts   Shop Search               1.25ms          10        
-Nodes Only           Prefix Search             1.38ms          127       
-No Geo               Tourism Search            1.41ms          12        
-Addresses            Address Match             1.47ms          7         
-No Geo               Basic Search              1.51ms          183       
-Centroids (Simple)   Tourism Search            1.52ms          12        
-Nodes Only           Fuzzy Search              1.57ms          126       
-PMTiles Scan         BBox Search               1.59ms          50        
-No Geo               Prefix Search             1.68ms          186       
-Wiki Redirects       Tourism Search            1.76ms          12        
-Addresses            Tourism Search            1.80ms          12        
-Bounding Boxes       Tourism Search            1.85ms          12        
-Representative Pts   Tourism Search            1.89ms          12        
-No Geo               Fuzzy Search              1.89ms          183       
-Centroids (Simple)   Prefix Search             2.10ms          186       
-Wiki Redirects       Basic Search              2.11ms          183       
-Addresses            Basic Search              2.18ms          183       
-Centroids (Simple)   Basic Search              2.19ms          183       
-Representative Pts   Basic Search              2.28ms          183       
-Addresses            Prefix Search             2.47ms          186       
-Centroids (Simple)   Fuzzy Search              2.48ms          183       
-Bounding Boxes       Basic Search              2.52ms          183       
-Addresses            Fuzzy Search              2.56ms          183       
-Representative Pts   Prefix Search             2.58ms          186       
-Bounding Boxes       Prefix Search             2.61ms          186       
-Wiki Redirects       Prefix Search             2.66ms          186       
-Representative Pts   Fuzzy Search              2.78ms          183       
-Wiki Redirects       Fuzzy Search              2.79ms          183       
-Bounding Boxes       Fuzzy Search              2.81ms          183       
-PMTiles Scan         Basic Search              3.04ms          50        
-PMTiles Scan         Fuzzy Search              3.52ms          50        
-PMTiles Scan         Prefix Search             3.87ms          50        
-PMTiles Scan         Tourism Search            6.52ms          3         
-Nodes Only           BBox Search               6.78ms          969       
-PMTiles Scan         Shop Search               7.26ms          5         
-PMTiles Scan         Combined (Fuzzy+Key)      7.75ms          4         
-PMTiles Scan         Key Filter                8.18ms          4         
-Nodes Only           Radius Search             8.79ms          1617      
-PMTiles Scan         Value Filter              8.89ms          4         
-Centroids (Simple)   BBox Search               13.33ms         2067      
-Representative Pts   BBox Search               15.16ms         2066      
-Addresses            BBox Search               15.20ms         2067      
-Wiki Redirects       BBox Search               15.27ms         2067      
-Centroids (Simple)   Radius Search             17.98ms         3803      
-Wiki Redirects       Radius Search             18.68ms         3803      
-Addresses            Radius Search             19.13ms         3803      
-Representative Pts   Radius Search             19.79ms         3802      
-PBF Scan             Fuzzy Search              28.86ms         50        
-PBF Scan             Prefix Search             29.15ms         50        
-PBF Scan             Basic Search              33.31ms         50        
-Bounding Boxes       BBox Search               62.04ms         983       
-Bounding Boxes       Radius Search             64.91ms         1635      
-PBF Scan             Value Filter              124.68ms        1         
-PBF Scan             Combined (Fuzzy+Key)      126.47ms        2         
-PBF Scan             Key Filter                128.74ms        2         
-PBF Scan             Tourism Search            136.84ms        12        
-PBF Scan             Shop Search               144.78ms        10
+Cached Searches      Combined (Fuzzy+Key)      6.48µs          1         
+Cached Searches      Shop Search               7.77µs          10        
+Cached Searches      Key Filter                10.91µs         183       
+Cached Searches      Tourism Search            11.13µs         12        
+Cached Searches      Value Filter              11.20µs         183       
+Cached Searches      Fuzzy Search              13.98µs         183       
+Cached Searches      Basic Search              16.03µs         183       
+Cached Searches      Prefix Search             16.58µs         186       
+Cached Searches      BBox Search               74.49µs         2072      
+Cached Searches      Radius Search             86.60µs         3799      
+Centroids (Simple)   Combined (Fuzzy+Key)      489.04µs        1         
+No Geo               Combined (Fuzzy+Key)      497.35µs        1         
+Minimal Mode         Basic Search              519.93µs        126       
+Bounding Boxes       Combined (Fuzzy+Key)      530.19µs        1         
+Nodes Only           Combined (Fuzzy+Key)      590.68µs        1         
+Representative Pts   Combined (Fuzzy+Key)      595.05µs        1         
+Wiki Redirects       Combined (Fuzzy+Key)      606.93µs        1         
+Minimal Mode         Prefix Search             628.38µs        127       
+Addresses            Combined (Fuzzy+Key)      637.73µs        1         
+Minimal Mode         Fuzzy Search              785.53µs        126       
+Nodes Only           Tourism Search            981.28µs        7         
+No Geo               Shop Search               1.04ms          10        
+Addresses            Shop Search               1.06ms          10        
+Centroids (Simple)   Shop Search               1.07ms          10        
+Wiki Redirects       Shop Search               1.07ms          10        
+Nodes Only           Shop Search               1.13ms          10        
+Representative Pts   Shop Search               1.13ms          10        
+Bounding Boxes       Shop Search               1.23ms          10        
+Nodes Only           Key Filter                1.23ms          126       
+Nodes Only           Basic Search              1.24ms          126       
+Nodes Only           Value Filter              1.33ms          126       
+Centroids (Simple)   Tourism Search            1.64ms          12        
+Representative Pts   Tourism Search            1.65ms          12        
+Nodes Only           Prefix Search             1.67ms          127       
+Addresses            Address Match             1.68ms          7         
+No Geo               Key Filter                1.68ms          183       
+No Geo               Value Filter              1.71ms          183       
+Centroids (Simple)   Value Filter              1.72ms          183       
+No Geo               Tourism Search            1.77ms          12        
+Addresses            Tourism Search            1.81ms          12        
+No Geo               Basic Search              1.81ms          183       
+Representative Pts   Value Filter              1.82ms          183       
+Nodes Only           Fuzzy Search              1.88ms          126       
+Wiki Redirects       Tourism Search            1.88ms          12        
+Representative Pts   Key Filter                1.90ms          183       
+Centroids (Simple)   Key Filter                1.98ms          183       
+Representative Pts   Basic Search              1.99ms          183       
+Bounding Boxes       Key Filter                2.00ms          183       
+Bounding Boxes       Tourism Search            2.01ms          12        
+Centroids (Simple)   Basic Search              2.03ms          183       
+Wiki Redirects       Value Filter              2.05ms          183       
+No Geo               Prefix Search             2.05ms          186       
+Addresses            Basic Search              2.12ms          183       
+Wiki Redirects       Key Filter                2.13ms          183       
+Addresses            Key Filter                2.14ms          183       
+No Geo               Fuzzy Search              2.18ms          183       
+Addresses            Value Filter              2.19ms          183       
+Wiki Redirects       Basic Search              2.20ms          183       
+Bounding Boxes       Basic Search              2.29ms          183       
+Centroids (Simple)   Fuzzy Search              2.40ms          183       
+Centroids (Simple)   Prefix Search             2.41ms          186       
+Representative Pts   Prefix Search             2.49ms          186       
+Wiki Redirects       Prefix Search             2.52ms          186       
+Bounding Boxes       Value Filter              2.52ms          183       
+Bounding Boxes       Prefix Search             2.52ms          186       
+Representative Pts   Fuzzy Search              2.55ms          183       
+Addresses            Prefix Search             2.67ms          186       
+Wiki Redirects       Fuzzy Search              2.72ms          183       
+Addresses            Fuzzy Search              2.89ms          183       
+Bounding Boxes       Fuzzy Search              3.05ms          183       
+PMTiles Scan         Radius Search             6.69ms          50        
+Nodes Only           BBox Search               7.25ms          969       
+PMTiles Scan         BBox Search               8.70ms          50        
+Nodes Only           Radius Search             8.76ms          1617      
+Centroids (Simple)   BBox Search               15.37ms         2072      
+PMTiles Scan         Basic Search              15.65ms         0         
+Wiki Redirects       BBox Search               15.67ms         2072      
+Addresses            BBox Search               16.42ms         2072      
+Representative Pts   BBox Search               16.55ms         2071      
+PMTiles Scan         Tourism Search            17.09ms         0         
+PMTiles Scan         Shop Search               17.57ms         0         
+PMTiles Scan         Value Filter              17.71ms         0         
+PMTiles Scan         Combined (Fuzzy+Key)      18.02ms         0         
+PMTiles Scan         Prefix Search             18.56ms         0         
+Representative Pts   Radius Search             18.80ms         3797      
+Wiki Redirects       Radius Search             19.16ms         3799      
+Centroids (Simple)   Radius Search             19.71ms         3799      
+PMTiles Scan         Key Filter                19.82ms         0         
+Addresses            Radius Search             19.92ms         3799      
+PMTiles Scan         Fuzzy Search              20.01ms         0         
+Bounding Boxes       BBox Search               62.60ms         984       
+Bounding Boxes       Radius Search             64.42ms         1636      
+PBF Scan             Fuzzy Search              100.83ms        50        
+PBF Scan             Basic Search              107.35ms        50        
+PBF Scan             Prefix Search             112.59ms        50        
+PBF Scan             Shop Search               339.77ms        10        
+PBF Scan             Key Filter                346.58ms        2         
+PBF Scan             Value Filter              357.44ms        1         
+PBF Scan             Combined (Fuzzy+Key)      372.24ms        2         
+PBF Scan             Tourism Search            375.17ms        12
 ```
 
 ## Benchmark Results (taiwan-latest.osm.pbf, 315.47 MB)

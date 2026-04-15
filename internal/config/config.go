@@ -8,8 +8,6 @@ const (
 	// DefaultPBF is the default PBF filename.
 	DefaultPBF = "liechtenstein-latest.osm.pbf"
 
-	// DefaultBuildWorkers is the default number of parallel workers for index building.
-	DefaultBuildWorkers = 1 // Single-threaded by default for backward compatibility
 	// DefaultGeoBatchSize is the default batch size for geometry operations.
 	DefaultGeoBatchSize = 200
 
@@ -43,7 +41,6 @@ type Config struct {
 	PMTilesPostProcess     bool              `toml:"pmtiles_post_process"`     // Opt-in: perform precise intersection check for PMTiles (slow)
 
 	// Build optimization configuration
-	BuildWorkers int `toml:"build_workers"`  // Number of parallel workers for index building (default: 1, range: 1-8)
 	GeoBatchSize int `toml:"geo_batch_size"` // Batch size for geometry operations (default: 200, range: 50-1000)
 
 	// Query cache configuration
