@@ -1,6 +1,8 @@
 package search
 
 import (
+	"sort"
+
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/search/query"
 )
@@ -23,10 +25,11 @@ type SearchParams struct {
 	GeoMode string
 
 	// Advanced features
-	Fuzzy  bool
-	Prefix bool
-	Key    string
-	Value  string
+	Fuzzy    bool
+	Prefix   bool
+	Key      string
+	Value    string
+	PopBoost float64
 
 	// Multi-value key/value filters (OR within each)
 	Keys   []string
@@ -94,51 +97,24 @@ func MatchTierBoost(tier MatchTier) float64 {
 	}
 }
 
-func addNameQuery(q string, fuzzy, prefix bool, field, analyzer string) query.Query {
-	// For keyword analyzer: exact match only
-	if analyzer == "keyword" {
-		mq := bleve.NewMatchQuery(q)
-		mq.SetField(field)
-		mq.SetBoost(MatchTierBoost(TierExact))
-		return mq
-	}
-
-	// For edge_ngram analyzer: indexed tokens are prefixes,
-	// so a MatchQuery will match on prefix tokens automatically.
-	// We don't need the Prefix flag - just use MatchQuery.
-	if analyzer == "edge_ngram" {
-		mq := bleve.NewMatchQuery(q)
-		mq.SetField(field)
-		mq.SetBoost(MatchTierBoost(TierExact))
-		return mq
-	}
-
-	// For ngram analyzer: indexed tokens are substrings,
-	// so a MatchQuery will match on substring tokens automatically.
-	if analyzer == "ngram" {
-		mq := bleve.NewMatchQuery(q)
-		mq.SetField(field)
-		mq.SetBoost(MatchTierBoost(TierExact))
-		return mq
-	}
-
-	// Default: standard analyzer behavior
-	if prefix {
-		pq := bleve.NewPrefixQuery(q)
-		pq.SetField(field)
-		pq.SetBoost(MatchTierBoost(TierPrefix))
-		return pq
-	}
+func addNameQuery(q, field string) query.Query {
+	// Standard exact word match (high boost)
 	mq := bleve.NewMatchQuery(q)
 	mq.SetField(field)
-	if fuzzy {
-		mq.SetFuzziness(1)
-		mq.SetBoost(MatchTierBoost(TerFuzzy))
-	} else {
-		// Non-fuzzy, non-prefix = exact match
-		mq.SetBoost(MatchTierBoost(TierExact))
-	}
-	return mq
+	mq.SetBoost(5.0)
+
+	// Autocomplete edge_ngram match (normal boost)
+	eq := bleve.NewMatchQuery(q)
+	eq.SetField(field + "_edge_ngram")
+	eq.SetBoost(1.0)
+
+	// Fuzzy match for typo tolerance (low boost)
+	fq := bleve.NewMatchQuery(q)
+	fq.SetField(field)
+	fq.SetFuzziness(1)
+	fq.SetBoost(0.5)
+
+	return bleve.NewDisjunctionQuery(mq, eq, fq)
 }
 
 // Search performs a search on the Bleve index with the given parameters.
@@ -170,15 +146,10 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		// Normalize the query for consistent matching
 		normalized := normalizeQuery(params.Query)
 
-		analyzer := params.Analyzer
-		if analyzer == "" {
-			analyzer = "standard"
-		}
-
 		// Search across primary and combined search names
 		nameQueries := []query.Query{
-			addNameQuery(normalized, params.Fuzzy, params.Prefix, "name", analyzer),
-			addNameQuery(normalized, params.Fuzzy, params.Prefix, "_search_names", analyzer),
+			addNameQuery(normalized, "name"),
+			addNameQuery(normalized, "_search_names"),
 		}
 		q = bleve.NewDisjunctionQuery(nameQueries...)
 	} else {
@@ -360,13 +331,16 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	}
 
 	searchRequest := bleve.NewSearchRequest(q)
-	searchRequest.Size = params.Limit
-	if searchRequest.Size == 0 {
-		searchRequest.Size = 10
+	originalLimit := params.Limit
+	if originalLimit == 0 {
+		originalLimit = 10
 	}
+	// Fetch more results for re-ranking
+	searchRequest.Size = min(originalLimit*3, 1000)
 	searchRequest.From = params.From
 
-	searchRequest.SortBy([]string{"-importance", "_score"})
+	// Sort purely by score. Re-ranking will handle importance.
+	searchRequest.SortBy([]string{"_score"})
 
 	// Fields to return
 	fields := []string{
@@ -387,5 +361,44 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	}
 	searchRequest.Fields = fields
 
-	return index.Search(searchRequest)
+	res, err := index.Search(searchRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	return reRankAndTruncate(res, originalLimit, params.PopBoost), nil
+}
+
+// reRankAndTruncate applies organic scoring combining the Bleve score with the POI's importance.
+func reRankAndTruncate(res *bleve.SearchResult, limit int, popBoost float64) *bleve.SearchResult {
+	if res == nil || len(res.Hits) == 0 {
+		return res
+	}
+
+	if popBoost == 0 {
+		popBoost = 0.2 // default fallback
+	}
+
+	for _, hit := range res.Hits {
+		importance := 0.0
+		if impVal, ok := hit.Fields["importance"].(float64); ok {
+			importance = impVal
+		}
+		// FinalScore = BleveScore * (1.0 + ImportanceBoost)
+		finalScore := hit.Score * (1.0 + (importance * popBoost))
+		// We overwrite Score for sorting
+		hit.Score = finalScore
+	}
+
+	// Sort descending by new score
+	sort.Slice(res.Hits, func(i, j int) bool {
+		return res.Hits[i].Score > res.Hits[j].Score
+	})
+
+	// Truncate to limit
+	if len(res.Hits) > limit {
+		res.Hits = res.Hits[:limit]
+	}
+
+	return res
 }

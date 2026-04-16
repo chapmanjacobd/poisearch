@@ -1,0 +1,1 @@
+Use standard analyzer for all text fields. Fallback to prefix/fuzzy queries at runtime if exact matches fail. No autocomplete as you type, but keeps the index as small as possible.

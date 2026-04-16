@@ -20,7 +20,7 @@ func registerAnalyzers(m *mapping.IndexMappingImpl) error {
 	if err := m.AddCustomTokenFilter("prefix_edge_ngram", map[string]any{
 		"type": "edge_ngram",
 		"min":  float64(1),
-		"max":  float64(20),
+		"max":  float64(12),
 		"back": false,
 	}); err != nil {
 		return fmt.Errorf("register prefix_edge_ngram token filter: %w", err)
@@ -113,22 +113,40 @@ func addNameFields(docMapping *mapping.DocumentMapping, conf *config.Config, nam
 	nameFieldMapping.Store = true
 	docMapping.AddFieldMappingsAt("name", nameFieldMapping)
 
+	nameEdgeNgramMapping := bleve.NewTextFieldMapping()
+	nameEdgeNgramMapping.Analyzer = "edge_ngram"
+	nameEdgeNgramMapping.IncludeInAll = true
+	nameEdgeNgramMapping.IncludeTermVectors = false
+	nameEdgeNgramMapping.Store = false
+	docMapping.AddFieldMappingsAt("name_edge_ngram", nameEdgeNgramMapping)
+
 	secondaryNameMapping := bleve.NewTextFieldMapping()
 	secondaryNameMapping.Analyzer = nameAnalyzer
 	secondaryNameMapping.IncludeInAll = true
 	secondaryNameMapping.IncludeTermVectors = false
 	secondaryNameMapping.Store = conf.StoreSecondaryNames
 
+	secondaryEdgeNgramMapping := bleve.NewTextFieldMapping()
+	secondaryEdgeNgramMapping.Analyzer = "edge_ngram"
+	secondaryEdgeNgramMapping.IncludeInAll = true
+	secondaryEdgeNgramMapping.IncludeTermVectors = false
+	secondaryEdgeNgramMapping.Store = false
+
 	fields := []string{"alt_name", "old_name", "short_name", "brand", "operator"}
 	for _, f := range fields {
 		docMapping.AddFieldMappingsAt(f, secondaryNameMapping)
+		docMapping.AddFieldMappingsAt(f+"_edge_ngram", secondaryEdgeNgramMapping)
 	}
 
 	for _, lang := range conf.Languages {
 		docMapping.AddFieldMappingsAt("name:"+lang, secondaryNameMapping)
+		docMapping.AddFieldMappingsAt("name:"+lang+"_edge_ngram", secondaryEdgeNgramMapping)
 		docMapping.AddFieldMappingsAt("alt_name:"+lang, secondaryNameMapping)
+		docMapping.AddFieldMappingsAt("alt_name:"+lang+"_edge_ngram", secondaryEdgeNgramMapping)
 		docMapping.AddFieldMappingsAt("old_name:"+lang, secondaryNameMapping)
+		docMapping.AddFieldMappingsAt("old_name:"+lang+"_edge_ngram", secondaryEdgeNgramMapping)
 		docMapping.AddFieldMappingsAt("short_name:"+lang, secondaryNameMapping)
+		docMapping.AddFieldMappingsAt("short_name:"+lang+"_edge_ngram", secondaryEdgeNgramMapping)
 	}
 
 	searchNamesMapping := bleve.NewTextFieldMapping()
@@ -137,6 +155,13 @@ func addNameFields(docMapping *mapping.DocumentMapping, conf *config.Config, nam
 	searchNamesMapping.IncludeTermVectors = false
 	searchNamesMapping.Store = false
 	docMapping.AddFieldMappingsAt("_search_names", searchNamesMapping)
+
+	searchNamesEdgeNgramMapping := bleve.NewTextFieldMapping()
+	searchNamesEdgeNgramMapping.Analyzer = "edge_ngram"
+	searchNamesEdgeNgramMapping.IncludeInAll = true
+	searchNamesEdgeNgramMapping.IncludeTermVectors = false
+	searchNamesEdgeNgramMapping.Store = false
+	docMapping.AddFieldMappingsAt("_search_names_edge_ngram", searchNamesEdgeNgramMapping)
 }
 
 func addKeyValuesFields(docMapping *mapping.DocumentMapping, conf *config.Config) {
@@ -188,18 +213,30 @@ func addAddressFields(docMapping *mapping.DocumentMapping, conf *config.Config) 
 		return
 	}
 
-	addrMapping := bleve.NewTextFieldMapping()
-	addrMapping.Analyzer = "keyword"
-	addrMapping.IncludeInAll = false
-	addrMapping.Store = false
+	addrStandardMapping := bleve.NewTextFieldMapping()
+	addrStandardMapping.Analyzer = "standard"
+	addrStandardMapping.IncludeInAll = false
+	addrStandardMapping.Store = false
 
-	fields := []string{
-		"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
+	addrKeywordMapping := bleve.NewTextFieldMapping()
+	addrKeywordMapping.Analyzer = "keyword"
+	addrKeywordMapping.IncludeInAll = false
+	addrKeywordMapping.Store = false
+
+	standardFields := []string{
+		"addr:street", "addr:city",
 		"addr:country", "addr:state", "addr:district", "addr:suburb",
-		"addr:neighbourhood", "addr:floor", "addr:unit", "level",
+		"addr:neighbourhood",
 	}
-	for _, f := range fields {
-		docMapping.AddFieldMappingsAt(f, addrMapping)
+	for _, f := range standardFields {
+		docMapping.AddFieldMappingsAt(f, addrStandardMapping)
+	}
+
+	keywordFields := []string{
+		"addr:housenumber", "addr:postcode", "addr:floor", "addr:unit", "level",
+	}
+	for _, f := range keywordFields {
+		docMapping.AddFieldMappingsAt(f, addrKeywordMapping)
 	}
 
 	displayAddrMapping := bleve.NewTextFieldMapping()

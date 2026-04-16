@@ -38,7 +38,7 @@ var CategoryMapper func(query string) []CategoryMatch
 // 1. [name="Berlin Mitte"] (full phrase)
 // 2. [name="Berlin", name="Mitte"] (separate terms)
 // 3. [name="Berlin", address="Mitte"] (city + district)
-func generateInterpretations(q string, params SearchParams, analyzer string) []QueryInterpretation {
+func generateInterpretations(q string) []QueryInterpretation {
 	terms := strings.Fields(q)
 	if len(terms) == 0 {
 		return nil
@@ -47,7 +47,7 @@ func generateInterpretations(q string, params SearchParams, analyzer string) []Q
 	interpretations := make([]QueryInterpretation, 0, 5)
 
 	// Interpretation 1: Full phrase match (highest quality, lowest penalty)
-	fullQuery := addNameQuery(q, params.Fuzzy, params.Prefix, "name", analyzer)
+	fullQuery := addNameQuery(q, "name")
 	interpretations = append(interpretations, QueryInterpretation{
 		Description: "full phrase",
 		Queries:     []query.Query{fullQuery},
@@ -81,7 +81,7 @@ func generateInterpretations(q string, params SearchParams, analyzer string) []Q
 	// Interpretation 3: All terms as separate conjuncts (medium quality)
 	termQueries := make([]query.Query, 0, len(terms))
 	for _, term := range terms {
-		termQueries = append(termQueries, addNameQuery(term, params.Fuzzy, false, "name", analyzer))
+		termQueries = append(termQueries, addNameQuery(term, "name"))
 	}
 	interpretations = append(interpretations, QueryInterpretation{
 		Description: "separate terms",
@@ -101,7 +101,7 @@ func generateInterpretations(q string, params SearchParams, analyzer string) []Q
 				cq2.SetField("values")
 				catQueries = append(catQueries, cq1, cq2)
 			}
-			nameQuery := addNameQuery(strings.Join(terms[1:], " "), params.Fuzzy, params.Prefix, "name", analyzer)
+			nameQuery := addNameQuery(strings.Join(terms[1:], " "), "name")
 			interpretations = append(interpretations, QueryInterpretation{
 				Description: "category + name",
 				Queries:     []query.Query{bleve.NewDisjunctionQuery(catQueries...), nameQuery},
@@ -113,10 +113,10 @@ func generateInterpretations(q string, params SearchParams, analyzer string) []Q
 	// Interpretation 5: First term as primary, rest as qualifiers
 	// This handles cases like "Berlin Mitte" where first is city, second is district
 	if len(terms) >= 2 {
-		primaryQuery := addNameQuery(terms[0], params.Fuzzy, params.Prefix, "name", analyzer)
+		primaryQuery := addNameQuery(terms[0], "name")
 		qualifierQueries := []query.Query{primaryQuery}
 		for _, term := range terms[1:] {
-			qualifierQueries = append(qualifierQueries, addNameQuery(term, false, false, "name", analyzer))
+			qualifierQueries = append(qualifierQueries, addNameQuery(term, "name"))
 		}
 		interpretations = append(interpretations, QueryInterpretation{
 			Description: "primary + qualifiers",
@@ -131,12 +131,7 @@ func generateInterpretations(q string, params SearchParams, analyzer string) []Q
 // executeInterpretations runs multiple interpretations of a query and returns the best results.
 // Results are chosen based on result count and interpretation penalty.
 func executeInterpretations(index bleve.Index, params SearchParams) (*bleve.SearchResult, error) {
-	analyzer := params.Analyzer
-	if analyzer == "" {
-		analyzer = "standard"
-	}
-
-	interpretations := generateInterpretations(params.Query, params, analyzer)
+	interpretations := generateInterpretations(params.Query)
 	if len(interpretations) == 0 {
 		return &bleve.SearchResult{}, nil
 	}
@@ -169,18 +164,24 @@ func executeInterpretations(index bleve.Index, params SearchParams) (*bleve.Sear
 	finalQuery := bleve.NewDisjunctionQuery(interpQueries...)
 
 	searchRequest := bleve.NewSearchRequest(finalQuery)
-	searchRequest.Size = params.Limit
-	if params.Limit <= 0 {
-		searchRequest.Size = 50
+	originalLimit := params.Limit
+	if originalLimit <= 0 {
+		originalLimit = 50
 	}
+	searchRequest.Size = min(originalLimit*3, 1000)
 	searchRequest.From = params.From
 
 	// Configure result fields
 	searchRequest.Fields = []string{"*", "-geometry"}
 	searchRequest.IncludeLocations = false
-	searchRequest.SortBy([]string{"-importance", "_score"})
+	searchRequest.SortBy([]string{"_score"})
 
-	return index.Search(searchRequest)
+	res, err := index.Search(searchRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	return reRankAndTruncate(res, originalLimit, params.PopBoost), nil
 }
 
 // shouldUseMultiInterpretation returns true if the query should be parsed

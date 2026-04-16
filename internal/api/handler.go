@@ -336,6 +336,7 @@ func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams
 		Wheelchair:   wheelchair,
 		OpeningHours: openingHours,
 		Analyzer:     conf.NameAnalyzer,
+		PopBoost:     conf.Importance.PopBoost,
 	}
 }
 

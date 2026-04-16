@@ -47,20 +47,23 @@ func FeatureToMap(f *Feature) map[string]any {
 	// Note: We do NOT store "id" in the document body.
 	// Bleve already stores it as the primary key of the document.
 	m := map[string]any{
-		"name":       f.Name,
-		"key":        f.Key,
-		"value":      f.Value,
-		"importance": f.Importance,
-		"geometry":   f.Geometry,
+		"name":            f.Name,
+		"name_edge_ngram": f.Name,
+		"key":             f.Key,
+		"value":           f.Value,
+		"importance":      f.Importance,
+		"geometry":        f.Geometry,
 	}
 
 	searchNames := make([]string, 0, len(f.Names))
 	for k, v := range f.Names {
 		m[k] = v
+		m[k+"_edge_ngram"] = v
 		searchNames = append(searchNames, v)
 	}
 	if len(searchNames) > 0 {
 		m["_search_names"] = searchNames
+		m["_search_names_edge_ngram"] = searchNames
 	}
 
 	// Store multi-key fields for filtering

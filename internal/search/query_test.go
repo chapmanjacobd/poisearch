@@ -102,11 +102,12 @@ func createTestIndexForQuery(t *testing.T) bleve.Index {
 
 	for _, doc := range testDocs {
 		data := map[string]any{
-			"name":       doc.name,
-			"key":        doc.key,
-			"value":      doc.value,
-			"importance": doc.importance,
-			"geometry":   []float64{doc.lon, doc.lat},
+			"name":            doc.name,
+			"name_edge_ngram": doc.name,
+			"key":             doc.key,
+			"value":           doc.value,
+			"importance":      doc.importance,
+			"geometry":        []float64{doc.lon, doc.lat},
 		}
 		if doc.street != "" {
 			data["addr:street"] = doc.street
