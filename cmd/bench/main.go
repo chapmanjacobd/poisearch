@@ -239,14 +239,14 @@ func runFullBench(pbf string, conf *config.Config, scenarioFilter string) {
 			Label  string
 			Params search.SearchParams
 		}{
-			{"Basic Search", search.SearchParams{Query: city, GeoMode: s.Mode, Limit: 10000}},
+			{"Basic Search", search.SearchParams{Query: city, GeoMode: s.Mode, Limit: 100}},
 			{
 				"Fuzzy Search",
-				search.SearchParams{Query: city[:len(city)-1], Fuzzy: true, GeoMode: s.Mode, Limit: 10000},
+				search.SearchParams{Query: city[:len(city)-1], Fuzzy: true, GeoMode: s.Mode, Limit: 100},
 			},
 			{
 				"Prefix Search",
-				search.SearchParams{Query: strings.ToLower(city[:3]), Prefix: true, GeoMode: s.Mode, Limit: 10000},
+				search.SearchParams{Query: strings.ToLower(city[:3]), Prefix: true, GeoMode: s.Mode, Limit: 100},
 			},
 		}
 
@@ -255,23 +255,23 @@ func runFullBench(pbf string, conf *config.Config, scenarioFilter string) {
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Key Filter", search.SearchParams{Query: city, Key: "place", GeoMode: s.Mode, Limit: 10000}},
+				}{"Key Filter", search.SearchParams{Query: city, Key: "place", GeoMode: s.Mode, Limit: 100}},
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Value Filter", search.SearchParams{Query: city, Value: value, GeoMode: s.Mode, Limit: 10000}},
+				}{"Value Filter", search.SearchParams{Query: city, Value: value, GeoMode: s.Mode, Limit: 100}},
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Combined (Fuzzy+Key)", search.SearchParams{Query: city[:len(city)-1], Fuzzy: true, Key: "place", GeoMode: s.Mode, Limit: 10000}},
+				}{"Combined (Fuzzy+Key)", search.SearchParams{Query: city[:len(city)-1], Fuzzy: true, Key: "place", GeoMode: s.Mode, Limit: 100}},
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Shop Search", search.SearchParams{Value: "bakery", GeoMode: s.Mode, Limit: 10000}},
+				}{"Shop Search", search.SearchParams{Value: "bakery", GeoMode: s.Mode, Limit: 100}},
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Tourism Search", search.SearchParams{Value: "museum", GeoMode: s.Mode, Limit: 10000}},
+				}{"Tourism Search", search.SearchParams{Value: "museum", GeoMode: s.Mode, Limit: 100}},
 			)
 		}
 
@@ -280,11 +280,11 @@ func runFullBench(pbf string, conf *config.Config, scenarioFilter string) {
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Radius Search", search.SearchParams{Lat: &lat, Lon: &lon, Radius: radius, GeoMode: s.Mode, Limit: 10000}},
+				}{"Radius Search", search.SearchParams{Lat: &lat, Lon: &lon, Radius: radius, GeoMode: s.Mode, Limit: 100}},
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"BBox Search", search.SearchParams{MinLat: &minLat, MaxLat: &maxLat, MinLon: &minLon, MaxLon: &maxLon, GeoMode: s.Mode, Limit: 10000}},
+				}{"BBox Search", search.SearchParams{MinLat: &minLat, MaxLat: &maxLat, MinLon: &minLon, MaxLon: &maxLon, GeoMode: s.Mode, Limit: 100}},
 			)
 		}
 
@@ -299,7 +299,7 @@ func runFullBench(pbf string, conf *config.Config, scenarioFilter string) {
 				struct {
 					Label  string
 					Params search.SearchParams
-				}{"Address Match", search.SearchParams{Street: street, City: searchCity, GeoMode: s.Mode, Limit: 10000}},
+				}{"Address Match", search.SearchParams{Street: street, City: searchCity, GeoMode: s.Mode, Limit: 100}},
 			)
 		}
 
@@ -496,12 +496,12 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 		Label  string
 		Params search.SearchParams
 	}{
-		{"Exact: " + city, search.SearchParams{Query: city, Limit: 10000}},
-		{"Prefix: " + strings.ToLower(city[:3]), search.SearchParams{Query: strings.ToLower(city[:3]), Limit: 10000}},
-		{"Partial: " + city[:len(city)-1], search.SearchParams{Query: city[:len(city)-1], Limit: 10000}},
-		{"Autocomplete: rest", search.SearchParams{Query: "rest", Limit: 10000}},
-		{"Short: " + strings.ToLower(city[:2]), search.SearchParams{Query: strings.ToLower(city[:2]), Limit: 10000}},
-		{"Geo + Text", search.SearchParams{Query: city, Lat: &lat, Lon: &lon, Radius: "1000m", Limit: 10000}},
+		{"Exact: " + city, search.SearchParams{Query: city, Limit: 100}},
+		{"Prefix: " + strings.ToLower(city[:3]), search.SearchParams{Query: strings.ToLower(city[:3]), Limit: 100}},
+		{"Partial: " + city[:len(city)-1], search.SearchParams{Query: city[:len(city)-1], Limit: 100}},
+		{"Autocomplete: rest", search.SearchParams{Query: "rest", Limit: 100}},
+		{"Short: " + strings.ToLower(city[:2]), search.SearchParams{Query: strings.ToLower(city[:2]), Limit: 100}},
+		{"Geo + Text", search.SearchParams{Query: city, Lat: &lat, Lon: &lon, Radius: "1000m", Limit: 100}},
 	}
 
 	for _, analyzer := range analyzers {

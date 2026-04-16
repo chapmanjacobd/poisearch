@@ -276,12 +276,15 @@ func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams
 		}
 	}
 
-	limit := 10
+	limit := 100
 	if limitStr != "" {
 		l, err := strconv.Atoi(limitStr)
 		if err == nil {
 			limit = l
 		}
+	}
+	if limit > 1000 {
+		limit = 1000
 	}
 
 	from := 0

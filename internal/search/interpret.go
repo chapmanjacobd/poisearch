@@ -166,9 +166,12 @@ func executeInterpretations(index bleve.Index, params SearchParams) (*bleve.Sear
 	searchRequest := bleve.NewSearchRequest(finalQuery)
 	originalLimit := params.Limit
 	if originalLimit <= 0 {
-		originalLimit = 50
+		originalLimit = 100
 	}
-	searchRequest.Size = min(originalLimit*3, 1000)
+	if originalLimit > 1000 {
+		originalLimit = 1000
+	}
+	searchRequest.Size = min(originalLimit*3, 2000)
 	searchRequest.From = params.From
 
 	// Configure result fields

@@ -45,6 +45,13 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 	scanner := osmpbf.New(context.Background(), file, runtime.GOMAXPROCS(-1))
 	defer scanner.Close()
 
+	if params.Limit <= 0 {
+		params.Limit = 100
+	}
+	if params.Limit > 1000 {
+		params.Limit = 1000
+	}
+
 	geosCtx := geos.NewContext()
 	queryLower := strings.ToLower(params.Query)
 

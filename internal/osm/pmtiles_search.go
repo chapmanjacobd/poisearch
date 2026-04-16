@@ -106,6 +106,13 @@ func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.
 		Hits: make(bleveSearch.DocumentMatchCollection, 0),
 	}
 
+	if params.Limit <= 0 {
+		params.Limit = 100
+	}
+	if params.Limit > 1000 {
+		params.Limit = 1000
+	}
+
 	geosCtx := geos.NewContext()
 	queryLower := strings.ToLower(params.Query)
 

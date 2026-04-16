@@ -332,11 +332,15 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 
 	searchRequest := bleve.NewSearchRequest(q)
 	originalLimit := params.Limit
-	if originalLimit == 0 {
-		originalLimit = 10
+	if originalLimit <= 0 {
+		originalLimit = 100
+	}
+	if originalLimit > 1000 {
+		originalLimit = 1000
 	}
 	// Fetch more results for re-ranking
-	searchRequest.Size = min(originalLimit*3, 1000)
+	searchRequest.Size = min(originalLimit*3, 2000)
+
 	searchRequest.From = params.From
 
 	// Sort purely by score. Re-ranking will handle importance.

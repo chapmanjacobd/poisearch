@@ -88,7 +88,7 @@ The following query parameters are supported on `/search`:
 | `lat`, `lon` | float | `52.52`, `13.40` | Center coordinates for spatial search |
 | `radius` | string | `1000m` | Radius (e.g. "1000m", "5km") for spatial search |
 | `min_lat`, `max_lat`, `min_lon`, `max_lon` | float | `52.4`, `52.6`, `13.3`, `13.5` | Bounding box coordinates for spatial search |
-| `limit` | int | `10` | Maximum number of results to return (default: 10) |
+| `limit` | int | `100` | Maximum number of results to return (default: 100, max: 1000) |
 | `from` | int | `0` | Offset for pagination |
 | `langs` | string | `en,de` | Comma-separated list of preferred languages |
 | `fuzzy` | bool | `true` | Toggle fuzzy matching (true/1) |
