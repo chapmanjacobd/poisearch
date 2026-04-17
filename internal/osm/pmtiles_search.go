@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"path/filepath"
 	"strings"
@@ -116,17 +117,6 @@ func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.
 	geosCtx := geos.NewContext()
 	queryLower := strings.ToLower(params.Query)
 
-	filter := computeSpatialFilter(params)
-	if !filter.hasRadius && !filter.hasBbox {
-		return nil, errors.New("PMTiles search requires a spatial filter (radius or bbox)")
-	}
-
-	// Use the archive's max zoom level
-	maxZoom := int(archive.header.MaxZoom)
-
-	// Compute tiles at MaxZoom that intersect the search area
-	minTileX, minTileY, maxTileX, maxTileY := getTileRange(filter, maxZoom)
-
 	pOpts := &processTileOptions{
 		archive:    archive,
 		res:        res,
@@ -136,6 +126,21 @@ func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.
 		geosCtx:    geosCtx,
 		queryLower: queryLower,
 	}
+
+	filter := computeSpatialFilter(params)
+
+	// Use the archive's max zoom level
+	maxZoom := int(archive.header.MaxZoom)
+
+	var minTileX, minTileY, maxTileX, maxTileY int
+	if !filter.hasRadius && !filter.hasBbox {
+		slog.Warn("performing global PMTiles search without spatial filter",
+			"path", pmtilesPath, "query", params.Query)
+		return processAllTiles(ctx, archive, pOpts)
+	}
+
+	// Compute tiles at MaxZoom that intersect the search area
+	minTileX, minTileY, maxTileX, maxTileY = getTileRange(filter, maxZoom)
 
 	// Fetch tiles and search features
 	for x := minTileX; x <= maxTileX; x++ {
@@ -155,6 +160,89 @@ func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.
 	}
 
 	return res, nil
+}
+
+func processAllTiles(ctx context.Context, archive *pmtilesCache, p *processTileOptions) (*bleve.SearchResult, error) {
+	// Start from root directory
+	dirOffset := archive.header.RootOffset
+	dirLength := archive.header.RootLength
+
+	err := processDirectory(ctx, archive, dirOffset, dirLength, p)
+	return p.res, err
+}
+
+func processDirectory(ctx context.Context, archive *pmtilesCache, offset, length uint64, p *processTileOptions) error {
+	b, err := readDirectory(ctx, archive, offset, length)
+	if err != nil {
+		return err
+	}
+
+	directory := pmtiles.DeserializeEntries(bytes.NewBuffer(b), archive.header.InternalCompression)
+	for _, entry := range directory {
+		if entry.RunLength > 0 {
+			// This is a tile
+			z, x, y := pmtiles.IDToZxy(entry.TileID)
+			p.z = uint32(z)
+			p.x = x
+			p.y = y
+
+			// We only want to process tiles at or near max zoom to avoid duplicates
+			// or use all tiles if it's a small archive.
+			// Usually features are most granular at max zoom.
+			if z == archive.header.MaxZoom {
+				if err := processTileWithData(ctx, archive, entry, p); err != nil {
+					slog.DebugContext(ctx, "failed to process tile", "z", z, "x", x, "y", y, "error", err)
+				}
+			}
+		} else {
+			// Leaf directory
+			leafOffset := archive.header.LeafDirectoryOffset + entry.Offset
+			leafLength := uint64(entry.Length)
+			if err := processDirectory(ctx, archive, leafOffset, leafLength, p); err != nil {
+				return err
+			}
+		}
+
+		if p.params.Limit > 0 && len(p.res.Hits) >= p.params.Limit {
+			return nil
+		}
+	}
+	return nil
+}
+
+func processTileWithData(
+	ctx context.Context,
+	archive *pmtilesCache,
+	entry pmtiles.EntryV3,
+	p *processTileOptions,
+) error {
+	tileData, err := readTileData(ctx, archive, entry)
+	if err != nil {
+		return err
+	}
+
+	layers, err := mvt.Unmarshal(tileData)
+	if err != nil {
+		layers, err = mvt.UnmarshalGzipped(tileData)
+		if err != nil {
+			return err
+		}
+	}
+
+	tile := maptile.New(p.x, p.y, maptile.Zoom(p.z))
+
+	for _, layer := range layers {
+		if !isPOILayer(layer.Name) {
+			continue
+		}
+		layer.ProjectToWGS84(tile)
+		for _, feature := range layer.Features {
+			if done := processMVTFeature(feature, layer.Name, p); done {
+				return nil
+			}
+		}
+	}
+	return nil
 }
 
 func getTileRange(f spatialFilter, zoom int) (minX, minY, maxX, maxY int) {

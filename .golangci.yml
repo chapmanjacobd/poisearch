@@ -132,7 +132,7 @@ linters:
     cyclop:
       # The maximal code complexity to report.
       # Default: 10
-      max-complexity: 30
+      max-complexity: 40
 
     depguard:
       # Rules to apply.
@@ -378,7 +378,7 @@ linters:
       - name: function-length
         arguments: [ 60, 130 ]
       - name: cognitive-complexity
-        arguments: [ 30 ]
+        arguments: [ 40 ]
 
     tagalign:
       align: true

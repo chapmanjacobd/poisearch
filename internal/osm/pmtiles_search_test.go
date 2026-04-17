@@ -148,4 +148,21 @@ func TestPMTilesSearch(t *testing.T) {
 		// Even if addr:city is not ubiquitous, we should find something in a well-tagged area
 		t.Logf("City search (Vaduz) found %d results", res.Total)
 	})
+
+	t.Run("GlobalSearch", func(t *testing.T) {
+		params := search.SearchParams{
+			Query: "Vaduz",
+			Limit: 5,
+		}
+
+		res, err := osm.PMTilesSearch(pmtilesPath, params, conf)
+		if err != nil {
+			t.Fatalf("PMTilesSearch failed: %v", err)
+		}
+
+		if res.Total == 0 {
+			t.Errorf("expected global search to find Vaduz, got 0")
+		}
+		t.Logf("Global search found %d results", res.Total)
+	})
 }

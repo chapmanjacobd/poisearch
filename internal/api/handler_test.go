@@ -20,7 +20,8 @@ func setupTestHandler(t *testing.T, index bleve.Index, conf *config.Config) *htt
 	t.Helper()
 
 	mux := http.NewServeMux()
-	api.RegisterHandlers(mux, index, conf)
+	indices := map[string]bleve.Index{"test": index}
+	api.RegisterHandlers(mux, indices, conf)
 	return httptest.NewServer(mux)
 }
 
@@ -416,7 +417,8 @@ func TestHandler_Registration(t *testing.T) {
 
 	// Test RegisterHandlers (without PBF)
 	mux := http.NewServeMux()
-	api.RegisterHandlers(mux, index, conf)
+	indices := map[string]bleve.Index{"test": index}
+	api.RegisterHandlers(mux, indices, conf)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
@@ -429,8 +431,8 @@ func TestHandler_Registration(t *testing.T) {
 	// Test RegisterHandlersWithPBF (with empty PBF/PMTiles paths)
 	mux2 := http.NewServeMux()
 	api.RegisterHandlersWithPBF(mux2, api.HandlerOptions{
-		Index: index,
-		Conf:  conf,
+		Indices: indices,
+		Conf:    conf,
 	})
 
 	req2 := httptest.NewRequest(http.MethodGet, "/search?q=test", nil)
@@ -455,8 +457,10 @@ func TestHandler_PMTilesAddressSearch(t *testing.T) {
 
 	mux := http.NewServeMux()
 	api.RegisterHandlersWithPBF(mux, api.HandlerOptions{
-		Conf:        conf,
-		PMTilesPath: pmtilesPath,
+		Conf: conf,
+		PMTilesPaths: map[string]string{
+			"liechtenstein": pmtilesPath,
+		},
 	})
 
 	// Search for housenumber 1 near Vaduz

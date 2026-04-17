@@ -1,4 +1,4 @@
-index_path = "wiki_redirects.bleve"
+index_paths = ["wiki_redirects.bleve"]
 languages = ["en"]
 geometry_mode = "geopoint-centroid"
 index_wikidata_redirects = true

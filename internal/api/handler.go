@@ -88,17 +88,17 @@ func CORSMiddleware(next http.Handler, allowedOrigins []string) http.Handler {
 
 // HandlerOptions contains configuration for API handlers.
 type HandlerOptions struct {
-	Index       bleve.Index
-	Conf        *config.Config
-	PBFPath     string
-	PMTilesPath string
-	Cache       *search.QueryCache
+	Indices      map[string]bleve.Index
+	PBFPaths     map[string]string
+	PMTilesPaths map[string]string
+	Conf         *config.Config
+	Cache        *search.QueryCache
 }
 
-func RegisterHandlers(mux *http.ServeMux, index bleve.Index, conf *config.Config) {
+func RegisterHandlers(mux *http.ServeMux, indices map[string]bleve.Index, conf *config.Config) {
 	RegisterHandlersWithPBF(mux, HandlerOptions{
-		Index: index,
-		Conf:  conf,
+		Indices: indices,
+		Conf:    conf,
 	})
 }
 
@@ -116,30 +116,73 @@ func RegisterHandlersWithPBF(mux *http.ServeMux, opts HandlerOptions) {
 
 	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
 		mode := r.URL.Query().Get("mode")
+		name := r.URL.Query().Get("index")
 
-		// If PBF path is configured and (mode=pbf or (no mode and index is nil)), use direct PBF search
-		if opts.PBFPath != "" && (mode == "pbf" || (mode == "" && opts.Index == nil)) {
-			handlePBFSearch(w, r, opts.PBFPath, opts.Conf)
+		// 1. Direct PBF Search
+		if mode == "pbf" ||
+			(mode == "" && len(opts.Indices) == 0 && len(opts.PMTilesPaths) == 0 && len(opts.PBFPaths) > 0) {
+
+			path := ""
+			if name != "" {
+				path = opts.PBFPaths[name]
+			} else {
+				// Pick first available
+				for _, p := range opts.PBFPaths {
+					path = p
+					break
+				}
+			}
+
+			if path != "" {
+				handlePBFSearch(w, r, path, opts.Conf)
+				return
+			}
+		}
+
+		// 2. Direct PMTiles Search
+		if mode == "pmtiles" ||
+			(mode == "" && len(opts.Indices) == 0 && len(opts.PBFPaths) == 0 && len(opts.PMTilesPaths) > 0) {
+
+			path := ""
+			if name != "" {
+				path = opts.PMTilesPaths[name]
+			} else {
+				// Pick first available
+				for _, p := range opts.PMTilesPaths {
+					path = p
+					break
+				}
+			}
+
+			if path != "" {
+				handlePMTilesSearch(w, r, path, opts.Conf)
+				return
+			}
+		}
+
+		// 3. Bleve Index Search
+		var idx bleve.Index
+		if name != "" {
+			idx = opts.Indices[name]
+		} else {
+			// Pick first available
+			for _, i := range opts.Indices {
+				idx = i
+				break
+			}
+		}
+
+		if idx != nil {
+			handleIndexSearch(w, r, idx, opts.Conf, opts.Cache)
 			return
 		}
 
-		// If PMTiles path is configured and (mode=pmtiles or (no mode, index is nil and no PBF)), use direct PMTiles search
-		if opts.PMTilesPath != "" && (mode == "pmtiles" || (mode == "" && opts.Index == nil && opts.PBFPath == "")) {
-			handlePMTilesSearch(w, r, opts.PMTilesPath, opts.Conf)
-			return
-		}
-
-		if opts.Index == nil {
-			writeJSONError(
-				w,
-				http.StatusBadRequest,
-				"no_index",
-				"No index is loaded. Try mode=pbf or mode=pmtiles if available.",
-			)
-			return
-		}
-
-		handleIndexSearch(w, r, opts.Index, opts.Conf, opts.Cache)
+		writeJSONError(
+			w,
+			http.StatusBadRequest,
+			"no_source",
+			"No search source found for requested mode/index.",
+		)
 	})
 }
 
@@ -232,112 +275,81 @@ func handleIndexSearch(
 	}
 }
 
+func parseFloatPtr(s string) *float64 {
+	if s == "" {
+		return nil
+	}
+	l, err := strconv.ParseFloat(s, 64)
+	if err == nil {
+		return &l
+	}
+	return nil
+}
+
+func parseBool(s string) bool {
+	return s == "1" || s == "true"
+}
+
+func parseCommaList(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, ",")
+}
+
 func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams {
-	q := r.URL.Query().Get("q")
-	latStr := r.URL.Query().Get("lat")
-	lonStr := r.URL.Query().Get("lon")
-	radius := r.URL.Query().Get("radius")
-	limitStr := r.URL.Query().Get("limit")
-	fromStr := r.URL.Query().Get("from")
-	langsStr := r.URL.Query().Get("langs")
-	fuzzy := r.URL.Query().Get("fuzzy") == "1" || r.URL.Query().Get("fuzzy") == "true"
-	prefix := r.URL.Query().Get("prefix") == "1" || r.URL.Query().Get("prefix") == "true"
-	key := r.URL.Query().Get("key")
-	value := r.URL.Query().Get("value")
-	keys := r.URL.Query().Get("keys")     // comma-separated multi-key
-	values := r.URL.Query().Get("values") // comma-separated multi-value
-
-	// Address search params
-	street := r.URL.Query().Get("street")
-	housenumber := r.URL.Query().Get("housenumber")
-	postcode := r.URL.Query().Get("postcode")
-	city := r.URL.Query().Get("city")
-	country := r.URL.Query().Get("country")
-	floor := r.URL.Query().Get("floor")
-	unit := r.URL.Query().Get("unit")
-	level := r.URL.Query().Get("level")
-
-	// Metadata search params
-	phone := r.URL.Query().Get("phone")
-	wheelchair := r.URL.Query().Get("wheelchair")
-	openingHours := r.URL.Query().Get("opening_hours")
-
-	var lat, lon *float64
-	if latStr != "" {
-		l, err := strconv.ParseFloat(latStr, 64)
-		if err == nil {
-			lat = &l
-		}
-	}
-	if lonStr != "" {
-		l, err := strconv.ParseFloat(lonStr, 64)
-		if err == nil {
-			lon = &l
-		}
-	}
+	q := r.URL.Query()
 
 	limit := 100
-	if limitStr != "" {
-		l, err := strconv.Atoi(limitStr)
-		if err == nil {
-			limit = l
-		}
+	if l, err := strconv.Atoi(q.Get("limit")); err == nil {
+		limit = l
 	}
 	if limit > 1000 {
 		limit = 1000
 	}
 
 	from := 0
-	if fromStr != "" {
-		f, err := strconv.Atoi(fromStr)
-		if err == nil && f >= 0 {
-			from = f
-		}
+	if f, err := strconv.Atoi(q.Get("from")); err == nil && f >= 0 {
+		from = f
 	}
 
 	var langs []string
-	if langsStr != "" {
-		langs = strings.Split(langsStr, ",")
+	if l := q.Get("langs"); l != "" {
+		langs = strings.Split(l, ",")
 	} else {
 		langs = conf.Languages
 	}
 
-	// Parse multi-value filters
-	var keyList []string
-	if keys != "" {
-		keyList = strings.Split(keys, ",")
-	}
-	var valueList []string
-	if values != "" {
-		valueList = strings.Split(values, ",")
-	}
-
 	return search.SearchParams{
-		Query:        q,
-		Lat:          lat,
-		Lon:          lon,
-		Radius:       radius,
+		Query:        q.Get("q"),
+		Lat:          parseFloatPtr(q.Get("lat")),
+		Lon:          parseFloatPtr(q.Get("lon")),
+		Radius:       q.Get("radius"),
+		MinLat:       parseFloatPtr(q.Get("min_lat")),
+		MaxLat:       parseFloatPtr(q.Get("max_lat")),
+		MinLon:       parseFloatPtr(q.Get("min_lon")),
+		MaxLon:       parseFloatPtr(q.Get("max_lon")),
 		Limit:        limit,
 		From:         from,
 		Langs:        langs,
 		GeoMode:      conf.GeometryMode,
-		Fuzzy:        fuzzy,
-		Prefix:       prefix,
-		Key:          key,
-		Value:        value,
-		Keys:         keyList,
-		Values:       valueList,
-		Street:       street,
-		HouseNumber:  housenumber,
-		Postcode:     postcode,
-		City:         city,
-		Country:      country,
-		Floor:        floor,
-		Unit:         unit,
-		Level:        level,
-		Phone:        phone,
-		Wheelchair:   wheelchair,
-		OpeningHours: openingHours,
+		Fuzzy:        parseBool(q.Get("fuzzy")),
+		Prefix:       parseBool(q.Get("prefix")),
+		Key:          q.Get("key"),
+		Value:        q.Get("value"),
+		Keys:         parseCommaList(q.Get("keys")),
+		Values:       parseCommaList(q.Get("values")),
+		Street:       q.Get("street"),
+		HouseNumber:  q.Get("housenumber"),
+		Postcode:     q.Get("postcode"),
+		City:         q.Get("city"),
+		Country:      q.Get("country"),
+		Floor:        q.Get("floor"),
+		Unit:         q.Get("unit"),
+		Level:        q.Get("level"),
+		Phone:        q.Get("phone"),
+		Wheelchair:   q.Get("wheelchair"),
+		OpeningHours: q.Get("opening_hours"),
 		Analyzer:     conf.NameAnalyzer,
 		PopBoost:     conf.Importance.PopBoost,
 	}

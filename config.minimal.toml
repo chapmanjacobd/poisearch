@@ -1,4 +1,4 @@
-index_path = "minimal.bleve"
+index_paths = ["minimal.bleve"]
 languages = ["en"]
 geometry_mode = "no-geo"
 nodes_only = true

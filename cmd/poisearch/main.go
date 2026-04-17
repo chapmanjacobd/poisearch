@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -23,14 +24,20 @@ import (
 )
 
 type BuildCmd struct {
-	Input string `help:"Input PBF file." required:"true" arg:"" type:"path"`
+	IndexPath string `help:"Output Bleve index path." required:"true" arg:"" type:"path"`
+	Input     string `help:"Input PBF file."          required:"true" arg:"" type:"path"`
 }
 
 func (b *BuildCmd) Run(conf *config.Config) error {
-	slog.Info("building index", "path", conf.IndexPath, "input", b.Input)
+	indexPath := b.IndexPath
+	if !strings.HasSuffix(indexPath, ".bleve") {
+		indexPath += ".bleve"
+	}
+
+	slog.Info("building index", "path", indexPath, "input", b.Input)
 
 	m := search.BuildIndexMapping(conf)
-	index, err := search.OpenOrCreateIndex(conf.IndexPath, m)
+	index, err := search.OpenOrCreateIndex(indexPath, m)
 	if err != nil {
 		return err
 	}
@@ -49,12 +56,12 @@ var cli struct {
 }
 
 type Server struct {
-	index       bleve.Index
-	indexLock   sync.RWMutex
-	conf        *config.Config
-	pbfPath     string
-	pmtilesPath string
-	cache       *search.QueryCache
+	indices      map[string]bleve.Index
+	pbfPaths     map[string]string
+	pmtilesPaths map[string]string
+	indexLock    sync.RWMutex
+	conf         *config.Config
+	cache        *search.QueryCache
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -63,59 +70,50 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	mux := http.NewServeMux()
 	api.RegisterHandlersWithPBF(mux, api.HandlerOptions{
-		Index:       s.index,
-		Conf:        s.conf,
-		PBFPath:     s.pbfPath,
-		PMTilesPath: s.pmtilesPath,
-		Cache:       s.cache,
+		Indices:      s.indices,
+		PBFPaths:     s.pbfPaths,
+		PMTilesPaths: s.pmtilesPaths,
+		Conf:         s.conf,
+		Cache:        s.cache,
 	})
+
+	// Serve static files from web directory if it exists
+	if _, err := os.Stat("web"); err == nil {
+		mux.Handle("/", http.FileServer(http.Dir("web")))
+	}
 
 	handler := api.CORSMiddleware(mux, s.conf.Server.AllowedOrigins)
 	handler.ServeHTTP(w, r)
 }
 
-//nolint:nilnil // returning nil index is intended when path is empty
-func (s *ServeCmd) initIndex(conf *config.Config) (bleve.Index, error) {
-	if conf.IndexPath == "" {
-		return nil, nil
-	}
-
-	if _, err := os.Stat(conf.IndexPath); err == nil {
-		idx, openErr := bleve.Open(conf.IndexPath)
-		if openErr != nil {
-			return nil, fmt.Errorf("could not open index: %w", openErr)
+func (s *ServeCmd) initIndex(conf *config.Config) (map[string]bleve.Index, error) {
+	indices := make(map[string]bleve.Index)
+	for _, path := range conf.IndexPaths {
+		if _, err := os.Stat(path); err == nil {
+			idx, openErr := bleve.Open(path)
+			if openErr != nil {
+				return nil, fmt.Errorf("could not open index %s: %w", path, openErr)
+			}
+			name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+			indices[name] = idx
+		} else {
+			slog.Warn("index path does not exist, skipping", "path", path)
 		}
-		return idx, nil
-	} else if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("error checking index path: %w", err)
 	}
 
-	slog.Warn("index path does not exist, skipping index load", "path", conf.IndexPath)
-	return nil, nil
+	if len(indices) == 0 {
+		indices = nil
+	}
+
+	return indices, nil
 }
 
-func (s *ServeCmd) validateSources(index bleve.Index, conf *config.Config) error {
-	if index != nil {
+func (s *ServeCmd) validateSources(indices map[string]bleve.Index, pbfPaths, pmtilesPaths map[string]string) error {
+	if len(indices) > 0 || len(pbfPaths) > 0 || len(pmtilesPaths) > 0 {
 		return nil
 	}
 
-	pbfExists := false
-	if conf.PBFPath != "" {
-		if _, err := os.Stat(conf.PBFPath); err == nil {
-			pbfExists = true
-		}
-	}
-	pmtilesExists := false
-	if conf.PMTilesPath != "" {
-		if _, err := os.Stat(conf.PMTilesPath); err == nil {
-			pmtilesExists = true
-		}
-	}
-
-	if !pbfExists && !pmtilesExists {
-		return errors.New("could not open index and neither pbf_path nor pmtiles_path exist")
-	}
-	return nil
+	return errors.New("no valid search sources found (indices, pbf_paths, or pmtiles_paths)")
 }
 
 //nolint:nilnil // returning nil cache is intended when disabled
@@ -149,20 +147,32 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 		conf.Server.Host,
 		"port",
 		conf.Server.Port,
-		"index",
-		conf.IndexPath,
-		"pbf",
-		conf.PBFPath,
+		"indices",
+		conf.IndexPaths,
+		"pbfs",
+		conf.PBFPaths,
 		"pmtiles",
-		conf.PMTilesPath,
+		conf.PMTilesPaths,
 	)
 
-	idx, err := s.initIndex(conf)
+	indices, err := s.initIndex(conf)
 	if err != nil {
 		return err
 	}
 
-	if validateErr := s.validateSources(idx, conf); validateErr != nil {
+	pbfPaths := make(map[string]string)
+	for _, p := range conf.PBFPaths {
+		name := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
+		pbfPaths[name] = p
+	}
+
+	pmtilesPaths := make(map[string]string)
+	for _, p := range conf.PMTilesPaths {
+		name := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
+		pmtilesPaths[name] = p
+	}
+
+	if validateErr := s.validateSources(indices, pbfPaths, pmtilesPaths); validateErr != nil {
 		return validateErr
 	}
 
@@ -174,11 +184,11 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 	s.initCategoryMapper(conf)
 
 	srv := &Server{
-		index:       idx,
-		conf:        conf,
-		pbfPath:     conf.PBFPath,
-		pmtilesPath: conf.PMTilesPath,
-		cache:       cache,
+		indices:      indices,
+		pbfPaths:     pbfPaths,
+		pmtilesPaths: pmtilesPaths,
+		conf:         conf,
+		cache:        cache,
 	}
 
 	addr := fmt.Sprintf("%s:%d", conf.Server.Host, conf.Server.Port)
@@ -195,8 +205,8 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 	}
 
 	srv.indexLock.Lock()
-	if srv.index != nil {
-		srv.index.Close()
+	for _, idx := range srv.indices {
+		idx.Close()
 	}
 	srv.indexLock.Unlock()
 
@@ -241,29 +251,42 @@ func (s *ServeCmd) handleSignals(conf *config.Config, srv *Server, httpSrv *http
 		for sig := range sigs {
 			switch sig {
 			case syscall.SIGHUP:
-				slog.Info("received SIGHUP, reloading index")
-				if conf.IndexPath == "" {
-					slog.Warn("skipping reload because index_path is empty")
-					continue
-				}
-				newIndex, err := bleve.Open(conf.IndexPath)
+				slog.Info("received SIGHUP, reloading indices")
+				newIndices, err := s.initIndex(conf)
 				if err != nil {
-					slog.Error("failed to reload index", "error", err)
+					slog.Error("failed to reload indices", "error", err)
 					continue
 				}
+
 				srv.indexLock.Lock()
-				oldIndex := srv.index
-				srv.index = newIndex
+				oldIndices := srv.indices
+				srv.indices = newIndices
+
+				// Update PBF and PMTiles paths too
+				pbfPaths := make(map[string]string)
+				for _, p := range conf.PBFPaths {
+					name := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
+					pbfPaths[name] = p
+				}
+				pmtilesPaths := make(map[string]string)
+				for _, p := range conf.PMTilesPaths {
+					name := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
+					pmtilesPaths[name] = p
+				}
+				srv.pbfPaths = pbfPaths
+				srv.pmtilesPaths = pmtilesPaths
+
 				// Clear cache on index reload
 				if srv.cache != nil {
 					srv.cache.Clear()
 					slog.Info("query cache cleared on index reload")
 				}
 				srv.indexLock.Unlock()
-				if oldIndex != nil {
-					oldIndex.Close()
+
+				for _, idx := range oldIndices {
+					idx.Close()
 				}
-				slog.Info("index reloaded")
+				slog.Info("indices reloaded")
 			case syscall.SIGINT, syscall.SIGTERM:
 				slog.Info("shutting down")
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -103,7 +103,7 @@ func buildTestIndex(t *testing.T, pbfPath string, conf *config.Config) (string, 
 	tempDir := t.TempDir()
 	indexPath := filepath.Join(tempDir, "test.bleve")
 
-	conf.IndexPath = indexPath
+	conf.IndexPaths = []string{indexPath}
 	conf.GeometryMode = "geopoint-centroid"
 	conf.StoreMetadata = false
 	conf.StoreGeometry = false
@@ -704,7 +704,7 @@ func buildTestIndexForBenchmark(b *testing.B, pbfPath string, conf *config.Confi
 	tempDir := b.TempDir()
 	indexPath := filepath.Join(tempDir, "test.bleve")
 
-	conf.IndexPath = indexPath
+	conf.IndexPaths = []string{indexPath}
 	conf.GeometryMode = "geopoint-centroid"
 	conf.StoreMetadata = false
 	conf.StoreGeometry = false

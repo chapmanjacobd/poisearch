@@ -11,8 +11,8 @@ import (
 
 func TestConfig_ParseValid(t *testing.T) {
 	tomlContent := `
-index_path = "test.bleve"
-pbf_path = "test.pbf"
+index_paths = ["test.bleve"]
+pbf_paths = ["test.pbf"]
 languages = ["en", "de"]
 geometry_mode = "geopoint"
 simplification_tolerance = 0.0001
@@ -37,11 +37,11 @@ boosts = ["city", "town", "pharmacy"]
 	}
 
 	// Verify parsed values
-	if conf.IndexPath != "test.bleve" {
-		t.Errorf("index_path = %s, want test.bleve", conf.IndexPath)
+	if len(conf.IndexPaths) != 1 || conf.IndexPaths[0] != "test.bleve" {
+		t.Errorf("index_paths = %v, want [test.bleve]", conf.IndexPaths)
 	}
-	if conf.PBFPath != "test.pbf" {
-		t.Errorf("pbf_path = %s, want test.pbf", conf.PBFPath)
+	if len(conf.PBFPaths) != 1 || conf.PBFPaths[0] != "test.pbf" {
+		t.Errorf("pbf_paths = %v, want [test.pbf]", conf.PBFPaths)
 	}
 	if len(conf.Languages) != 2 {
 		t.Errorf("languages count = %d, want 2", len(conf.Languages))
@@ -65,7 +65,7 @@ boosts = ["city", "town", "pharmacy"]
 
 func TestConfig_StoreAddress(t *testing.T) {
 	tomlContent := `
-index_path = "test.bleve"
+index_paths = ["test.bleve"]
 languages = ["en"]
 store_address = true
 
@@ -90,7 +90,7 @@ default = 1.0
 
 func TestConfig_DefaultValues(t *testing.T) {
 	tomlContent := `
-index_path = "test.bleve"
+index_paths = ["test.bleve"]
 languages = ["en"]
 
 [server]
@@ -154,7 +154,7 @@ func TestConfig_AllGeometryModes(t *testing.T) {
 	for _, mode := range modes {
 		t.Run(mode, func(t *testing.T) {
 			tomlContent := `
-index_path = "test.bleve"
+index_paths = ["test.bleve"]
 languages = ["en"]
 geometry_mode = "` + mode + `"
 
@@ -191,7 +191,7 @@ func TestConfig_AllAnalyzers(t *testing.T) {
 				t.Skip("skipping keyword analyzer")
 			}
 			tomlContent := `
-index_path = "test.bleve"
+index_paths = ["test.bleve"]
 languages = ["en"]
 name_analyzer = "` + analyzer + `"
 
@@ -219,7 +219,7 @@ func TestConfig_FromFile(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.toml")
 
 	tomlContent := `
-index_path = "test.bleve"
+index_paths = ["test.bleve"]
 languages = ["en", "zh", "es"]
 geometry_mode = "geopoint"
 store_address = true
@@ -250,8 +250,8 @@ boosts = ["city"]
 	}
 
 	// Verify
-	if conf.IndexPath != "test.bleve" {
-		t.Errorf("index_path = %s, want test.bleve", conf.IndexPath)
+	if len(conf.IndexPaths) != 1 || conf.IndexPaths[0] != "test.bleve" {
+		t.Errorf("index_paths = %v, want [test.bleve]", conf.IndexPaths)
 	}
 	if len(conf.Languages) != 3 {
 		t.Errorf("expected 3 languages, got %d", len(conf.Languages))
@@ -272,7 +272,7 @@ boosts = ["city"]
 
 func TestConfig_ImportanceWeights(t *testing.T) {
 	tomlContent := `
-index_path = "test.bleve"
+index_paths = ["test.bleve"]
 languages = ["en"]
 
 [server]
@@ -313,7 +313,7 @@ boosts = ["city", "town", "hospital"]
 
 func TestConfig_MissingOptionalFields(t *testing.T) {
 	tomlContent := `
-index_path = "test.bleve"
+index_paths = ["test.bleve"]
 languages = ["en"]
 
 [server]
@@ -331,8 +331,11 @@ default = 1.0
 	}
 
 	// Optional fields should be zero/empty
-	if conf.PBFPath != "" {
-		t.Errorf("pbf_path should be empty, got %s", conf.PBFPath)
+	if len(conf.PBFPaths) != 0 {
+		t.Errorf("pbf_paths should be empty, got %v", conf.PBFPaths)
+	}
+	if len(conf.PMTilesPaths) != 0 {
+		t.Errorf("pmtiles_paths should be empty, got %v", conf.PMTilesPaths)
 	}
 	if conf.WikidataImportance != "" {
 		t.Errorf("wikidata_importance should be empty, got %s", conf.WikidataImportance)

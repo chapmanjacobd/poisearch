@@ -1,4 +1,4 @@
-index_path = "cached_searches.bleve"
+index_paths = ["cached_searches.bleve"]
 languages = ["en"]
 geometry_mode = "geopoint-centroid"
 cache_enabled = true

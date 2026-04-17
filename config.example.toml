@@ -1,10 +1,10 @@
-index_path = "pois.bleve"
+index_paths = ["cities.bleve", "pois.bleve"]
 
 # Optional: path to PBF for direct (no-index) search via ?mode=pbf
-# pbf_path = "processed.osm.pbf"
+# pbf_paths = ["processed.osm.pbf"]
 
 # Optional: path to PMTiles for direct (no-index) search via ?mode=pmtiles
-# pmtiles_path = "planet.pmtiles"
+# pmtiles_paths = ["planet.pmtiles"]
 
 # Opt-in: perform precise intersection check for PMTiles (slower but more accurate)
 # pmtiles_post_process = false
@@ -42,6 +42,7 @@ index_wikidata_redirects = false  # Index Wikipedia redirect titles as alternate
 # Build optimization
 build_workers = 8                 # Parallel workers for index building (1-32)
 geo_batch_size = 500              # Batch size for geometry operations (50-1000)
+index_batch_size = 5000           # Batch size for bleve indexing (default: 5000, higher is usually faster but uses more memory)
 
 # Query cache
 cache_enabled = false             # Enable query result caching

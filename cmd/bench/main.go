@@ -58,12 +58,12 @@ func main() {
 			PopBoost: 0.2,
 		},
 		SimplificationTol: 0.0001,
-		PBFPath:           config.DefaultPBF,
+		PBFPaths:          []string{config.DefaultPBF},
 		Server:            config.ServerConfig{Host: "127.0.0.1", Port: config.DefaultPort},
 	}
 
 	// Check if PBF file exists
-	pbf := conf.PBFPath
+	pbf := conf.PBFPaths[0]
 	if *slow {
 		pbf = "taiwan-latest.osm.pbf"
 		fmt.Printf("Using Taiwan PBF for benchmarking: %s\n", pbf)
@@ -208,12 +208,12 @@ func runFullBench(pbf string, conf *config.Config, scenarioFilter string) {
 
 		switch {
 		case !s.PBFOnly && !s.PMTilesOnly:
-			conf.IndexPath = fmt.Sprintf("bench_%s.bleve", s.Label)
-			os.RemoveAll(conf.IndexPath)
+			conf.IndexPaths = []string{fmt.Sprintf("bench_%s.bleve", s.Label)}
+			os.RemoveAll(conf.IndexPaths[0])
 
 			start := time.Now()
 			m := search.BuildIndexMapping(conf)
-			idx, err := search.OpenOrCreateIndex(conf.IndexPath, m)
+			idx, err := search.OpenOrCreateIndex(conf.IndexPaths[0], m)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -223,7 +223,7 @@ func runFullBench(pbf string, conf *config.Config, scenarioFilter string) {
 				log.Fatal(err)
 			}
 			buildTime = time.Since(start)
-			size = getDirSize(conf.IndexPath)
+			size = getDirSize(conf.IndexPaths[0])
 			fmt.Printf("Build time: %s, Size: %s\n", formatDuration(buildTime), formatSize(size))
 		case s.PBFOnly:
 			fmt.Printf("PBF Only: No build needed. Using source: %s\n", pbf)
@@ -509,15 +509,15 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 
 		testConf := *conf
 		testConf.NameAnalyzer = analyzer
-		testConf.IndexPath = fmt.Sprintf("bench_analyzer_%s.bleve", analyzer)
+		testConf.IndexPaths = []string{fmt.Sprintf("bench_analyzer_%s.bleve", analyzer)}
 		testConf.GeometryMode = "geopoint-centroid"
 		testConf.StoreMetadata = false
 		testConf.StoreGeometry = false
-		os.RemoveAll(testConf.IndexPath)
+		os.RemoveAll(testConf.IndexPaths[0])
 
 		start := time.Now()
 		m := search.BuildIndexMapping(&testConf)
-		idx, err := search.OpenOrCreateIndex(testConf.IndexPath, m)
+		idx, err := search.OpenOrCreateIndex(testConf.IndexPaths[0], m)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -526,7 +526,7 @@ func runAnalyzerBench(pbf string, conf *config.Config) {
 			log.Fatal(err)
 		}
 		buildTime := time.Since(start)
-		size := getDirSize(testConf.IndexPath)
+		size := getDirSize(testConf.IndexPaths[0])
 		fmt.Printf("Build time: %s, Size: %s\n", formatDuration(buildTime), formatSize(size))
 
 		searchResults := make([]BenchmarkResult, 0, len(searchQueries))

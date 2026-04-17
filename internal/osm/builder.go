@@ -278,7 +278,7 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 		slog.Warn("Pass 1 failed, will cache all nodes (high memory usage)", "error", err)
 	}
 
-	slog.Info("Pass 2: building index", "path", conf.IndexPath, "input", inputPath)
+	slog.Info("Pass 2: building index", "paths", conf.IndexPaths, "input", inputPath)
 
 	wdLookup, ont := setupBuildIndex(conf)
 
@@ -291,7 +291,10 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 	skipped := 0
 	geoMode := GeometryMode(conf.GeometryMode)
 	batch := index.NewBatch()
-	batchSize := 500
+	batchSize := conf.IndexBatchSize
+	if batchSize <= 0 {
+		batchSize = 5000
+	}
 
 	ectx := &entityContext{
 		conf:      conf,

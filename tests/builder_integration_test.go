@@ -29,7 +29,7 @@ func BenchmarkBuildIndex(b *testing.B) {
 			indexPath := filepath.Join(tmpDir, "test.bleve")
 
 			conf := &config.Config{
-				IndexPath:    indexPath,
+				IndexPaths:   []string{indexPath},
 				Languages:    []string{"en"},
 				GeometryMode: "geopoint",
 				NameAnalyzer: "standard",
@@ -78,7 +78,7 @@ func TestBuildIndex_ParallelWorkers(t *testing.T) {
 
 	// Create index mapping
 	conf := &config.Config{
-		IndexPath:    indexPath,
+		IndexPaths:   []string{indexPath},
 		Languages:    []string{"en"},
 		GeometryMode: "geopoint",
 		NameAnalyzer: "standard",
@@ -121,7 +121,7 @@ func TestBuildIndex_Parallel_Search(t *testing.T) {
 	indexPath := filepath.Join(tmpDir, "test.bleve")
 
 	conf := &config.Config{
-		IndexPath:    indexPath,
+		IndexPaths:   []string{indexPath},
 		Languages:    []string{"en"},
 		GeometryMode: "geopoint",
 		NameAnalyzer: "standard",

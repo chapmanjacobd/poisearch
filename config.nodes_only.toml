@@ -1,4 +1,4 @@
-index_path = "nodes_only.bleve"
+index_paths = ["nodes_only.bleve"]
 languages = ["en"]
 geometry_mode = "geopoint"
 nodes_only = true

@@ -18,9 +18,9 @@ const (
 )
 
 type Config struct {
-	IndexPath              string            `toml:"index_path"`          // Optional: path to Bleve index. If missing, falls back to PBF/PMTiles.
-	PBFPath                string            `toml:"pbf_path"`            // Optional: path to PBF for direct (no-index) search
-	PMTilesPath            string            `toml:"pmtiles_path"`        // Optional: path to PMTiles for direct (no-index) search
+	IndexPaths             []string          `toml:"index_paths"`         // Optional: list of paths to Bleve indices.
+	PBFPaths               []string          `toml:"pbf_paths"`           // Optional: list of paths to PBFs for direct search.
+	PMTilesPaths           []string          `toml:"pmtiles_paths"`       // Optional: list of paths to PMTiles for direct search.
 	WikidataImportance     string            `toml:"wikidata_importance"` // Optional: path to wikimedia_importance.tsv.gz
 	OntologyPath           string            `toml:"ontology_path"`       // Optional: path to custom place type ontology CSV
 	Languages              []string          `toml:"languages"`
@@ -43,7 +43,8 @@ type Config struct {
 	PMTilesPostProcess     bool              `toml:"pmtiles_post_process"`     // Opt-in: perform precise intersection check for PMTiles (slow)
 
 	// Build optimization configuration
-	GeoBatchSize int `toml:"geo_batch_size"` // Batch size for geometry operations (default: 200, range: 50-1000)
+	GeoBatchSize   int `toml:"geo_batch_size"`   // Batch size for geometry operations (default: 200, range: 50-1000)
+	IndexBatchSize int `toml:"index_batch_size"` // Batch size for bleve indexing (default: 5000)
 
 	// Query cache configuration
 	CacheEnabled bool          `toml:"cache_enabled"` // Enable query result caching (default: false)

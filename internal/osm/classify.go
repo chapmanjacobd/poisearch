@@ -19,7 +19,7 @@ type Classification struct {
 // A single POI can have multiple classifications (e.g., a building that is both
 // a historic castle and a tourism museum).
 //
-//nolint:revive // Classification requires checking multiple OSM keys and applying various boosts
+
 func ClassifyMulti(
 	tags map[string]string,
 	weights *config.ImportanceWeights,
