@@ -18,7 +18,7 @@ import (
 func BenchmarkBuildIndex(b *testing.B) {
 	pbfPath := "../liechtenstein-latest.osm.pbf"
 	if _, err := os.Stat(pbfPath); os.IsNotExist(err) {
-		b.Skip("test PBF file not found, skipping")
+		b.Fatalf("test PBF file not found at %s. Run scripts/update.sh to download it.", pbfPath)
 	}
 
 	workerCounts := []int{1, 2, 4, 6, 8}
@@ -69,7 +69,7 @@ func TestBuildIndex_ParallelWorkers(t *testing.T) {
 	// Skip if test PBF doesn't exist
 	pbfPath := "../liechtenstein-latest.osm.pbf"
 	if _, err := os.Stat(pbfPath); os.IsNotExist(err) {
-		t.Skip("test PBF file not found, skipping")
+		t.Fatalf("test PBF file not found at %s. Run scripts/update.sh to download it.", pbfPath)
 	}
 
 	// Create temporary directory for index
@@ -114,7 +114,7 @@ func TestBuildIndex_Parallel_Search(t *testing.T) {
 	// Skip if test PBF doesn't exist
 	pbfPath := "../liechtenstein-latest.osm.pbf"
 	if _, err := os.Stat(pbfPath); os.IsNotExist(err) {
-		t.Skip("test PBF file not found, skipping")
+		t.Fatalf("test PBF file not found at %s. Run scripts/update.sh to download it.", pbfPath)
 	}
 
 	tmpDir := t.TempDir()

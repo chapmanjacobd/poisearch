@@ -311,7 +311,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	var conf config.Config
+	conf := config.Config{
+		OnlyNamed:        true,
+		DisableAltNames:  true,
+		DisableKeyValues: true,
+	}
 	if parseErr := toml.Unmarshal(confData, &conf); parseErr != nil {
 		slog.Error("failed to parse config file", "error", parseErr)
 		os.Exit(1)

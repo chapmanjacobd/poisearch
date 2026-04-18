@@ -478,8 +478,14 @@ func matchAddress(tags map[string]string, params search.SearchParams) bool {
 	if params.Postcode != "" && tags["addr:postcode"] != params.Postcode {
 		return false
 	}
-	if params.City != "" && !strings.Contains(strings.ToLower(tags["addr:city"]), strings.ToLower(params.City)) {
-		return false
+	if params.City != "" {
+		city := tags["addr:city"]
+		if city == "" && (tags["place"] != "" || tags["class"] == "city" || tags["class"] == "town" || tags["class"] == "village") {
+			city = tags["name"]
+		}
+		if !strings.Contains(strings.ToLower(city), strings.ToLower(params.City)) {
+			return false
+		}
 	}
 	if params.Country != "" &&
 		!strings.Contains(strings.ToLower(tags["addr:country"]), strings.ToLower(params.Country)) {

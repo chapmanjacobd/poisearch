@@ -178,7 +178,7 @@ func addKeyValuesFields(docMapping *mapping.DocumentMapping, conf *config.Config
 	unstoreKeywordMapping.Analyzer = "keyword"
 	unstoreKeywordMapping.IncludeInAll = true
 	unstoreKeywordMapping.IncludeTermVectors = false
-	unstoreKeywordMapping.Store = false
+	unstoreKeywordMapping.Store = conf.StoreMetadata
 
 	docMapping.AddFieldMappingsAt("keys", unstoreKeywordMapping)
 	docMapping.AddFieldMappingsAt("values", unstoreKeywordMapping)

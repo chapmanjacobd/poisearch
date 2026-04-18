@@ -87,8 +87,7 @@ func loadWikidataImportance(t *testing.T) string {
 
 	path := "../wikimedia-importance-2025-11.csv.gz"
 	if _, err := os.Stat(path); err != nil {
-		t.Logf("wikimedia importance file not found at %s, skipping", path)
-		return ""
+		t.Skipf("wikimedia importance file not found at %s. Integration tests require this file.", path)
 	}
 	return path
 }
@@ -104,9 +103,10 @@ func buildTestIndex(t *testing.T, pbfPath string, conf *config.Config) (string, 
 	indexPath := filepath.Join(tempDir, "test.bleve")
 
 	conf.IndexPaths = []string{indexPath}
-	conf.GeometryMode = "geopoint-centroid"
-	conf.StoreMetadata = false
-	conf.StoreGeometry = false
+	// Only set defaults if not already explicitly configured for the test
+	if conf.GeometryMode == "" {
+		conf.GeometryMode = "geopoint-centroid"
+	}
 
 	// Build index mapping
 	m := search.BuildIndexMapping(conf)
@@ -805,7 +805,7 @@ func formatSize(bytes int64) string {
 func TestWikimediaImportance_Integration(t *testing.T) {
 	path := loadWikidataImportance(t)
 	if path == "" {
-		t.Skip("wikimedia importance file not available")
+		t.Skipf("wikimedia importance file not available")
 	}
 
 	lookup, err := osm.LoadWikidataImportance(path)

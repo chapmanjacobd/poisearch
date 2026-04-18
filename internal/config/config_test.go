@@ -187,9 +187,6 @@ func TestConfig_AllAnalyzers(t *testing.T) {
 
 	for _, analyzer := range analyzers {
 		t.Run(analyzer, func(t *testing.T) {
-			if analyzer == "keyword" {
-				t.Skip("skipping keyword analyzer")
-			}
 			tomlContent := `
 index_paths = ["test.bleve"]
 languages = ["en"]

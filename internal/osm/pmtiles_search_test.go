@@ -12,7 +12,7 @@ import (
 func TestPMTilesSearch(t *testing.T) {
 	pmtilesPath := "../../liechtenstein.pmtiles"
 	if _, err := os.Stat(pmtilesPath); err != nil {
-		t.Skipf("PMTiles file not found at %s, skipping test", pmtilesPath)
+		t.Fatalf("PMTiles file not found at %s. Run scripts/pbf_to_pmtiles.sh to generate it.", pmtilesPath)
 	}
 
 	conf := &config.Config{
@@ -40,9 +40,8 @@ func TestPMTilesSearch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("PMTilesSearch failed: %v", err)
 		}
-
 		if res.Total == 0 {
-			t.Errorf("expected at least 1 result for Vaduz, got 0")
+			t.Errorf("expected at least 1 result, got 0")
 		}
 
 		for _, hit := range res.Hits {
@@ -100,6 +99,9 @@ func TestPMTilesSearch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("PMTilesSearch failed: %v", err)
 		}
+		if res.Total == 0 {
+			t.Errorf("expected at least 1 result, got 0")
+		}
 		t.Logf("ExactMatch search found %d results", res.Total)
 	})
 
@@ -117,7 +119,6 @@ func TestPMTilesSearch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("PMTilesSearch failed: %v", err)
 		}
-
 		if res.Total == 0 {
 			t.Errorf("expected results for address search (housenumber=1), got 0")
 		}
@@ -144,9 +145,15 @@ func TestPMTilesSearch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("PMTilesSearch failed: %v", err)
 		}
+		if res.Total == 0 {
+			t.Errorf("expected at least 1 result, got 0")
+		}
 
 		// Even if addr:city is not ubiquitous, we should find something in a well-tagged area
 		t.Logf("City search (Vaduz) found %d results", res.Total)
+		for _, hit := range res.Hits {
+			t.Logf("Found: %s", hit.Fields["name"])
+		}
 	})
 
 	t.Run("GlobalSearch", func(t *testing.T) {
@@ -159,7 +166,6 @@ func TestPMTilesSearch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("PMTilesSearch failed: %v", err)
 		}
-
 		if res.Total == 0 {
 			t.Errorf("expected global search to find Vaduz, got 0")
 		}

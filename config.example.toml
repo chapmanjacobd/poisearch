@@ -28,9 +28,9 @@ name_analyzer = "standard"
 
 # Toggle optional features
 nodes_only = false                # Index only nodes (skip ways/relations)
-disable_alt_names = false         # Skip alt_name, old_name, short_name fields
+disable_alt_names = true          # Skip alt_name, old_name, short_name fields
 disable_importance = false        # Set all importance scores to 0
-disable_key_value = false     # Skip key/value indexing
+disable_key_value = true          # Skip key/value indexing
 only_named = true                 # Only index objects with a name tag
 store_metadata = false            # Store key/value/importance in index (increases size)
 store_geometry = false            # Store geometry in index (increases size)

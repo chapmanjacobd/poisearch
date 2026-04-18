@@ -11,7 +11,7 @@ func TestLoadWikidataImportance(t *testing.T) {
 	// Try to load the user's actual wikimedia file (in project root)
 	path := "../wikimedia-importance-2025-11.csv.gz"
 	if _, err := os.Stat(path); err != nil {
-		t.Skipf("wikimedia file not found at %s, skipping integration test", path)
+		t.Fatalf("wikimedia importance file not found at %s. Integration test requires this file.", path)
 	}
 
 	lookup, err := osm.LoadWikidataImportance(path)

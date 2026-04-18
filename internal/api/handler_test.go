@@ -448,7 +448,7 @@ func TestHandler_Registration(t *testing.T) {
 func TestHandler_PMTilesAddressSearch(t *testing.T) {
 	pmtilesPath := "../../liechtenstein.pmtiles"
 	if _, err := os.Stat(pmtilesPath); err != nil {
-		t.Skip("liechtenstein.pmtiles not found, skipping PMTiles address test")
+		t.Fatalf("liechtenstein.pmtiles not found at %s. Run scripts/pbf_to_pmtiles.sh to generate it.", pmtilesPath)
 	}
 
 	conf := &config.Config{

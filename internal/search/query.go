@@ -106,6 +106,9 @@ func addNameQuery(q, field string) query.Query {
 	// Autocomplete edge_ngram match (normal boost)
 	eq := bleve.NewMatchQuery(q)
 	eq.SetField(field + "_edge_ngram")
+	// Must use a standard analyzer for the query, otherwise the search term itself
+	// is split into edge n-grams and matches any word starting with the first letter!
+	eq.Analyzer = "standard"
 	eq.SetBoost(1.0)
 
 	// Fuzzy match for typo tolerance (low boost)
