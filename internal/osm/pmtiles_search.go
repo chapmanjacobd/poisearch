@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -114,17 +115,20 @@ func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.
 		params.Limit = 1000
 	}
 
+	collectLimit := params.Limit * 3
+
 	geosCtx := geos.NewContext()
 	queryLower := strings.ToLower(params.Query)
 
 	pOpts := &processTileOptions{
-		archive:    archive,
-		res:        res,
-		params:     params,
-		conf:       conf,
-		ont:        ont,
-		geosCtx:    geosCtx,
-		queryLower: queryLower,
+		archive:      archive,
+		res:          res,
+		params:       params,
+		collectLimit: collectLimit,
+		conf:         conf,
+		ont:          ont,
+		geosCtx:      geosCtx,
+		queryLower:   queryLower,
 	}
 
 	filter := computeSpatialFilter(params)
@@ -153,13 +157,19 @@ func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.
 				// Continue with other tiles
 				continue
 			}
-			if params.Limit > 0 && len(res.Hits) >= params.Limit {
-				return res, nil
+			if pOpts.collectLimit > 0 && len(res.Hits) >= pOpts.collectLimit {
+				sort.Slice(res.Hits, func(i, j int) bool {
+					return res.Hits[i].Score > res.Hits[j].Score
+				})
+				return search.ReRankAndTruncate(res, params.Limit, params.PopBoost), nil
 			}
 		}
 	}
 
-	return res, nil
+	sort.Slice(res.Hits, func(i, j int) bool {
+		return res.Hits[i].Score > res.Hits[j].Score
+	})
+	return search.ReRankAndTruncate(res, params.Limit, params.PopBoost), nil
 }
 
 func processAllTiles(ctx context.Context, archive *pmtilesCache, p *processTileOptions) (*bleve.SearchResult, error) {
@@ -168,7 +178,14 @@ func processAllTiles(ctx context.Context, archive *pmtilesCache, p *processTileO
 	dirLength := archive.header.RootLength
 
 	err := processDirectory(ctx, archive, dirOffset, dirLength, p)
-	return p.res, err
+	if err != nil {
+		return p.res, err
+	}
+
+	sort.Slice(p.res.Hits, func(i, j int) bool {
+		return p.res.Hits[i].Score > p.res.Hits[j].Score
+	})
+	return search.ReRankAndTruncate(p.res, p.params.Limit, p.params.PopBoost), nil
 }
 
 func processDirectory(ctx context.Context, archive *pmtilesCache, offset, length uint64, p *processTileOptions) error {
@@ -203,7 +220,7 @@ func processDirectory(ctx context.Context, archive *pmtilesCache, offset, length
 			}
 		}
 
-		if p.params.Limit > 0 && len(p.res.Hits) >= p.params.Limit {
+		if p.collectLimit > 0 && len(p.res.Hits) >= p.collectLimit {
 			return nil
 		}
 	}
@@ -272,14 +289,15 @@ func lonLatToTile(lon, lat float64, zoom int) (x, y int) {
 }
 
 type processTileOptions struct {
-	archive    *pmtilesCache
-	z, x, y    uint32
-	res        *bleve.SearchResult
-	params     search.SearchParams
-	conf       *config.Config
-	ont        *PlaceTypeOntology
-	geosCtx    *geos.Context
-	queryLower string
+	archive      *pmtilesCache
+	z, x, y      uint32
+	res          *bleve.SearchResult
+	params       search.SearchParams
+	collectLimit int
+	conf         *config.Config
+	ont          *PlaceTypeOntology
+	geosCtx      *geos.Context
+	queryLower   string
 }
 
 func processTile(ctx context.Context, p *processTileOptions) error {

@@ -184,7 +184,7 @@ func executeInterpretations(index bleve.Index, params SearchParams) (*bleve.Sear
 		return nil, err
 	}
 
-	return reRankAndTruncate(res, originalLimit, params.PopBoost), nil
+	return ReRankAndTruncate(res, originalLimit, params.PopBoost), nil
 }
 
 // shouldUseMultiInterpretation returns true if the query should be parsed

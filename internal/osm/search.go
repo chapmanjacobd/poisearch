@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/blevesearch/bleve/v2"
@@ -334,13 +335,27 @@ func processPBFEntity(
 	}
 
 	// All filters passed, create hit
+	importance := classifications[0].Importance
+	if tags["importance"] != "" {
+		if val, err := strconv.ParseFloat(tags["importance"], 64); err == nil {
+			// In some schemas, rank is 1-10 (lower is better).
+			// If it's a small integer, we treat it as an OMT rank and invert it.
+			if val > 0 && val <= 20 {
+				importance = 20 - val
+			} else {
+				importance = val
+			}
+		}
+	}
+
 	hit := &bleveSearch.DocumentMatch{
 		ID:    fmt.Sprintf("%s/%d", entityType, id),
-		Score: classifications[0].Importance,
+		Score: importance,
 		Fields: map[string]any{
 			"name":          tags["name"],
 			"key":           classifications[0].Key,
 			"value":         classifications[0].Value,
+			"importance":    importance,
 			"phone":         tags["phone"],
 			"wheelchair":    tags["wheelchair"],
 			"opening_hours": tags["opening_hours"],

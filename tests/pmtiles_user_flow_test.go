@@ -105,11 +105,16 @@ func TestUserFlow_PMTilesStructuredSearch(t *testing.T) {
 		}
 	})
 
-	// Scenario 2: Combined Search - "Pizza in Vaduz"
-	t.Run("QueryAndCityFilter", func(t *testing.T) {
+	// Scenario 2: Combined Search - "Pizza near Vaduz"
+	t.Run("PizzaNearVaduz", func(t *testing.T) {
+		// Vaduz coordinates
+		lat := 47.14
+		lon := 9.52
 		params := search.SearchParams{
 			Query:   "pizza",
-			City:    "Vaduz",
+			Lat:     &lat,
+			Lon:     &lon,
+			Radius:  "2km",
 			Limit:   10,
 			GeoMode: "geopoint-centroid",
 			Langs:   conf.Languages,
@@ -121,14 +126,14 @@ func TestUserFlow_PMTilesStructuredSearch(t *testing.T) {
 		}
 
 		if len(results.Hits) == 0 {
-			t.Fatalf("Expected some results for 'pizza' in 'Vaduz'")
+			t.Fatalf("Expected some results for 'pizza' near Vaduz")
 		}
 
-		t.Logf("Combined search (pizza in Vaduz) returned %d results.", len(results.Hits))
+		t.Logf("Spatial search (pizza near Vaduz) returned %d results.", len(results.Hits))
 		for _, hit := range results.Hits {
 			name := strings.ToLower(fmt.Sprintf("%v", hit.Fields["name"]))
-			if !strings.Contains(name, "pizza") && !strings.Contains(name, "vaduz") {
-				t.Errorf("Result %s does not seem to match 'pizza' or 'vaduz'", name)
+			if !strings.Contains(name, "pizza") && !strings.Contains(name, "azzurro") { // Azzurro is a pizza place in Vaduz
+				t.Errorf("Result %s does not seem to match 'pizza'", name)
 			}
 		}
 	})

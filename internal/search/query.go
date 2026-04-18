@@ -373,11 +373,11 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		return nil, err
 	}
 
-	return reRankAndTruncate(res, originalLimit, params.PopBoost), nil
+	return ReRankAndTruncate(res, originalLimit, params.PopBoost), nil
 }
 
-// reRankAndTruncate applies organic scoring combining the Bleve score with the POI's importance.
-func reRankAndTruncate(res *bleve.SearchResult, limit int, popBoost float64) *bleve.SearchResult {
+// ReRankAndTruncate applies organic scoring combining the Bleve score with the POI's importance.
+func ReRankAndTruncate(res *bleve.SearchResult, limit int, popBoost float64) *bleve.SearchResult {
 	if res == nil || len(res.Hits) == 0 {
 		return res
 	}
