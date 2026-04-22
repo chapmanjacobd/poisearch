@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -82,9 +83,7 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 
 			if hit := processPBFEntity("node", int64(o.ID), o.TagMap(), [][]float64{{o.Lon, o.Lat}},
 				queryLower, params, conf, ont, geosCtx); hit != nil {
-				if collectHit(res, hit, params) {
-					return res, nil
-				}
+				collectHit(res, hit)
 			}
 
 		case *osmapi.Way:
@@ -114,9 +113,7 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 
 			if hit := processPBFEntity("way", int64(o.ID), o.TagMap(), coords,
 				queryLower, params, conf, ont, geosCtx); hit != nil {
-				if collectHit(res, hit, params) {
-					return res, nil
-				}
+				collectHit(res, hit)
 			}
 
 		case *osmapi.Relation:
@@ -146,9 +143,7 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 
 			if hit := processPBFEntity("relation", int64(o.ID), o.TagMap(), coords,
 				queryLower, params, conf, ont, geosCtx); hit != nil {
-				if collectHit(res, hit, params) {
-					return res, nil
-				}
+				collectHit(res, hit)
 			}
 		}
 	}
@@ -157,7 +152,7 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 		return nil, fmt.Errorf("PBF scan error: %w", err)
 	}
 
-	return res, nil
+	return sortAndTruncateDirectHits(res, params.From, params.Limit), nil
 }
 
 func computeSpatialFilter(params search.SearchParams) spatialFilter {
@@ -190,13 +185,9 @@ func computeSpatialFilter(params search.SearchParams) spatialFilter {
 	return f
 }
 
-func collectHit(res *bleve.SearchResult, hit *bleveSearch.DocumentMatch, params search.SearchParams) bool {
+func collectHit(res *bleve.SearchResult, hit *bleveSearch.DocumentMatch) {
 	res.Total++
-	if params.From > 0 && int64(res.Total) <= int64(params.From) {
-		return false
-	}
 	res.Hits = append(res.Hits, hit)
-	return len(res.Hits) >= params.Limit && params.Limit > 0
 }
 
 func wayToCoords(o *osmapi.Way, nodeCoords map[int64][]float64) [][]float64 {
@@ -348,9 +339,11 @@ func processPBFEntity(
 		}
 	}
 
+	score := computeDirectScore(tags, classifications, params, queryLower, importance)
+
 	hit := &bleveSearch.DocumentMatch{
 		ID:    fmt.Sprintf("%s/%d", entityType, id),
-		Score: importance,
+		Score: score,
 		Fields: map[string]any{
 			"name":          tags["name"],
 			"key":           classifications[0].Key,
@@ -393,6 +386,190 @@ func processPBFEntity(
 	}
 
 	return hit
+}
+
+func computeDirectScore(
+	tags map[string]string,
+	classifications []*Classification,
+	params search.SearchParams,
+	queryLower string,
+	importance float64,
+) float64 {
+	if params.Query == "" {
+		return importance
+	}
+
+	score := bestNameMatchScore(tags, params, queryLower)
+	classificationScore := 0.0
+
+	for _, c := range classifications {
+		switch {
+		case directTokenMatch(c.Value, queryLower):
+			switch c.Key {
+			case "cuisine":
+				classificationScore = max(classificationScore, 320)
+			case "amenity", "shop", "tourism", "leisure":
+				classificationScore = max(classificationScore, 260)
+			default:
+				classificationScore = max(classificationScore, 180)
+			}
+		case directTokenMatch(c.Key, queryLower):
+			classificationScore = max(classificationScore, 120)
+		}
+	}
+	score += classificationScore
+
+	if directTagValueMatch(tags["cuisine"], queryLower) {
+		score += 340
+		if hasFoodServiceClassification(classifications) {
+			score += 40
+		}
+	}
+
+	for _, match := range searchCategoryMatches(params.Query) {
+		if hasClassification(classifications, match.Key, match.Value) {
+			score += 280
+			break
+		}
+	}
+
+	if strings.TrimSpace(tags["name"]) == "" {
+		score -= 300
+	}
+
+	if score == 0 {
+		for _, v := range tags {
+			if directTagValueMatch(v, queryLower) {
+				score = 80
+				break
+			}
+			if strings.Contains(strings.ToLower(v), queryLower) {
+				score = 40
+			}
+		}
+	}
+
+	return score*1000 + importance
+}
+
+func bestNameMatchScore(tags map[string]string, params search.SearchParams, queryLower string) float64 {
+	fields := []string{"name", "alt_name", "old_name", "short_name", "brand", "operator"}
+	for _, lang := range params.Langs {
+		fields = append(fields, "name:"+lang)
+	}
+
+	best := 0.0
+	for _, field := range fields {
+		value := strings.ToLower(tags[field])
+		if value == "" {
+			continue
+		}
+		switch {
+		case directTokenMatch(value, queryLower):
+			best = max(best, 360)
+		case strings.Contains(value, queryLower):
+			best = max(best, 400)
+		}
+	}
+	return best
+}
+
+func directTagValueMatch(value, query string) bool {
+	if value == "" {
+		return false
+	}
+	if directTokenMatch(value, query) {
+		return true
+	}
+	for _, part := range strings.FieldsFunc(strings.ToLower(value), func(r rune) bool {
+		return r == ';' || r == ',' || r == '/'
+	}) {
+		if strings.TrimSpace(part) == query {
+			return true
+		}
+	}
+	return false
+}
+
+func directTokenMatch(value, query string) bool {
+	return strings.TrimSpace(strings.ToLower(value)) == query
+}
+
+func hasFoodServiceClassification(classifications []*Classification) bool {
+	for _, c := range classifications {
+		if c.Key != "amenity" {
+			continue
+		}
+		switch c.Value {
+		case "restaurant", "fast_food", "cafe", "bar", "pub":
+			return true
+		}
+	}
+	return false
+}
+
+func searchCategoryMatches(q string) []search.CategoryMatch {
+	if search.CategoryMapper == nil {
+		return nil
+	}
+	normalized := strings.ToLower(strings.TrimSpace(q))
+	if normalized == "" {
+		return nil
+	}
+	matches := search.CategoryMapper(normalized)
+	if len(matches) == 0 && strings.HasSuffix(normalized, "s") {
+		matches = search.CategoryMapper(normalized[:len(normalized)-1])
+	}
+	return matches
+}
+
+func hasClassification(classifications []*Classification, key, value string) bool {
+	for _, c := range classifications {
+		if c.Key == key && c.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
+func sortAndTruncateDirectHits(res *bleve.SearchResult, from, limit int) *bleve.SearchResult {
+	if res == nil || len(res.Hits) == 0 {
+		return res
+	}
+
+	bestByID := make(map[string]*bleveSearch.DocumentMatch, len(res.Hits))
+	for _, hit := range res.Hits {
+		existing, ok := bestByID[hit.ID]
+		if !ok || hit.Score > existing.Score {
+			bestByID[hit.ID] = hit
+		}
+	}
+
+	deduped := make(bleveSearch.DocumentMatchCollection, 0, len(bestByID))
+	for _, hit := range bestByID {
+		deduped = append(deduped, hit)
+	}
+
+	sort.Slice(deduped, func(i, j int) bool {
+		if deduped[i].Score == deduped[j].Score {
+			return deduped[i].ID < deduped[j].ID
+		}
+		return deduped[i].Score > deduped[j].Score
+	})
+
+	res.Total = uint64(len(deduped))
+	if from > 0 {
+		if from >= len(deduped) {
+			res.Hits = deduped[:0]
+			return res
+		}
+		deduped = deduped[from:]
+	}
+	if limit > 0 && len(deduped) > limit {
+		deduped = deduped[:limit]
+	}
+	res.Hits = deduped
+	return res
 }
 
 func matchFilters(

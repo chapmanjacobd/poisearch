@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"math"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
@@ -158,18 +157,12 @@ func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.
 				continue
 			}
 			if pOpts.collectLimit > 0 && len(res.Hits) >= pOpts.collectLimit {
-				sort.Slice(res.Hits, func(i, j int) bool {
-					return res.Hits[i].Score > res.Hits[j].Score
-				})
-				return search.ReRankAndTruncate(res, params.Limit, params.PopBoost), nil
+				return sortAndTruncateDirectHits(res, params.From, params.Limit), nil
 			}
 		}
 	}
 
-	sort.Slice(res.Hits, func(i, j int) bool {
-		return res.Hits[i].Score > res.Hits[j].Score
-	})
-	return search.ReRankAndTruncate(res, params.Limit, params.PopBoost), nil
+	return sortAndTruncateDirectHits(res, params.From, params.Limit), nil
 }
 
 func processAllTiles(ctx context.Context, archive *pmtilesCache, p *processTileOptions) (*bleve.SearchResult, error) {
@@ -182,10 +175,7 @@ func processAllTiles(ctx context.Context, archive *pmtilesCache, p *processTileO
 		return p.res, err
 	}
 
-	sort.Slice(p.res.Hits, func(i, j int) bool {
-		return p.res.Hits[i].Score > p.res.Hits[j].Score
-	})
-	return search.ReRankAndTruncate(p.res, p.params.Limit, p.params.PopBoost), nil
+	return sortAndTruncateDirectHits(p.res, p.params.From, p.params.Limit), nil
 }
 
 func processDirectory(ctx context.Context, archive *pmtilesCache, offset, length uint64, p *processTileOptions) error {
@@ -454,7 +444,8 @@ func processMVTFeature(feature *geojson.Feature, layerName string, p *processTil
 
 	if hit := processPBFEntity("pmtiles", id, tags, coords,
 		p.queryLower, p.params, p.conf, p.ont, p.geosCtx); hit != nil {
-		if collectHit(p.res, hit, p.params) {
+		collectHit(p.res, hit)
+		if p.collectLimit > 0 && len(p.res.Hits) >= p.collectLimit {
 			return true // Limit reached
 		}
 	}

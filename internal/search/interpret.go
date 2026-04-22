@@ -46,8 +46,8 @@ func generateInterpretations(q string) []QueryInterpretation {
 
 	interpretations := make([]QueryInterpretation, 0, 5)
 
-	// Interpretation 1: Full phrase match (highest quality, lowest penalty)
-	fullQuery := addNameQuery(q, "name")
+	// Interpretation 1: Full free-text intent match (highest quality, lowest penalty)
+	fullQuery := buildTextIntentQuery(q)
 	interpretations = append(interpretations, QueryInterpretation{
 		Description: "full phrase",
 		Queries:     []query.Query{fullQuery},
@@ -56,14 +56,12 @@ func generateInterpretations(q string) []QueryInterpretation {
 
 	// Interpretation 2: Check for category match (e.g. "restaurants")
 	if CategoryMapper != nil {
-		matches := CategoryMapper(q)
+		matches := resolveCategoryMatches(q)
 		if len(matches) > 0 {
 			catQueries := make([]query.Query, 0, len(matches)*2)
 			for _, m := range matches {
-				cq1 := bleve.NewMatchQuery(m.Value)
-				cq1.SetField("value")
-				cq2 := bleve.NewMatchQuery(m.Value)
-				cq2.SetField("values")
+				cq1 := addKeywordQuery(m.Value, "value", 8.0)
+				cq2 := addKeywordQuery(m.Value, "values", 7.0)
 				catQueries = append(catQueries, cq1, cq2)
 			}
 			interpretations = append(interpretations, QueryInterpretation{
@@ -91,14 +89,12 @@ func generateInterpretations(q string) []QueryInterpretation {
 
 	// Interpretation 4: First term as category, rest as name (e.g. "restaurant Berlin")
 	if CategoryMapper != nil {
-		catMatches := CategoryMapper(terms[0])
+		catMatches := resolveCategoryMatches(terms[0])
 		if len(catMatches) > 0 && len(terms) > 1 {
 			catQueries := make([]query.Query, 0, len(catMatches)*2)
 			for _, m := range catMatches {
-				cq1 := bleve.NewMatchQuery(m.Value)
-				cq1.SetField("value")
-				cq2 := bleve.NewMatchQuery(m.Value)
-				cq2.SetField("values")
+				cq1 := addKeywordQuery(m.Value, "value", 8.0)
+				cq2 := addKeywordQuery(m.Value, "values", 7.0)
 				catQueries = append(catQueries, cq1, cq2)
 			}
 			nameQuery := addNameQuery(strings.Join(terms[1:], " "), "name")

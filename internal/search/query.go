@@ -2,6 +2,7 @@ package search
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/search/query"
@@ -101,6 +102,7 @@ func addNameQuery(q, field string) query.Query {
 	// Standard exact word match (high boost)
 	mq := bleve.NewMatchQuery(q)
 	mq.SetField(field)
+	mq.Analyzer = "standard"
 	mq.SetBoost(5.0)
 
 	// Autocomplete edge_ngram match (normal boost)
@@ -114,10 +116,62 @@ func addNameQuery(q, field string) query.Query {
 	// Fuzzy match for typo tolerance (low boost)
 	fq := bleve.NewMatchQuery(q)
 	fq.SetField(field)
+	fq.Analyzer = "standard"
 	fq.SetFuzziness(1)
 	fq.SetBoost(0.5)
 
 	return bleve.NewDisjunctionQuery(mq, eq, fq)
+}
+
+func addKeywordQuery(q, field string, boost float64) query.Query {
+	mq := bleve.NewMatchQuery(q)
+	mq.SetField(field)
+	mq.Analyzer = "keyword"
+	mq.SetBoost(boost)
+	return mq
+}
+
+func resolveCategoryMatches(q string) []CategoryMatch {
+	if CategoryMapper == nil {
+		return nil
+	}
+
+	normalized := strings.ToLower(strings.TrimSpace(q))
+	if normalized == "" {
+		return nil
+	}
+
+	matches := CategoryMapper(normalized)
+	if len(matches) == 0 && strings.HasSuffix(normalized, "s") {
+		matches = CategoryMapper(normalized[:len(normalized)-1])
+	}
+	return matches
+}
+
+func buildTextIntentQuery(q string) query.Query {
+	normalized := normalizeQuery(q)
+	clauses := []query.Query{
+		addNameQuery(normalized, "name"),
+		addNameQuery(normalized, "_search_names"),
+	}
+
+	if len(strings.Fields(normalized)) == 1 {
+		clauses = append(clauses,
+			addKeywordQuery(normalized, "value", 7.0),
+			addKeywordQuery(normalized, "values", 6.0),
+			addKeywordQuery(normalized, "key", 2.0),
+			addKeywordQuery(normalized, "keys", 1.5),
+		)
+	}
+
+	for _, match := range resolveCategoryMatches(q) {
+		clauses = append(clauses,
+			addKeywordQuery(match.Value, "value", 8.0),
+			addKeywordQuery(match.Value, "values", 7.0),
+		)
+	}
+
+	return bleve.NewDisjunctionQuery(clauses...)
 }
 
 // Search performs a search on the Bleve index with the given parameters.
@@ -146,15 +200,7 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	var q query.Query
 
 	if params.Query != "" {
-		// Normalize the query for consistent matching
-		normalized := normalizeQuery(params.Query)
-
-		// Search across primary and combined search names
-		nameQueries := []query.Query{
-			addNameQuery(normalized, "name"),
-			addNameQuery(normalized, "_search_names"),
-		}
-		q = bleve.NewDisjunctionQuery(nameQueries...)
+		q = buildTextIntentQuery(params.Query)
 	} else {
 		q = bleve.NewMatchAllQuery()
 	}
