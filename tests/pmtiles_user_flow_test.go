@@ -132,10 +132,11 @@ func TestUserFlow_PMTilesStructuredSearch(t *testing.T) {
 		t.Logf("Spatial search (pizza near Vaduz) returned %d results.", len(results.Hits))
 		for _, hit := range results.Hits {
 			name := strings.ToLower(fmt.Sprintf("%v", hit.Fields["name"]))
-			if !strings.Contains(name, "pizza") && !strings.Contains(name, "azzurro") { // Azzurro is a pizza place in Vaduz
+			if !strings.Contains(name, "pizza") &&
+				!strings.Contains(name, "azzurro") { // Azzurro is a pizza place in Vaduz
+
 				t.Errorf("Result %s does not seem to match 'pizza'", name)
 			}
 		}
 	})
 }
-

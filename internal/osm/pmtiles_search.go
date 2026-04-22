@@ -427,7 +427,6 @@ func processMVTFeature(feature *geojson.Feature, layerName string, p *processTil
 	filter := computeSpatialFilter(p.params)
 	radiusMeters := parseRadiusToInt(p.params.Radius)
 	if !matchesGeometryCoarseFilter(feature.Geometry, coords, &filter, p.params, radiusMeters) {
-
 		return false
 	}
 

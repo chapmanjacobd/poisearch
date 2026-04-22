@@ -76,7 +76,6 @@ func TestSearchboxQuality_Liechtenstein(t *testing.T) {
 	}
 
 	for _, mode := range modes {
-		mode := mode
 		t.Run(mode.name, func(t *testing.T) {
 			t.Run("pizza-global", func(t *testing.T) {
 				results := mode.search(t, search.SearchParams{

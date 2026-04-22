@@ -125,7 +125,7 @@ func NearSearch(index bleve.Index, baseParams SearchParams, category, referenceP
 	}, nil
 }
 
-func hitLatLon(hit *blevesearch.DocumentMatch) (float64, float64, bool) {
+func hitLatLon(hit *blevesearch.DocumentMatch) (lat, lon float64, ok bool) {
 	geometry, ok := hit.Fields["geometry"]
 	if !ok {
 		return 0, 0, false

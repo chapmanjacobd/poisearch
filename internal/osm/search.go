@@ -28,7 +28,7 @@ type spatialFilter struct {
 // PBFSearch performs a search directly on an OSM PBF file without using a Bleve index.
 // This is slower but useful for small PBF files or debugging.
 //
-//nolint:revive // Direct PBF searching requires coordinating streaming and filtering
+
 func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) (*bleve.SearchResult, error) {
 	// Load ontology for classification
 	ont := DefaultOntology()
@@ -453,7 +453,8 @@ func computeDirectScore(
 }
 
 func bestNameMatchScore(tags map[string]string, params search.SearchParams, queryLower string) float64 {
-	fields := []string{"name", "alt_name", "old_name", "short_name", "brand", "operator"}
+	fields := make([]string, 0, 6+len(params.Langs))
+	fields = append(fields, "name", "alt_name", "old_name", "short_name", "brand", "operator")
 	for _, lang := range params.Langs {
 		fields = append(fields, "name:"+lang)
 	}
@@ -672,7 +673,9 @@ func matchAddress(tags map[string]string, params search.SearchParams) bool {
 	}
 	if params.City != "" {
 		city := tags["addr:city"]
-		if city == "" && (tags["place"] != "" || tags["class"] == "city" || tags["class"] == "town" || tags["class"] == "village") {
+		if city == "" &&
+			(tags["place"] != "" || tags["class"] == "city" || tags["class"] == "town" || tags["class"] == "village") {
+
 			city = tags["name"]
 		}
 		if !strings.Contains(strings.ToLower(city), strings.ToLower(params.City)) {
