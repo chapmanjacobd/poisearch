@@ -9,11 +9,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/blevesearch/bleve/v2"
 	bleveSearch "github.com/blevesearch/bleve/v2/search"
 	"github.com/chapmanjacobd/poisearch/internal/config"
 	"github.com/chapmanjacobd/poisearch/internal/search"
+	"github.com/paulmach/orb"
 	osmapi "github.com/paulmach/osm"
 	"github.com/paulmach/osm/osmpbf"
 	"github.com/twpayne/go-geos"
@@ -30,6 +32,16 @@ type spatialFilter struct {
 //
 
 func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) (*bleve.SearchResult, error) {
+	if search.IsNearQuery(params.Query) {
+		return directNearSearch(params, func(nearParams search.SearchParams) (*bleve.SearchResult, error) {
+			return pbfSearchRaw(pbfPath, nearParams, conf)
+		})
+	}
+
+	return pbfSearchRaw(pbfPath, params, conf)
+}
+
+func pbfSearchRaw(pbfPath string, params search.SearchParams, conf *config.Config) (*bleve.SearchResult, error) {
 	// Load ontology for classification
 	ont := DefaultOntology()
 	if conf.OntologyPath != "" {
@@ -95,19 +107,7 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 				continue
 			}
 
-			if !matchesSpatialFilter(
-				nanodegree(coords[0][1]),
-				nanodegree(coords[0][0]),
-				filter.hasRadius,
-				filter.hasBbox,
-				filter.minLat,
-				filter.maxLat,
-				filter.minLon,
-				filter.maxLon,
-				params,
-				filter.radiusMeters,
-			) {
-
+			if !matchesCoordsSpatialFilter(coords, &filter, params, filter.radiusMeters) {
 				continue
 			}
 
@@ -125,19 +125,7 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 				continue
 			}
 
-			if !matchesSpatialFilter(
-				nanodegree(coords[0][1]),
-				nanodegree(coords[0][0]),
-				filter.hasRadius,
-				filter.hasBbox,
-				filter.minLat,
-				filter.maxLat,
-				filter.minLon,
-				filter.maxLon,
-				params,
-				filter.radiusMeters,
-			) {
-
+			if !matchesCoordsSpatialFilter(coords, &filter, params, filter.radiusMeters) {
 				continue
 			}
 
@@ -153,6 +141,55 @@ func PBFSearch(pbfPath string, params search.SearchParams, conf *config.Config) 
 	}
 
 	return sortAndTruncateDirectHits(res, params.From, params.Limit), nil
+}
+
+func directNearSearch(
+	baseParams search.SearchParams,
+	searchFn func(search.SearchParams) (*bleve.SearchResult, error),
+) (*bleve.SearchResult, error) {
+	category, referencePlace, isNear := search.ParseNearQuery(baseParams.Query)
+	if !isNear {
+		return searchFn(baseParams)
+	}
+
+	refParams := search.SearchParams{
+		Query:      referencePlace,
+		Limit:      1,
+		Langs:      baseParams.Langs,
+		GeoMode:    baseParams.GeoMode,
+		Fuzzy:      baseParams.Fuzzy,
+		Prefix:     baseParams.Prefix,
+		Analyzer:   baseParams.Analyzer,
+		ExactMatch: baseParams.ExactMatch,
+	}
+
+	refResults, err := searchFn(refParams)
+	if err != nil {
+		return nil, err
+	}
+
+	if refResults == nil || len(refResults.Hits) == 0 {
+		return &bleve.SearchResult{}, nil
+	}
+
+	lat, lon, ok := search.HitLatLon(refResults.Hits[0])
+	if !ok {
+		return &bleve.SearchResult{}, nil
+	}
+
+	searchParams := baseParams
+	searchParams.Query = category
+	searchParams.Lat = &lat
+	searchParams.Lon = &lon
+	searchParams.MinLat = nil
+	searchParams.MaxLat = nil
+	searchParams.MinLon = nil
+	searchParams.MaxLon = nil
+	if searchParams.Radius == "" {
+		searchParams.Radius = "5000m"
+	}
+
+	return searchFn(searchParams)
 }
 
 func computeSpatialFilter(params search.SearchParams) spatialFilter {
@@ -299,6 +336,58 @@ func matchesSpatialFilter(
 	return true
 }
 
+func matchesCoordsSpatialFilter(
+	coords [][]float64,
+	filter *spatialFilter,
+	params search.SearchParams,
+	radiusMeters int,
+) bool {
+	if !filter.hasRadius && !filter.hasBbox {
+		return true
+	}
+
+	for _, coord := range coords {
+		if matchesCoordSpatialFilter(coord, filter, params, radiusMeters) {
+			return true
+		}
+	}
+
+	geom := coordsToOrbGeometry(coords)
+	if geom == nil || !geometryBoundMatchesFilter(geom.Bound(), filter) {
+		return false
+	}
+
+	if filter.hasRadius {
+		center := orb.Point{*params.Lon, *params.Lat}
+		return localMetricDistanceFrom(geom, center) <= float64(radiusMeters)
+	}
+
+	return true
+}
+
+func coordsToOrbGeometry(coords [][]float64) orb.Geometry {
+	switch {
+	case len(coords) == 0:
+		return nil
+	case len(coords) == 1:
+		return orb.Point{coords[0][0], coords[0][1]}
+	case len(coords) >= 4 &&
+		coords[0][0] == coords[len(coords)-1][0] &&
+		coords[0][1] == coords[len(coords)-1][1]:
+		ring := make(orb.Ring, 0, len(coords))
+		for _, coord := range coords {
+			ring = append(ring, orb.Point{coord[0], coord[1]})
+		}
+		return orb.Polygon{ring}
+	default:
+		line := make(orb.LineString, 0, len(coords))
+		for _, coord := range coords {
+			line = append(line, orb.Point{coord[0], coord[1]})
+		}
+		return line
+	}
+}
+
 // processPBFEntity processes an OSM entity and creates a search result match.
 //
 //nolint:revive // Processing entities requires handling many cases
@@ -443,8 +532,12 @@ func computeDirectScore(
 				score = 80
 				break
 			}
-			if strings.Contains(strings.ToLower(v), queryLower) {
-				score = 40
+			matchScore := directTextMatchScore(v, queryLower, params)
+			switch {
+			case matchScore >= 320:
+				score = max(score, 60)
+			case matchScore > 0:
+				score = max(score, 40)
 			}
 		}
 	}
@@ -461,16 +554,7 @@ func bestNameMatchScore(tags map[string]string, params search.SearchParams, quer
 
 	best := 0.0
 	for _, field := range fields {
-		value := strings.ToLower(tags[field])
-		if value == "" {
-			continue
-		}
-		switch {
-		case directTokenMatch(value, queryLower):
-			best = max(best, 360)
-		case strings.Contains(value, queryLower):
-			best = max(best, 400)
-		}
+		best = max(best, directTextMatchScore(tags[field], queryLower, params))
 	}
 	return best
 }
@@ -490,6 +574,132 @@ func directTagValueMatch(value, query string) bool {
 		}
 	}
 	return false
+}
+
+func directTextMatchScore(value, query string, params search.SearchParams) float64 {
+	if value == "" || query == "" {
+		return 0
+	}
+
+	valueLower := strings.ToLower(value)
+	if strings.Contains(valueLower, query) {
+		if directTokenMatch(value, query) {
+			return 360
+		}
+		return 400
+	}
+
+	if params.Prefix && directPrefixMatch(value, query) {
+		return 320
+	}
+
+	if params.Fuzzy && directFuzzyMatch(value, query) {
+		return 240
+	}
+
+	return 0
+}
+
+func directPrefixMatch(value, query string) bool {
+	compactQuery := compactDirectText(query)
+	if compactQuery == "" {
+		return false
+	}
+
+	if strings.HasPrefix(compactDirectText(value), compactQuery) {
+		return true
+	}
+
+	for _, token := range tokenizeDirectText(value) {
+		if strings.HasPrefix(token, compactQuery) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func directFuzzyMatch(value, query string) bool {
+	compactQuery := compactDirectText(query)
+	if compactQuery == "" {
+		return false
+	}
+
+	if boundedEditDistance(compactDirectText(value), compactQuery, 1) <= 1 {
+		return true
+	}
+
+	for _, token := range tokenizeDirectText(value) {
+		if boundedEditDistance(token, compactQuery, 1) <= 1 {
+			return true
+		}
+	}
+
+	return false
+}
+
+func compactDirectText(value string) string {
+	var b strings.Builder
+	b.Grow(len(value))
+	for _, r := range strings.ToLower(value) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func tokenizeDirectText(value string) []string {
+	return strings.FieldsFunc(strings.ToLower(value), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+}
+
+func boundedEditDistance(a, b string, maxDistance int) int {
+	if intAbs(len(a)-len(b)) > maxDistance {
+		return maxDistance + 1
+	}
+
+	prev := make([]int, len(b)+1)
+	curr := make([]int, len(b)+1)
+	for j := range len(prev) {
+		prev[j] = j
+	}
+
+	for i := 1; i <= len(a); i++ {
+		curr[0] = i
+		minInRow := curr[0]
+		for j := 1; j <= len(b); j++ {
+			cost := 0
+			if a[i-1] != b[j-1] {
+				cost = 1
+			}
+
+			curr[j] = min(prev[j]+1, curr[j-1]+1, prev[j-1]+cost)
+			if curr[j] < minInRow {
+				minInRow = curr[j]
+			}
+		}
+
+		if minInRow > maxDistance {
+			return maxDistance + 1
+		}
+
+		prev, curr = curr, prev
+	}
+
+	if prev[len(b)] > maxDistance {
+		return maxDistance + 1
+	}
+
+	return prev[len(b)]
+}
+
+func intAbs(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func directTokenMatch(value, query string) bool {
@@ -638,23 +848,23 @@ func MatchTextQuery(tags map[string]string, params search.SearchParams, queryLow
 	if params.Query == "" {
 		return true
 	}
-	if strings.Contains(strings.ToLower(tags["name"]), queryLower) {
+	if directTextMatchScore(tags["name"], queryLower, params) > 0 {
 		return true
 	}
 	for _, alt := range []string{"alt_name", "old_name", "short_name", "brand", "operator", "religion", "denomination"} {
-		if strings.Contains(strings.ToLower(tags[alt]), queryLower) {
+		if directTextMatchScore(tags[alt], queryLower, params) > 0 {
 			return true
 		}
 	}
 	for _, lang := range params.Langs {
-		if strings.Contains(strings.ToLower(tags["name:"+lang]), queryLower) {
+		if directTextMatchScore(tags["name:"+lang], queryLower, params) > 0 {
 			return true
 		}
 	}
 
 	// Optional: Search all tags if requested or as fallback
 	for _, v := range tags {
-		if strings.Contains(strings.ToLower(v), queryLower) {
+		if directTextMatchScore(v, queryLower, params) > 0 {
 			return true
 		}
 	}

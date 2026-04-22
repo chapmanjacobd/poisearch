@@ -69,6 +69,9 @@ Metadata and direct PBF examples:
 # Search for wheelchair accessible POIs
 curl "http://localhost:9889/search?wheelchair=yes&city=Berlin"
 
+# Natural-language near search works in index, PBF, and PMTiles modes
+curl "http://localhost:9889/search?q=pizza%20near%20Vaduz&mode=pmtiles"
+
 # Direct PBF search (no index needed)
 curl "http://localhost:9889/search?q=museum&mode=pbf"
 
@@ -93,8 +96,11 @@ The following query parameters are supported on `/search`:
 | `langs` | string | `en,de` | Comma-separated list of preferred languages |
 | `fuzzy` | bool | `true` | Toggle fuzzy matching (true/1) |
 | `prefix` | bool | `true` | Toggle prefix matching (true/1) |
+| `exact_match` | bool | `true` | PMTiles only: enable slower, more precise non-point geometry filtering per request |
 | `key`, `value` | string | `amenity`, `restaurant` | Filter by primary classification |
 | `keys`, `values` | string | `amenity,shop` | Comma-separated multi-value filters |
+
+`q` also supports `X near Y`, `X in Y`, `X around Y`, and `X close to Y` patterns in all three search modes. Direct PBF/PMTiles near-search resolves `Y` with a first search pass, then runs the category search around the resolved point.
 
 ### Supported Tags
 
@@ -112,10 +118,13 @@ The following query parameters are supported on `/search`:
 | Feature/Tag | Bleve Index | PBF (`--mode=pbf`) | PMTiles (`--mode=pmtiles`) |
 | :--- | :--- | :--- | :--- |
 | Searchable Fields | Explicitly mapped fields (Name, Address, Metadata, Key). Fast & Scalable. | Full Tag Set. Matches against all OSM tags via arbitrary data fallback. | Limited by PMTiles schema (default: OpenMapTiles). |
+| Query Features | Multi-interpretation, `near` queries, fuzzy/prefix matching. | `near` queries, fuzzy/prefix matching, full-tag fallback. | `near` queries, fuzzy/prefix matching, optional `exact_match` geometry filtering. |
 | Performance | High. Optimized for large datasets and complex queries. | Low. Linear scan of the PBF file. Best for small files. | Medium. Spatial indexing allows fast lookups without a full index. |
 | Address Support | Strong. Indexed `addr:*` tags including floor, unit, and level. | Strong. Direct access to all address tags in the PBF. | Weak. Most address tags are stripped by default OMT schema. |
 | Classification | Static. Pre-calculated at index time for maximum speed. | Dynamic. Re-calculates classification on every scan. | Heuristic. Re-maps generic OMT keys back to OSM tags. |
 | Custom Tags | Requires updating `mapping.go` and re-indexing. | High. Instant support for any tag via `TagMap()`. | Very Low. Limited to what `planetiler` preserves. |
+
+PMTiles limitations are usually schema limitations, not parser bugs: if the archive generator dropped `addr:*`, phone, or custom OSM tags, direct PMTiles search cannot recover them later.
 
 ## Benchmark Results (liechtenstein-latest.osm.pbf, 3.19 MB)
 ```plain

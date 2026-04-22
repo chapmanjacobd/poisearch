@@ -350,6 +350,7 @@ func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams
 		Phone:        q.Get("phone"),
 		Wheelchair:   q.Get("wheelchair"),
 		OpeningHours: q.Get("opening_hours"),
+		ExactMatch:   parseBool(q.Get("exact_match")),
 		Analyzer:     conf.NameAnalyzer,
 		PopBoost:     conf.Importance.PopBoost,
 	}

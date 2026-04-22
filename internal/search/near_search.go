@@ -50,6 +50,16 @@ func isNearQuery(q string) bool {
 	return ok
 }
 
+// ParseNearQuery checks if the query matches a "X near Y" style pattern.
+func ParseNearQuery(q string) (category, referencePlace string, isNear bool) {
+	return parseNearQuery(q)
+}
+
+// IsNearQuery returns true if the query looks like a "X near Y" style pattern.
+func IsNearQuery(q string) bool {
+	return isNearQuery(q)
+}
+
 // NearSearch executes a "X near Y" query:
 // 1. Searches for the reference place Y to get coordinates
 // 2. Searches for category X near those coordinates
@@ -166,4 +176,9 @@ func hitLatLon(hit *blevesearch.DocumentMatch) (lat, lon float64, ok bool) {
 	}
 
 	return 0, 0, false
+}
+
+// HitLatLon extracts a representative latitude/longitude from a search hit.
+func HitLatLon(hit *blevesearch.DocumentMatch) (lat, lon float64, ok bool) {
+	return hitLatLon(hit)
 }

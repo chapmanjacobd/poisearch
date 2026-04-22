@@ -50,6 +50,34 @@ func TestMatchTextQuery(t *testing.T) {
 			queryLower: "burger",
 			expected:   false,
 		},
+		{
+			name:       "fuzzy match name when enabled",
+			tags:       map[string]string{"name": "Berlin"},
+			params:     search.SearchParams{Query: "Brlin", Fuzzy: true},
+			queryLower: "brlin",
+			expected:   true,
+		},
+		{
+			name:       "fuzzy match name when disabled",
+			tags:       map[string]string{"name": "Berlin"},
+			params:     search.SearchParams{Query: "Brlin"},
+			queryLower: "brlin",
+			expected:   false,
+		},
+		{
+			name:       "prefix match across punctuation when enabled",
+			tags:       map[string]string{"name": "Mc.Donald's"},
+			params:     search.SearchParams{Query: "mcd", Prefix: true},
+			queryLower: "mcd",
+			expected:   true,
+		},
+		{
+			name:       "prefix match across punctuation when disabled",
+			tags:       map[string]string{"name": "Mc.Donald's"},
+			params:     search.SearchParams{Query: "mcd"},
+			queryLower: "mcd",
+			expected:   false,
+		},
 	}
 
 	for _, tt := range tests {

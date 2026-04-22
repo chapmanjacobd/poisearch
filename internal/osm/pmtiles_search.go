@@ -88,6 +88,16 @@ func (m *pmtilesManager) getOrCreateArchive(pmtilesPath string) (*pmtilesCache, 
 // PMTilesSearch performs a search directly on a PMTiles archive.
 // It reads tiles directly without the overhead of a PMTiles server.
 func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.Config) (*bleve.SearchResult, error) {
+	if search.IsNearQuery(params.Query) {
+		return directNearSearch(params, func(nearParams search.SearchParams) (*bleve.SearchResult, error) {
+			return pmtilesSearchRaw(pmtilesPath, nearParams, conf)
+		})
+	}
+
+	return pmtilesSearchRaw(pmtilesPath, params, conf)
+}
+
+func pmtilesSearchRaw(pmtilesPath string, params search.SearchParams, conf *config.Config) (*bleve.SearchResult, error) {
 	ctx := context.Background()
 
 	// Load ontology for classification
