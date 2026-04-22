@@ -40,7 +40,6 @@ store_address = false             # Index addr:* tags for address search
 index_wikidata_redirects = false  # Index Wikipedia redirect titles as alternate names (increases size)
 
 # Build optimization
-build_workers = 8                 # Parallel workers for index building (1-32)
 geo_batch_size = 500              # Batch size for geometry operations (50-1000)
 index_batch_size = 5000           # Batch size for bleve indexing (default: 5000, higher is usually faster but uses more memory)
 
