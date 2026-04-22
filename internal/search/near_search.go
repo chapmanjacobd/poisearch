@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/blevesearch/bleve/v2"
+	blevesearch "github.com/blevesearch/bleve/v2/search"
 )
 
 // nearPattern matches "X near Y" or "X in Y" patterns.
@@ -81,22 +82,10 @@ func NearSearch(index bleve.Index, baseParams SearchParams, category, referenceP
 
 	// Extract coordinates from first hit
 	hit := refResults.Hits[0]
-	var lat, lon float64
-
-	// Try to get coordinates from the hit
-	if fields, ok := hit.Fields["lat"]; ok {
-		if v, ok := fields.(float64); ok {
-			lat = v
-		}
-	}
-	if fields, ok := hit.Fields["lon"]; ok {
-		if v, ok := fields.(float64); ok {
-			lon = v
-		}
-	}
+	lat, lon, ok := hitLatLon(hit)
 
 	// If no coordinates found, return empty results
-	if lat == 0 && lon == 0 {
+	if !ok {
 		return &NearResult{
 			Category:       category,
 			ReferencePlace: referencePlace,
@@ -134,4 +123,47 @@ func NearSearch(index bleve.Index, baseParams SearchParams, category, referenceP
 		Lon:            lon,
 		Results:        results,
 	}, nil
+}
+
+func hitLatLon(hit *blevesearch.DocumentMatch) (float64, float64, bool) {
+	geometry, ok := hit.Fields["geometry"]
+	if !ok {
+		return 0, 0, false
+	}
+
+	switch geom := geometry.(type) {
+	case []float64:
+		if len(geom) == 2 {
+			return geom[1], geom[0], true
+		}
+	case []any:
+		if len(geom) == 2 {
+			lon, lonOK := geom[0].(float64)
+			lat, latOK := geom[1].(float64)
+			if lonOK && latOK {
+				return lat, lon, true
+			}
+		}
+	case map[string]any:
+		if lat, latOK := geom["lat"].(float64); latOK {
+			if lon, lonOK := geom["lon"].(float64); lonOK {
+				return lat, lon, true
+			}
+		}
+		if coords, ok := geom["coordinates"].([]any); ok && len(coords) == 2 {
+			lon, lonOK := coords[0].(float64)
+			lat, latOK := coords[1].(float64)
+			if lonOK && latOK {
+				return lat, lon, true
+			}
+		}
+	case map[string]float64:
+		lat, latOK := geom["lat"]
+		lon, lonOK := geom["lon"]
+		if latOK && lonOK {
+			return lat, lon, true
+		}
+	}
+
+	return 0, 0, false
 }

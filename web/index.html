@@ -222,7 +222,12 @@
             renderHits(allHits, totalCount);
         } catch (e) {
             console.error(e);
-            document.getElementById('hits-container').innerHTML = `<div class="alert alert-danger">Search failed: ${e.message}</div>`;
+            const container = document.getElementById('hits-container');
+            container.innerHTML = '';
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-danger';
+            alert.textContent = `Search failed: ${e.message}`;
+            container.appendChild(alert);
         } finally {
             document.getElementById('loading').style.display = 'none';
         }
@@ -245,7 +250,7 @@
                     const marker = L.marker(coords).addTo(markers);
                     const name = Array.isArray(hit.fields.name) ? hit.fields.name[0] : (hit.fields.name || hit.id);
                     const kv = hit.fields.key ? `${hit.fields.key}=${Array.isArray(hit.fields.value) ? hit.fields.value[0] : hit.fields.value}` : '';
-                    marker.bindPopup(`<b>${name}</b><br>${kv}`);
+                    marker.bindPopup(createPopupContent(name, kv));
                     bounds.extend(coords);
                     card.onclick = () => {
                         map.setView(coords, 16);
@@ -267,19 +272,63 @@
         div.className = 'hit-card';
         const f = hit.fields;
         const getVal = (v) => Array.isArray(v) ? v[0] : v;
-        
-        div.innerHTML = `
-            <div class="d-flex justify-content-between align-items-start mb-1">
-                <span class="fw-bold">${getVal(f.name) || hit.id}</span>
-                <span class="score">${hit.score.toFixed(2)}</span>
-            </div>
-            <div class="mb-2">
-                ${f.key ? `<span class="badge bg-secondary tag-badge">${getVal(f.key)}=${getVal(f.value)}</span>` : ''}
-                ${f.importance ? `<span class="badge bg-light text-dark border tag-badge">Imp: ${getVal(f.importance).toFixed(3)}</span>` : ''}
-            </div>
-            ${f.display_address ? `<div class="small text-muted mb-1">${getVal(f.display_address)}</div>` : ''}
-        `;
+
+        const header = document.createElement('div');
+        header.className = 'd-flex justify-content-between align-items-start mb-1';
+
+        const title = document.createElement('span');
+        title.className = 'fw-bold';
+        title.textContent = getVal(f.name) || hit.id;
+        header.appendChild(title);
+
+        const score = document.createElement('span');
+        score.className = 'score';
+        score.textContent = hit.score.toFixed(2);
+        header.appendChild(score);
+
+        div.appendChild(header);
+
+        const badges = document.createElement('div');
+        badges.className = 'mb-2';
+        if (f.key) {
+            badges.appendChild(createBadge('badge bg-secondary tag-badge', `${getVal(f.key)}=${getVal(f.value)}`));
+        }
+        if (f.importance) {
+            badges.appendChild(createBadge('badge bg-light text-dark border tag-badge', `Imp: ${getVal(f.importance).toFixed(3)}`));
+        }
+        if (badges.childNodes.length > 0) {
+            div.appendChild(badges);
+        }
+
+        if (f.display_address) {
+            const address = document.createElement('div');
+            address.className = 'small text-muted mb-1';
+            address.textContent = getVal(f.display_address);
+            div.appendChild(address);
+        }
+
         return div;
+    }
+
+    function createBadge(className, text) {
+        const badge = document.createElement('span');
+        badge.className = className;
+        badge.textContent = text;
+        return badge;
+    }
+
+    function createPopupContent(name, kv) {
+        const wrapper = document.createElement('div');
+        const title = document.createElement('b');
+        title.textContent = name;
+        wrapper.appendChild(title);
+
+        if (kv) {
+            wrapper.appendChild(document.createElement('br'));
+            wrapper.appendChild(document.createTextNode(kv));
+        }
+
+        return wrapper;
     }
 
     function getHitCoords(hit) {

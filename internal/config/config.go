@@ -25,7 +25,7 @@ type Config struct {
 	OntologyPath           string            `toml:"ontology_path"`       // Optional: path to custom place type ontology CSV
 	Languages              []string          `toml:"languages"`
 	Importance             ImportanceWeights `toml:"importance"`
-	GeometryMode           string            `toml:"geometry_mode"`            // "geopoint", "geoshape-bbox", "geoshape-simplified", "geoshape-full", "no-geo"
+	GeometryMode           string            `toml:"geometry_mode"`            // "geopoint", "geopoint-centroid", "geoshape-bbox", "geoshape-simplified", "geoshape-full", "no-geo"
 	SimplificationTol      float64           `toml:"simplification_tolerance"` // tolerance for SimplifyPreserveTopology
 	NameAnalyzer           string            `toml:"name_analyzer"`            // "standard", "edge_ngram", "ngram"
 	Server                 ServerConfig      `toml:"server"`

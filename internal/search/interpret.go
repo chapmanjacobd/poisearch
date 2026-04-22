@@ -174,8 +174,20 @@ func executeInterpretations(index bleve.Index, params SearchParams) (*bleve.Sear
 	searchRequest.Size = min(originalLimit*3, 2000)
 	searchRequest.From = params.From
 
-	// Configure result fields
-	searchRequest.Fields = []string{"*", "-geometry"}
+	fields := []string{
+		"name", "alt_name", "old_name", "short_name", "brand", "operator",
+		"key", "value", "keys", "values", "importance",
+		"geometry", "distance_meters",
+		"display_address",
+		"phone", "wheelchair", "opening_hours",
+		"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
+		"addr:country", "addr:state", "addr:district", "addr:suburb",
+		"addr:neighbourhood", "addr:floor", "addr:unit", "level",
+	}
+	for _, lang := range params.Langs {
+		fields = append(fields, "name:"+lang, "alt_name:"+lang, "old_name:"+lang, "short_name:"+lang)
+	}
+	searchRequest.Fields = fields
 	searchRequest.IncludeLocations = false
 	searchRequest.SortBy([]string{"_score"})
 

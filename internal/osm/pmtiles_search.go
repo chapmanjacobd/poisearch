@@ -429,20 +429,14 @@ func extractFeatureID(fid any) int64 {
 
 func processMVTFeature(feature *geojson.Feature, layerName string, p *processTileOptions) bool {
 	tags := extractOMTTags(feature, layerName, p.conf.Languages)
-
-	// Fast path: use first coordinate for initial spatial filtering
 	coords := featureToCoords(feature.Geometry)
 	if len(coords) == 0 {
 		return false
 	}
 
-	latNano := nanodegree(coords[0][1])
-	lonNano := nanodegree(coords[0][0])
-
 	filter := computeSpatialFilter(p.params)
 	radiusMeters := parseRadiusToInt(p.params.Radius)
-	if !matchesSpatialFilter(latNano, lonNano, filter.hasRadius, filter.hasBbox,
-		filter.minLat, filter.maxLat, filter.minLon, filter.maxLon, p.params, radiusMeters) {
+	if !matchesGeometryCoarseFilter(feature.Geometry, coords, &filter, p.params, radiusMeters) {
 
 		return false
 	}
@@ -591,13 +585,70 @@ func featureToCoords(g orb.Geometry) [][]float64 {
 	return res
 }
 
+func matchesGeometryCoarseFilter(
+	g orb.Geometry,
+	coords [][]float64,
+	f *spatialFilter,
+	params search.SearchParams,
+	radiusMeters int,
+) bool {
+	switch g.(type) {
+	case orb.Point:
+		return len(coords) > 0 && matchesCoordSpatialFilter(coords[0], f, params, radiusMeters)
+	case orb.MultiPoint:
+		for _, coord := range coords {
+			if matchesCoordSpatialFilter(coord, f, params, radiusMeters) {
+				return true
+			}
+		}
+		return false
+	default:
+		return geometryBoundMatchesFilter(g.Bound(), f)
+	}
+}
+
+func matchesCoordSpatialFilter(coord []float64, f *spatialFilter, params search.SearchParams, radiusMeters int) bool {
+	if len(coord) != 2 {
+		return false
+	}
+
+	return matchesSpatialFilter(
+		nanodegree(coord[1]),
+		nanodegree(coord[0]),
+		f.hasRadius,
+		f.hasBbox,
+		f.minLat,
+		f.maxLat,
+		f.minLon,
+		f.maxLon,
+		params,
+		radiusMeters,
+	)
+}
+
+func geometryBoundMatchesFilter(bound orb.Bound, f *spatialFilter) bool {
+	if !f.hasRadius && !f.hasBbox {
+		return true
+	}
+
+	filterBound := orb.Bound{
+		Min: orb.Point{
+			float64(f.minLon) / 1_000_000_000,
+			float64(f.minLat) / 1_000_000_000,
+		},
+		Max: orb.Point{
+			float64(f.maxLon) / 1_000_000_000,
+			float64(f.maxLat) / 1_000_000_000,
+		},
+	}
+	return filterBound.Intersects(bound)
+}
+
 func matchesPreciseFilter(g orb.Geometry, f *spatialFilter, params search.SearchParams, radiusMeters int) bool {
 	if f.hasRadius {
 		// Precise Distance check
 		center := orb.Point{*params.Lon, *params.Lat}
-		dist := planar.DistanceFrom(g, center)
-		// Distance is in degrees approximately, convert to meters
-		distMeters := dist * 111319.9
+		distMeters := localMetricDistanceFrom(g, center)
 		return distMeters <= float64(radiusMeters)
 	}
 
@@ -612,4 +663,63 @@ func matchesPreciseFilter(g orb.Geometry, f *spatialFilter, params search.Search
 	}
 
 	return true
+}
+
+func localMetricDistanceFrom(g orb.Geometry, center orb.Point) float64 {
+	projected := projectGeometryToLocalMeters(g, center)
+	return planar.DistanceFrom(projected, orb.Point{0, 0})
+}
+
+func projectGeometryToLocalMeters(g orb.Geometry, center orb.Point) orb.Geometry {
+	const earthRadiusMeters = 6_371_000.0
+	metersPerLatDegree := earthRadiusMeters * math.Pi / 180
+	metersPerLonDegree := metersPerLatDegree * math.Cos(center[1]*math.Pi/180)
+
+	projectPoint := func(p orb.Point) orb.Point {
+		return orb.Point{
+			(p[0] - center[0]) * metersPerLonDegree,
+			(p[1] - center[1]) * metersPerLatDegree,
+		}
+	}
+
+	projectPoints := func(points []orb.Point) []orb.Point {
+		projected := make([]orb.Point, 0, len(points))
+		for _, point := range points {
+			projected = append(projected, projectPoint(point))
+		}
+		return projected
+	}
+
+	switch geom := g.(type) {
+	case orb.Point:
+		return projectPoint(geom)
+	case orb.MultiPoint:
+		return orb.MultiPoint(projectPoints(geom))
+	case orb.LineString:
+		return orb.LineString(projectPoints(geom))
+	case orb.MultiLineString:
+		projected := make(orb.MultiLineString, 0, len(geom))
+		for _, line := range geom {
+			projected = append(projected, orb.LineString(projectPoints(line)))
+		}
+		return projected
+	case orb.Polygon:
+		projected := make(orb.Polygon, 0, len(geom))
+		for _, ring := range geom {
+			projected = append(projected, orb.Ring(projectPoints(ring)))
+		}
+		return projected
+	case orb.MultiPolygon:
+		projected := make(orb.MultiPolygon, 0, len(geom))
+		for _, polygon := range geom {
+			projectedPolygon := make(orb.Polygon, 0, len(polygon))
+			for _, ring := range polygon {
+				projectedPolygon = append(projectedPolygon, orb.Ring(projectPoints(ring)))
+			}
+			projected = append(projected, projectedPolygon)
+		}
+		return projected
+	default:
+		return g
+	}
 }

@@ -145,6 +145,7 @@ default = 1.0
 func TestConfig_AllGeometryModes(t *testing.T) {
 	modes := []string{
 		"geopoint",
+		"geopoint-centroid",
 		"geoshape-bbox",
 		"geoshape-simplified",
 		"geoshape-full",

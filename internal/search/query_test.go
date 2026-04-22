@@ -616,6 +616,32 @@ func TestSearch_GeoFilters(t *testing.T) {
 	}
 }
 
+func TestSearch_NearQuery(t *testing.T) {
+	index := createTestIndexForQuery(t)
+	defer index.Close()
+
+	results, err := search.Search(index, search.SearchParams{
+		Query:    "restaurant near Berlin",
+		Limit:    10,
+		Langs:    []string{"en"},
+		GeoMode:  "geopoint",
+		Analyzer: "standard",
+	})
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+
+	if results.Total == 0 {
+		t.Fatal("expected near query to return results")
+	}
+	if len(results.Hits) == 0 {
+		t.Fatal("expected near query to return at least one hit")
+	}
+	if results.Hits[0].ID != "node/3" {
+		t.Errorf("expected Restaurant Alpha to be first near result, got %s", results.Hits[0].ID)
+	}
+}
+
 func TestSearch_BoostedPriority(t *testing.T) {
 	index := createTestIndexForQuery(t)
 	defer index.Close()
