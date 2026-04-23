@@ -21,62 +21,101 @@ sudo dnf install geos-devel
 sudo apt install libgeos-dev
 ```
 
-## Setup
+## Backend Setup
+
+`poisearch` supports three different search backends. Choose the one that best fits your needs:
+
+### 1. Bleve Backend Setup (High Performance)
+Recommended for most use cases. It uses a pre-built Bleve index for fast, scalable searching with full support for all features.
 
 1. Pre-process OSM PBF:
-   `poisearch` requires PBF files to have node locations added to ways. You can do this with `osmium`:
+   `poisearch` requires node locations to be added to ways.
+   ```sh
+   osmium add-locations-to-ways input.osm.pbf -o processed.osm.pbf
+   ```
+   To reduce index size, you can filter for specific tags first:
+   ```sh
+   osmium tags-filter processed.osm.pbf n/place n/amenity n/highway -o filtered.osm.pbf
+   ```
+
+2. Configure:
+   Copy `config.example.toml` to `config.toml` and ensure `index_paths` points to your desired index location:
+   ```toml
+   index_paths = ["pois.bleve"]
+   ```
+
+3. Build the Index:
+   ```sh
+   go run ./cmd/poisearch --config config.toml build processed.osm.pbf
+   ```
+
+4. Serve:
+   ```sh
+   go run ./cmd/poisearch --config config.toml serve
+   ```
+
+### 2. PMTiles Backend Setup (Spatial Index)
+Ideal for large datasets (e.g., entire countries) where you want to minimize RAM usage and avoid a lengthy indexing process. It uses `.pmtiles` files which are spatially indexed.
+
+1. Prepare PMTiles:
+   Use the provided script to generate a PMTiles file using `planetiler`:
+   ```sh
+   ./scripts/pbf_to_pmtiles.sh liechtenstein
+   ```
+
+2. Configure:
+   Add your PMTiles file to `pmtiles_paths` in `config.toml`:
+   ```toml
+   pmtiles_paths = ["liechtenstein.pmtiles"]
+   ```
+
+3. Serve:
+   ```sh
+   go run ./cmd/poisearch --config config.toml serve
+   ```
+   Access via API by adding `?mode=pmtiles` to your query.
+
+### 3. PBF Backend Setup (Direct Search)
+A "live" search mode that scans the PBF file directly. No index is needed, but performance is lower (linear scan). Best for very small areas or debugging.
+
+1. Pre-process OSM PBF:
    ```sh
    osmium add-locations-to-ways input.osm.pbf -o processed.osm.pbf
    ```
 
-   To reduce index size, you can filter for specific tags first:
-   ```sh
-   osmium tags-filter processed.osm.pbf n/* -o only.nodes.osm.pbf
-   # or
-   osmium tags-filter processed.osm.pbf n/place n/amenity n/highway -o filtered.osm.pbf
+2. Configure:
+   Add your PBF file to `pbf_paths` in `config.toml`:
+   ```toml
+   pbf_paths = ["processed.osm.pbf"]
    ```
 
-2. Configuration:
-   Copy `config.example.toml` to `config.toml` and adjust as needed.
+3. Serve:
+   ```sh
+   go run ./cmd/poisearch --config config.toml serve
+   ```
+   Access via API by adding `?mode=pbf` to your query.
 
 ## Usage
 
-### Build the Index
+### Search Examples
 
 ```sh
-go run ./cmd/poisearch --config config.toml build processed.osm.pbf
-```
-
-### Serve the API
-
-```sh
-go run ./cmd/poisearch --config config.toml serve
-```
-
-### Search
-
-```sh
+# Default search (uses first available index)
 curl "http://localhost:9889/search?q=Berlin&limit=5"
-```
 
-Spatial search example:
-```sh
+# Spatial search
 curl "http://localhost:9889/search?q=Restaurant&lat=52.52&lon=13.40&radius=1000m"
-```
 
-Metadata and direct PBF examples:
-```sh
-# Search for wheelchair accessible POIs
-curl "http://localhost:9889/search?wheelchair=yes&city=Berlin"
+# Natural-language "near" search
+curl "http://localhost:9889/search?q=pizza%20near%20Vaduz"
 
-# Natural-language near search works in index, PBF, and PMTiles modes
-curl "http://localhost:9889/search?q=pizza%20near%20Vaduz&mode=pmtiles"
-
-# Direct PBF search (no index needed)
+# Force a specific mode
+curl "http://localhost:9889/search?q=museum&mode=pmtiles"
 curl "http://localhost:9889/search?q=museum&mode=pbf"
 
-# Search by phone number
-curl "http://localhost:9889/search?phone=123456"
+# Filter by metadata or classification
+curl "http://localhost:9889/search?wheelchair=yes&city=Berlin"
+curl "http://localhost:9889/search?amenity=restaurant"
 ```
 
 ## API Documentation
@@ -87,6 +126,7 @@ The following query parameters are supported on `/search`:
 | :--- | :--- | :--- | :--- |
 | `q` | string | `Berlin` | Search query string |
 | `mode` | string | `pbf` | "pbf" or "pmtiles" for live search against those file types (skips index) |
+| `index` | string | `pois` | Name of the index/file to search (base name of file without extension) |
 | `format` | string | `text` | "text" for flat key-value response (UNIX-pipe friendly) |
 | `lat`, `lon` | float | `52.52`, `13.40` | Center coordinates for spatial search |
 | `radius` | string | `1000m` | Radius (e.g. "1000m", "5km") for spatial search |
@@ -100,7 +140,7 @@ The following query parameters are supported on `/search`:
 | `key`, `value` | string | `amenity`, `restaurant` | Filter by primary classification |
 | `keys`, `values` | string | `amenity,shop` | Comma-separated multi-value filters |
 
-`q` also supports `X near Y`, `X in Y`, `X around Y`, and `X close to Y` patterns in all three search modes. Direct PBF/PMTiles near-search resolves `Y` with a first search pass, then runs the category search around the resolved point.
+`q` also supports `X near Y`, `X in Y`, `X around Y`, and `X close to Y` patterns in all three search modes.
 
 ### Supported Tags
 
@@ -123,8 +163,6 @@ The following query parameters are supported on `/search`:
 | Address Support | Strong. Indexed `addr:*` tags including floor, unit, and level. | Strong. Direct access to all address tags in the PBF. | Weak. Most address tags are stripped by default OMT schema. |
 | Classification | Static. Pre-calculated at index time for maximum speed. | Dynamic. Re-calculates classification on every scan. | Heuristic. Re-maps generic OMT keys back to OSM tags. |
 | Custom Tags | Requires updating `mapping.go` and re-indexing. | High. Instant support for any tag via `TagMap()`. | Very Low. Limited to what `planetiler` preserves. |
-
-PMTiles limitations are usually schema limitations, not parser bugs: if the archive generator dropped `addr:*`, phone, or custom OSM tags, direct PMTiles search cannot recover them later.
 
 ## Benchmark Results (liechtenstein-latest.osm.pbf, 3.19 MB)
 ```plain
