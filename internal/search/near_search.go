@@ -24,9 +24,9 @@ type NearResult struct {
 	Results *bleve.SearchResult
 }
 
-// parseNearQuery checks if the query matches a "X near Y" pattern.
+// doParseNearQuery checks if the query matches a "X near Y" pattern.
 // Returns (category, referencePlace, true) if matched, else (..., false).
-func parseNearQuery(q string) (category, referencePlace string, isNear bool) {
+func doParseNearQuery(q string) (category, referencePlace string, isNear bool) {
 	matches := nearPattern.FindStringSubmatch(q)
 	if matches == nil {
 		return "", "", false
@@ -44,20 +44,20 @@ func parseNearQuery(q string) (category, referencePlace string, isNear bool) {
 	return category, referencePlace, true
 }
 
-// isNearQuery returns true if the query looks like a "X near Y" pattern.
-func isNearQuery(q string) bool {
-	_, _, ok := parseNearQuery(q)
+// doIsNearQuery returns true if the query looks like a "X near Y" pattern.
+func doIsNearQuery(q string) bool {
+	_, _, ok := doParseNearQuery(q)
 	return ok
 }
 
 // ParseNearQuery checks if the query matches a "X near Y" style pattern.
 func ParseNearQuery(q string) (category, referencePlace string, isNear bool) {
-	return parseNearQuery(q)
+	return doParseNearQuery(q)
 }
 
 // IsNearQuery returns true if the query looks like a "X near Y" style pattern.
 func IsNearQuery(q string) bool {
-	return isNearQuery(q)
+	return doIsNearQuery(q)
 }
 
 // NearSearch executes a "X near Y" query:
@@ -92,7 +92,7 @@ func NearSearch(index bleve.Index, baseParams SearchParams, category, referenceP
 
 	// Extract coordinates from first hit
 	hit := refResults.Hits[0]
-	lat, lon, ok := hitLatLon(hit)
+	lat, lon, ok := doHitLatLon(hit)
 
 	// If no coordinates found, return empty results
 	if !ok {
@@ -135,7 +135,7 @@ func NearSearch(index bleve.Index, baseParams SearchParams, category, referenceP
 	}, nil
 }
 
-func hitLatLon(hit *blevesearch.DocumentMatch) (lat, lon float64, ok bool) {
+func doHitLatLon(hit *blevesearch.DocumentMatch) (lat, lon float64, ok bool) {
 	geometry, ok := hit.Fields["geometry"]
 	if !ok {
 		return 0, 0, false
@@ -180,5 +180,5 @@ func hitLatLon(hit *blevesearch.DocumentMatch) (lat, lon float64, ok bool) {
 
 // HitLatLon extracts a representative latitude/longitude from a search hit.
 func HitLatLon(hit *blevesearch.DocumentMatch) (lat, lon float64, ok bool) {
-	return hitLatLon(hit)
+	return doHitLatLon(hit)
 }

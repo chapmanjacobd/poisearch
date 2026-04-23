@@ -73,6 +73,7 @@ func TestUserFlow_StructuredSearch(t *testing.T) {
 	conf := defaultTestConfig()
 	conf.NameAnalyzer = "standard"
 	conf.StoreMetadata = true
+	conf.StoreAddress = true
 
 	_, idx := buildTestIndex(t, pbfPath, conf)
 	defer idx.Close()

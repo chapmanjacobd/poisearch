@@ -47,7 +47,7 @@ func TestDirectNearSearch_PreservesSecondPhaseFilters(t *testing.T) {
 			return &bleve.SearchResult{}, nil
 		default:
 			t.Fatalf("unexpected extra direct search call: %d", len(calls))
-			return nil, nil
+			return &bleve.SearchResult{}, nil
 		}
 	}
 

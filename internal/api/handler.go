@@ -409,7 +409,7 @@ func parseCommaList(s string) []string {
 	return strings.Split(s, ",")
 }
 
-func normalizeStreetAddress(street, houseNumber string) (string, string) {
+func normalizeStreetAddress(street, houseNumber string) (normalizedStreet, normalizedHouseNumber string) {
 	street = strings.TrimSpace(street)
 	houseNumber = strings.TrimSpace(houseNumber)
 

@@ -184,8 +184,8 @@ func buildTextIntentQuery(params SearchParams) query.Query {
 //nolint:revive,cyclop,funlen // Search requires handling many query type and spatial filtering cases
 func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error) {
 	// Check for "X near Y" pattern and handle it via NearSearch
-	if params.Query != "" && isNearQuery(params.Query) {
-		category, referencePlace, isNear := parseNearQuery(params.Query)
+	if params.Query != "" && doIsNearQuery(params.Query) {
+		category, referencePlace, isNear := doParseNearQuery(params.Query)
 		if isNear {
 			nearResult, err := NearSearch(index, params, category, referencePlace)
 			if err != nil {
@@ -326,11 +326,13 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		if params.HouseNumber != "" {
 			sq := bleve.NewMatchQuery(params.HouseNumber)
 			sq.SetField("addr:housenumber")
+			sq.Analyzer = "keyword"
 			conjunctions = append(conjunctions, sq)
 		}
 		if params.Postcode != "" {
 			sq := bleve.NewMatchQuery(params.Postcode)
 			sq.SetField("addr:postcode")
+			sq.Analyzer = "keyword"
 			conjunctions = append(conjunctions, sq)
 		}
 		if params.City != "" {
@@ -346,16 +348,19 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		if params.Floor != "" {
 			sq := bleve.NewMatchQuery(params.Floor)
 			sq.SetField("addr:floor")
+			sq.Analyzer = "keyword"
 			conjunctions = append(conjunctions, sq)
 		}
 		if params.Unit != "" {
 			sq := bleve.NewMatchQuery(params.Unit)
 			sq.SetField("addr:unit")
+			sq.Analyzer = "keyword"
 			conjunctions = append(conjunctions, sq)
 		}
 		if params.Level != "" {
 			sq := bleve.NewMatchQuery(params.Level)
 			sq.SetField("level")
+			sq.Analyzer = "keyword"
 			conjunctions = append(conjunctions, sq)
 		}
 		q = bleve.NewConjunctionQuery(conjunctions...)
