@@ -3,357 +3,1057 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>POI Search Showcase</title>
+    <title>POI Search API Explorer</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <style>
-        body { height: 100vh; display: flex; flex-direction: column; background-color: #f4f7f9; }
-        .navbar { z-index: 1001; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        #main-container { flex: 1; display: flex; overflow: hidden; }
-        #sidebar { width: 400px; overflow-y: auto; padding: 20px; border-right: 1px solid #dee2e6; background: white; z-index: 1000; }
-        #content { flex: 1; display: flex; flex-direction: column; position: relative; }
-        #map { flex: 1; width: 100%; }
-        
-        .hit-card { 
-            cursor: pointer; 
-            transition: all 0.2s; 
-            border: 1px solid transparent; 
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 8px;
-            background: #fff;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        :root {
+            color-scheme: light;
         }
-        .hit-card:hover { border-color: #0d6efd; background: #f8f9ff; transform: translateY(-1px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .tag-badge { font-size: 0.75em; padding: 4px 8px; border-radius: 4px; }
-        .score { font-size: 0.8em; font-weight: bold; color: #0d6efd; }
-        
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: #f4f7fb;
+        }
+
+        .navbar {
+            z-index: 1001;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+        }
+
+        #main-container {
+            flex: 1;
+            display: flex;
+            min-height: 0;
+        }
+
+        #sidebar {
+            width: 440px;
+            max-width: 100%;
+            overflow-y: auto;
+            padding: 1rem;
+            border-right: 1px solid #dbe2ea;
+            background: #fff;
+        }
+
+        #content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            position: relative;
+        }
+
+        #map {
+            flex: 1;
+            min-height: 320px;
+        }
+
         .loading-overlay {
             position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(255,255,255,0.7);
+            inset: 0;
             display: none;
-            justify-content: center;
             align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.72);
             z-index: 1002;
+        }
+
+        .panel {
+            border: 1px solid #e2e8f0;
+            border-radius: 0.9rem;
+            background: #fff;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .subtle-label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #64748b;
+        }
+
+        .hit-card {
+            cursor: pointer;
+            transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.9rem;
+            padding: 0.9rem;
+            background: #fff;
+        }
+
+        .hit-card:hover {
+            transform: translateY(-1px);
+            border-color: #93c5fd;
+            box-shadow: 0 8px 20px rgba(37, 99, 235, 0.08);
+        }
+
+        .pill-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+        }
+
+        .preset-btn {
+            border-radius: 999px;
+        }
+
+        .request-box,
+        .summary-box {
+            font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 0.8rem;
+            background: #0f172a;
+            color: #e2e8f0;
+            border-radius: 0.75rem;
+            padding: 0.85rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .summary-box {
+            background: #f8fafc;
+            color: #1e293b;
+            border: 1px solid #e2e8f0;
+        }
+
+        .map-note {
+            position: absolute;
+            right: 1rem;
+            bottom: 1rem;
+            z-index: 1000;
+            max-width: 320px;
+        }
+
+        details > summary {
+            cursor: pointer;
+            user-select: none;
+            list-style: none;
+        }
+
+        details > summary::-webkit-details-marker {
+            display: none;
+        }
+
+        @media (max-width: 991.98px) {
+            #main-container {
+                flex-direction: column;
+            }
+
+            #sidebar {
+                width: 100%;
+                border-right: 0;
+                border-bottom: 1px solid #dbe2ea;
+            }
+
+            #map {
+                min-height: 420px;
+            }
         }
     </style>
 </head>
 <body>
-
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
     <div class="container-fluid">
-        <a class="navbar-brand fw-bold" href="#">POI Search Showcase</a>
-        <div class="ms-auto d-flex align-items-center">
-            <div id="api-status" class="text-light small">
-                <span class="spinner-grow spinner-grow-sm text-light me-1" role="status"></span>
-                Connecting...
-            </div>
+        <span class="navbar-brand fw-semibold">POI Search API Explorer</span>
+        <div class="d-flex align-items-center gap-2 ms-auto">
+            <span id="capability-summary" class="text-light small d-none d-md-inline"></span>
+            <span id="api-status" class="badge text-bg-light">Connecting...</span>
         </div>
     </div>
 </nav>
 
 <div id="main-container">
-    <div id="sidebar">
-        <form id="search-form" class="mb-4">
+    <aside id="sidebar">
+        <div class="panel p-3 mb-3">
+            <div class="panel-header mb-2">
+                <div>
+                    <div class="subtle-label">Explorer</div>
+                    <h1 class="h5 mb-1">Search the live API</h1>
+                </div>
+                <span id="mode-availability" class="badge text-bg-light">Loading capabilities...</span>
+            </div>
+            <p class="text-muted small mb-0">
+                The free-form query accepts plain text and inline filters like
+                <code>city=Vaduz</code> or <code>type=restaurant</code>. Explicit form fields win over anything typed into the box.
+            </p>
+        </div>
+
+        <form id="search-form" class="panel p-3 mb-3">
             <div class="mb-3">
-                <label class="form-label d-block small fw-bold text-uppercase text-muted">Search Engine</label>
-                <div class="btn-group w-100" role="group">
-                    <input type="radio" class="btn-check" name="engine" id="engine-bleve" value="bleve" checked>
-                    <label class="btn btn-outline-primary" for="engine-bleve">Bleve</label>
-                    
-                    <input type="radio" class="btn-check" name="engine" id="engine-pbf" value="pbf">
-                    <label class="btn btn-outline-primary" for="engine-pbf">PBF</label>
-                    
-                    <input type="radio" class="btn-check" name="engine" id="engine-pmtiles" value="pmtiles">
-                    <label class="btn btn-outline-primary" for="engine-pmtiles">PMTiles</label>
+                <label for="query" class="form-label fw-semibold">Search query</label>
+                <input type="text" id="query" class="form-control form-control-lg" placeholder="pizza near Vaduz OR city=Vaduz type=restaurant">
+                <div class="form-text">Use plain search text, a near/in query, or inline <code>key=value</code> filters.</div>
+            </div>
+
+            <div class="mb-3">
+                <div class="subtle-label mb-2">Examples</div>
+                <div class="pill-row">
+                    <button type="button" class="btn btn-sm btn-outline-secondary preset-btn" data-preset="museum">Museum search</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary preset-btn" data-preset="nearby-restaurants">Nearby restaurants</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary preset-btn" data-preset="pizza-near-vaduz">Pizza near Vaduz</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary preset-btn" data-preset="vaduz-address">Vaduz address</button>
                 </div>
             </div>
-            <div class="mb-3">
-                <label for="main-q" class="form-label fw-bold">Smart Search</label>
-                <input type="text" id="main-q" class="form-control form-control-lg" placeholder="e.g. London cafe OR postcode=12345 city=London type=cafe">
-                <div class="form-text small text-muted">
-                    Try natural text ("london cafe") or structured keys ("postcode=10117", "city=Berlin", "type=restaurant", "key=amenity"). 
+
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <label for="mode" class="form-label fw-semibold">Mode</label>
+                    <select id="mode" class="form-select"></select>
+                </div>
+                <div class="col-md-6">
+                    <label for="source" class="form-label fw-semibold">Source</label>
+                    <select id="source" class="form-select"></select>
+                </div>
+                <div class="col-md-6">
+                    <label for="limit" class="form-label fw-semibold">Limit</label>
+                    <input type="number" id="limit" class="form-control" min="1" max="1000" step="1" value="100">
+                </div>
+                <div class="col-md-6">
+                    <label for="from" class="form-label fw-semibold">Offset</label>
+                    <input type="number" id="from" class="form-control" min="0" step="1" value="0">
                 </div>
             </div>
-            <button class="btn btn-primary w-100 btn-lg" type="submit">Search</button>
+
+            <div class="row g-3 mb-3">
+                <div class="col-sm-4">
+                    <div class="form-check mt-sm-4 pt-sm-2">
+                        <input class="form-check-input" type="checkbox" id="fuzzy">
+                        <label class="form-check-label" for="fuzzy">Fuzzy</label>
+                    </div>
+                </div>
+                <div class="col-sm-4">
+                    <div class="form-check mt-sm-4 pt-sm-2">
+                        <input class="form-check-input" type="checkbox" id="prefix">
+                        <label class="form-check-label" for="prefix">Prefix</label>
+                    </div>
+                </div>
+                <div class="col-sm-4">
+                    <div class="form-check mt-sm-4 pt-sm-2">
+                        <input class="form-check-input" type="checkbox" id="exact-match">
+                        <label class="form-check-label" for="exact-match">Exact match</label>
+                    </div>
+                </div>
+            </div>
+
+            <details class="mb-3" open>
+                <summary class="fw-semibold mb-2">Core filters</summary>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label for="key" class="form-label">Key</label>
+                        <input type="text" id="key" class="form-control" placeholder="amenity">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="value" class="form-label">Value</label>
+                        <input type="text" id="value" class="form-control" placeholder="restaurant">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="street" class="form-label">Street</label>
+                        <input type="text" id="street" class="form-control" placeholder="Bahnhofstrasse">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="housenumber" class="form-label">House number</label>
+                        <input type="text" id="housenumber" class="form-control" placeholder="1">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="postcode" class="form-label">Postcode</label>
+                        <input type="text" id="postcode" class="form-control" placeholder="9490">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="city" class="form-label">City</label>
+                        <input type="text" id="city" class="form-control" placeholder="Vaduz">
+                    </div>
+                </div>
+            </details>
+
+            <details class="mb-3">
+                <summary class="fw-semibold mb-2">Spatial filters</summary>
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label for="lat" class="form-label">Lat</label>
+                        <input type="number" id="lat" class="form-control" step="any" placeholder="47.141">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="lon" class="form-label">Lon</label>
+                        <input type="number" id="lon" class="form-control" step="any" placeholder="9.521">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="radius" class="form-label">Radius</label>
+                        <input type="text" id="radius" class="form-control" placeholder="1500m">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="min-lat" class="form-label">Min lat</label>
+                        <input type="number" id="min-lat" class="form-control" step="any">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="max-lat" class="form-label">Max lat</label>
+                        <input type="number" id="max-lat" class="form-control" step="any">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="min-lon" class="form-label">Min lon</label>
+                        <input type="number" id="min-lon" class="form-control" step="any">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="max-lon" class="form-label">Max lon</label>
+                        <input type="number" id="max-lon" class="form-control" step="any">
+                    </div>
+                </div>
+            </details>
+
+            <details class="mb-3">
+                <summary class="fw-semibold mb-2">Metadata filters</summary>
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label for="wheelchair" class="form-label">Wheelchair</label>
+                        <input type="text" id="wheelchair" class="form-control" placeholder="yes">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="phone" class="form-label">Phone</label>
+                        <input type="text" id="phone" class="form-control" placeholder="+423...">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="opening-hours" class="form-label">Opening hours</label>
+                        <input type="text" id="opening-hours" class="form-control" placeholder="Mo-Fr 08:00-18:00">
+                    </div>
+                </div>
+            </details>
+
+            <div class="d-grid gap-2 d-md-flex">
+                <button type="submit" class="btn btn-primary flex-fill">Search</button>
+                <button type="button" id="reset-form" class="btn btn-outline-secondary">Reset</button>
+            </div>
         </form>
 
-        <hr>
-        <div id="results-meta" class="mb-2 small text-muted"></div>
-        <div id="hits-container"></div>
-    </div>
+        <div class="panel p-3 mb-3">
+            <div class="subtle-label mb-2">Request</div>
+            <div id="request-preview" class="request-box">GET /search?mode=bleve</div>
+        </div>
 
-    <div id="content">
+        <div class="panel p-3 mb-3">
+            <div class="panel-header mb-2">
+                <div>
+                    <div class="subtle-label">Results</div>
+                    <div id="results-meta" class="small text-muted">Run a search to populate results.</div>
+                </div>
+                <span id="geometry-meta" class="badge text-bg-light">No results yet</span>
+            </div>
+            <div id="warnings"></div>
+            <div id="hits-container" class="d-grid gap-2"></div>
+        </div>
+
+        <details class="panel p-3">
+            <summary class="fw-semibold">Raw JSON response</summary>
+            <pre id="raw-response" class="summary-box mt-3 mb-0">No response yet.</pre>
+        </details>
+    </aside>
+
+    <main id="content">
         <div class="loading-overlay" id="loading">
-            <div class="spinner-border text-primary" role="status"></div>
+            <div class="spinner-border text-primary" role="status" aria-label="Searching"></div>
         </div>
         <div id="map"></div>
-    </div>
+        <div class="map-note">
+            <div id="map-message" class="alert alert-light border shadow-sm mb-0">
+                Results with stored point geometry appear on the map.
+            </div>
+        </div>
+    </main>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-    const API_BASE = '';
-    const map = L.map('map').setView([47.141, 9.521], 14);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
+    const API_BASE = "";
+    const DEFAULT_CENTER = [47.141, 9.521];
+    const DEFAULT_ZOOM = 13;
+    const FALLBACK_CAPABILITIES = {
+        modes: [
+            { id: "bleve", label: "Bleve index", available: true, default: true, sources: [] },
+            { id: "pbf", label: "Direct PBF", available: true, sources: [] },
+            { id: "pmtiles", label: "Direct PMTiles", available: true, supports_exact_match: true, sources: [] }
+        ],
+        defaults: {
+            default_limit: 100,
+            max_limit: 1000,
+            languages: []
+        },
+        features: []
+    };
+    const PRESETS = {
+        museum: {
+            query: "museum",
+            mode: "bleve"
+        },
+        "nearby-restaurants": {
+            query: "restaurant",
+            lat: "47.141",
+            lon: "9.521",
+            radius: "1500m"
+        },
+        "pizza-near-vaduz": {
+            query: "pizza near Vaduz"
+        },
+        "vaduz-address": {
+            query: "",
+            postcode: "9490",
+            city: "Vaduz",
+            housenumber: "1"
+        }
+    };
+
+    const state = {
+        capabilities: null,
+        lastResponse: null,
+        lastRequestURL: ""
+    };
+
+    const map = L.map("map").setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors"
     }).addTo(map);
+    const markers = L.layerGroup().addTo(map);
 
-    let markers = L.layerGroup().addTo(map);
+    function $(id) {
+        return document.getElementById(id);
+    }
 
-    // Health Check
+    function getModeCapability(modeId) {
+        return state.capabilities.modes.find((mode) => mode.id === modeId) || null;
+    }
+
+    function updateStatusBadge(text, className) {
+        const badge = $("api-status");
+        badge.textContent = text;
+        badge.className = `badge ${className}`;
+    }
+
     async function checkHealth() {
         try {
             const res = await fetch(`${API_BASE}/health`);
-            const statusEl = document.getElementById('api-status');
-            if (res.ok) {
-                statusEl.innerHTML = '<span class="badge bg-success">API Online</span>';
-            } else {
-                statusEl.innerHTML = '<span class="badge bg-danger">API Error</span>';
+            if (!res.ok) {
+                updateStatusBadge("API error", "text-bg-danger");
+                return;
             }
-        } catch (e) {
-            document.getElementById('api-status').innerHTML = '<span class="badge bg-danger">API Offline</span>';
+            const text = await res.text();
+            updateStatusBadge("API online", "text-bg-success");
+            $("map-message").textContent = text || "API online";
+        } catch (error) {
+            updateStatusBadge("API offline", "text-bg-danger");
+            $("map-message").textContent = "Could not reach /health.";
         }
     }
-    checkHealth();
 
-    function parseQuery(input) {
+    async function loadCapabilities() {
+        try {
+            const res = await fetch(`${API_BASE}/capabilities`);
+            if (!res.ok) {
+                throw new Error(`Capabilities request failed (${res.status})`);
+            }
+            state.capabilities = await res.json();
+        } catch (error) {
+            console.error(error);
+            state.capabilities = FALLBACK_CAPABILITIES;
+            $("mode-availability").textContent = "Using fallback defaults";
+            $("mode-availability").className = "badge text-bg-warning";
+            return;
+        }
+
+        const availableModes = state.capabilities.modes.filter((mode) => mode.available);
+        $("mode-availability").textContent = `${availableModes.length} mode${availableModes.length === 1 ? "" : "s"} available`;
+        $("mode-availability").className = "badge text-bg-success";
+    }
+
+    function populateCapabilitiesSummary() {
+        const modes = state.capabilities.modes
+            .filter((mode) => mode.available)
+            .map((mode) => `${mode.id}${mode.sources.length ? `(${mode.sources.length})` : ""}`);
+        const languages = state.capabilities.defaults.languages || [];
+        const parts = [];
+        if (modes.length) {
+            parts.push(`Modes: ${modes.join(", ")}`);
+        }
+        if (languages.length) {
+            parts.push(`Langs: ${languages.join(", ")}`);
+        }
+        $("capability-summary").textContent = parts.join(" | ");
+    }
+
+    function populateModeOptions() {
+        const modeSelect = $("mode");
+        modeSelect.innerHTML = "";
+
+        state.capabilities.modes.forEach((mode) => {
+            const option = document.createElement("option");
+            option.value = mode.id;
+            option.textContent = `${mode.label}${mode.available ? "" : " (unavailable)"}`;
+            option.disabled = !mode.available;
+            if (mode.default) {
+                option.selected = true;
+            }
+            modeSelect.appendChild(option);
+        });
+
+        if (!modeSelect.value) {
+            const firstAvailable = state.capabilities.modes.find((mode) => mode.available);
+            if (firstAvailable) {
+                modeSelect.value = firstAvailable.id;
+            }
+        }
+    }
+
+    function populateSourceOptions(preferredSource = "") {
+        const mode = $("mode").value;
+        const sourceSelect = $("source");
+        const capability = getModeCapability(mode);
+
+        sourceSelect.innerHTML = "";
+        const sources = capability && capability.sources ? capability.sources : [];
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = sources.length ? "Default / first source" : "No named sources";
+        sourceSelect.appendChild(placeholder);
+
+        sources.forEach((source) => {
+            const option = document.createElement("option");
+            option.value = source;
+            option.textContent = source;
+            sourceSelect.appendChild(option);
+        });
+
+        if (preferredSource && sources.includes(preferredSource)) {
+            sourceSelect.value = preferredSource;
+        } else if (sources.length) {
+            sourceSelect.value = sources[0];
+        } else {
+            sourceSelect.value = "";
+        }
+
+        sourceSelect.disabled = !sources.length;
+        syncModeSpecificControls();
+    }
+
+    function syncModeSpecificControls() {
+        const capability = getModeCapability($("mode").value);
+        const exactMatch = $("exact-match");
+        const supportsExactMatch = Boolean(capability && capability.supports_exact_match);
+
+        exactMatch.disabled = !supportsExactMatch;
+        if (!supportsExactMatch) {
+            exactMatch.checked = false;
+        }
+    }
+
+    function applyDefaults() {
+        const defaults = state.capabilities.defaults || FALLBACK_CAPABILITIES.defaults;
+        $("limit").value = defaults.default_limit || 100;
+        $("from").value = 0;
+        populateModeOptions();
+        populateSourceOptions();
+        syncModeSpecificControls();
+        renderRequestPreview(new URLSearchParams({ mode: $("mode").value }));
+    }
+
+    function resetForm() {
+        $("search-form").reset();
+        applyDefaults();
+        clearResults("Run a search to populate results.");
+        updateMapMessage("Results with stored point geometry appear on the map.");
+    }
+
+    function parseSmartQuery(input) {
         const regex = /([a-zA-Z0-9_:-]+)=([^"\s]+|"[^"]+")/g;
-        let match;
         const structured = {};
         let unstructured = input;
+        let match;
 
         while ((match = regex.exec(input)) !== null) {
-            let val = match[2];
-            if (val.startsWith('"') && val.endsWith('"')) {
-                val = val.substring(1, val.length - 1);
+            let key = match[1].toLowerCase();
+            let value = match[2];
+            if (value.startsWith("\"") && value.endsWith("\"")) {
+                value = value.slice(1, -1);
             }
-            let k = match[1].toLowerCase();
-            // Map "type" to "value" for POIs
-            if (k === 'type') {
-                k = 'value';
+            if (key === "type") {
+                key = "value";
             }
-            structured[k] = val;
-            unstructured = unstructured.replace(match[0], '');
+            structured[key] = value;
+            unstructured = unstructured.replace(match[0], " ");
         }
-        
+
         return {
             structured,
-            q: unstructured.replace(/\s+/g, ' ').trim()
+            query: unstructured.replace(/\s+/g, " ").trim()
         };
     }
 
-    async function performSearch() {
-        const input = document.getElementById('main-q').value;
-        if (!input.trim()) return;
-
-        document.getElementById('loading').style.display = 'flex';
-        
-        const { structured, q } = parseQuery(input);
-        const hasStructured = Object.keys(structured).length > 0;
-        const mode = document.querySelector('input[name="engine"]:checked').value;
-        
-        let allHits = [];
-        let totalCount = 0;
-        
-        try {
-            let indicesToTry = [];
-            if (mode !== 'bleve') {
-                // PBF and PMTiles usually only have one source configured in demo/standard setup,
-                // or backend picks the first if index isn't passed.
-                indicesToTry = [''];
-            } else {
-                if (hasStructured) {
-                    if (structured.index) {
-                        indicesToTry = [structured.index];
-                        delete structured.index;
-                    } else {
-                        indicesToTry = ['pois'];
-                    }
-                } else {
-                    indicesToTry = ['cities', 'pois'];
-                }
-            }
-            
-            const promises = indicesToTry.map(async (idx) => {
-                const params = new URLSearchParams();
-                params.append('limit', '50');
-                params.append('mode', mode);
-                if (q) params.append('q', q);
-                
-                // Add structured params
-                for (const [k, v] of Object.entries(structured)) {
-                    params.append(k, v);
-                }
-                
-                if (idx) {
-                    params.append('index', idx);
-                }
-                
-                try {
-                    const res = await fetch(`${API_BASE}/search?${params.toString()}`);
-                    if (!res.ok) return { hits: [], total: 0 };
-                    const data = await res.json();
-                    return data;
-                } catch (e) {
-                    console.error(`Error fetching index ${idx}:`, e);
-                    return { hits: [], total: 0 };
-                }
-            });
-            
-            const results = await Promise.all(promises);
-            
-            results.forEach(resData => {
-                if (resData.hits) {
-                    allHits = allHits.concat(resData.hits);
-                }
-                if (resData.total) {
-                    totalCount += resData.total;
-                }
-            });
-            
-            // Sort by score across combined indexes
-            allHits.sort((a, b) => b.score - a.score);
-            
-            // Limit to top 50 overall
-            allHits = allHits.slice(0, 50);
-
-            renderHits(allHits, totalCount);
-        } catch (e) {
-            console.error(e);
-            const container = document.getElementById('hits-container');
-            container.innerHTML = '';
-            const alert = document.createElement('div');
-            alert.className = 'alert alert-danger';
-            alert.textContent = `Search failed: ${e.message}`;
-            container.appendChild(alert);
-        } finally {
-            document.getElementById('loading').style.display = 'none';
-        }
+    function readText(id) {
+        return $(id).value.trim();
     }
 
-    function renderHits(hits, totalCount) {
+    function buildSearchParams() {
+        const { structured, query } = parseSmartQuery(readText("query"));
+        const params = new URLSearchParams();
+        const mode = $("mode").value;
+        const source = $("source").value;
+        const explicitValues = {
+            key: readText("key"),
+            value: readText("value"),
+            street: readText("street"),
+            housenumber: readText("housenumber"),
+            postcode: readText("postcode"),
+            city: readText("city"),
+            lat: readText("lat"),
+            lon: readText("lon"),
+            radius: readText("radius"),
+            min_lat: readText("min-lat"),
+            max_lat: readText("max-lat"),
+            min_lon: readText("min-lon"),
+            max_lon: readText("max-lon"),
+            wheelchair: readText("wheelchair"),
+            phone: readText("phone"),
+            opening_hours: readText("opening-hours")
+        };
+
+        params.set("mode", mode);
+        if (source) {
+            params.set("index", source);
+        }
+
+        if (query) {
+            params.set("q", query);
+        }
+
+        Object.entries(structured).forEach(([key, value]) => {
+            if (value) {
+                params.set(key, value);
+            }
+        });
+
+        Object.entries(explicitValues).forEach(([key, value]) => {
+            if (value) {
+                params.set(key, value);
+            }
+        });
+
+        const limit = Number.parseInt(readText("limit") || "0", 10);
+        const from = Number.parseInt(readText("from") || "0", 10);
+        if (Number.isFinite(limit) && limit > 0) {
+            params.set("limit", String(limit));
+        }
+        if (Number.isFinite(from) && from >= 0) {
+            params.set("from", String(from));
+        }
+
+        if ($("fuzzy").checked) {
+            params.set("fuzzy", "true");
+        }
+        if ($("prefix").checked) {
+            params.set("prefix", "true");
+        }
+        if (!$("exact-match").disabled && $("exact-match").checked) {
+            params.set("exact_match", "true");
+        }
+
+        return params;
+    }
+
+    function hasMeaningfulSearch(params) {
+        const ignoredKeys = new Set(["mode", "index", "limit", "from", "fuzzy", "prefix", "exact_match"]);
+        for (const key of params.keys()) {
+            if (!ignoredKeys.has(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function renderRequestPreview(params) {
+        const preview = `GET /search?${params.toString()}`;
+        state.lastRequestURL = preview;
+        $("request-preview").textContent = preview;
+    }
+
+    function setWarningMessage(message, style = "secondary") {
+        const warnings = $("warnings");
+        warnings.innerHTML = "";
+        if (!message) {
+            return;
+        }
+
+        const alert = document.createElement("div");
+        alert.className = `alert alert-${style} small py-2`;
+        alert.textContent = message;
+        warnings.appendChild(alert);
+    }
+
+    function clearResults(message) {
         markers.clearLayers();
-        const container = document.getElementById('hits-container');
-        container.innerHTML = '';
-        document.getElementById('results-meta').innerText = `Found top results (total matched across queried indices: ${totalCount})`;
-
-        if (hits.length > 0) {
-            const bounds = L.latLngBounds();
-            hits.forEach(hit => {
-                const card = createHitCard(hit);
-                container.appendChild(card);
-                
-                const coords = getHitCoords(hit);
-                if (coords) {
-                    const marker = L.marker(coords).addTo(markers);
-                    const name = Array.isArray(hit.fields.name) ? hit.fields.name[0] : (hit.fields.name || hit.id);
-                    const kv = hit.fields.key ? `${hit.fields.key}=${Array.isArray(hit.fields.value) ? hit.fields.value[0] : hit.fields.value}` : '';
-                    marker.bindPopup(createPopupContent(name, kv));
-                    bounds.extend(coords);
-                    card.onclick = () => {
-                        map.setView(coords, 16);
-                        marker.openPopup();
-                    };
-                }
-            });
-            
-            if (bounds.isValid()) {
-                map.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 });
-            }
-        } else {
-            container.innerHTML = '<div class="text-center p-4 text-muted">No results found</div>';
-        }
+        $("hits-container").innerHTML = "";
+        $("results-meta").textContent = message;
+        $("geometry-meta").textContent = "No results yet";
+        $("raw-response").textContent = "No response yet.";
+        $("warnings").innerHTML = "";
     }
 
-    function createHitCard(hit) {
-        const div = document.createElement('div');
-        div.className = 'hit-card';
-        const f = hit.fields;
-        const getVal = (v) => Array.isArray(v) ? v[0] : v;
-
-        const header = document.createElement('div');
-        header.className = 'd-flex justify-content-between align-items-start mb-1';
-
-        const title = document.createElement('span');
-        title.className = 'fw-bold';
-        title.textContent = getVal(f.name) || hit.id;
-        header.appendChild(title);
-
-        const score = document.createElement('span');
-        score.className = 'score';
-        score.textContent = hit.score.toFixed(2);
-        header.appendChild(score);
-
-        div.appendChild(header);
-
-        const badges = document.createElement('div');
-        badges.className = 'mb-2';
-        if (f.key) {
-            badges.appendChild(createBadge('badge bg-secondary tag-badge', `${getVal(f.key)}=${getVal(f.value)}`));
-        }
-        if (f.importance) {
-            badges.appendChild(createBadge('badge bg-light text-dark border tag-badge', `Imp: ${getVal(f.importance).toFixed(3)}`));
-        }
-        if (badges.childNodes.length > 0) {
-            div.appendChild(badges);
-        }
-
-        if (f.display_address) {
-            const address = document.createElement('div');
-            address.className = 'small text-muted mb-1';
-            address.textContent = getVal(f.display_address);
-            div.appendChild(address);
-        }
-
-        return div;
+    function showLoading(isLoading) {
+        $("loading").style.display = isLoading ? "flex" : "none";
     }
 
-    function createBadge(className, text) {
-        const badge = document.createElement('span');
-        badge.className = className;
-        badge.textContent = text;
-        return badge;
+    function getField(fields, key) {
+        const value = fields ? fields[key] : undefined;
+        if (Array.isArray(value)) {
+            return value[0];
+        }
+        return value;
     }
 
-    function createPopupContent(name, kv) {
-        const wrapper = document.createElement('div');
-        const title = document.createElement('b');
-        title.textContent = name;
+    function buildAddress(fields) {
+        const displayAddress = getField(fields, "display_address");
+        if (displayAddress) {
+            return displayAddress;
+        }
+
+        const parts = [
+            getField(fields, "addr:housenumber"),
+            getField(fields, "addr:street"),
+            getField(fields, "addr:postcode"),
+            getField(fields, "addr:city")
+        ].filter(Boolean);
+        return parts.join(", ");
+    }
+
+    function getHitCoords(hit) {
+        const fields = hit.fields || {};
+        const rawGeometry = fields.geometry;
+        let geometry = rawGeometry;
+
+        if (
+            Array.isArray(rawGeometry) &&
+            rawGeometry.length === 1 &&
+            (Array.isArray(rawGeometry[0]) || (rawGeometry[0] && typeof rawGeometry[0] === "object"))
+        ) {
+            geometry = rawGeometry[0];
+        }
+
+        if (!geometry) {
+            return null;
+        }
+        if (Array.isArray(geometry) && geometry.length === 2 && geometry.every((value) => typeof value === "number")) {
+            return [geometry[1], geometry[0]];
+        }
+        if (typeof geometry === "object" && geometry.lat !== undefined && geometry.lon !== undefined) {
+            return [geometry.lat, geometry.lon];
+        }
+        if (typeof geometry === "object" && geometry.type === "Point" && Array.isArray(geometry.coordinates) && geometry.coordinates.length === 2) {
+            return [geometry.coordinates[1], geometry.coordinates[0]];
+        }
+        return null;
+    }
+
+    function createPopupContent(hit, address) {
+        const fields = hit.fields || {};
+        const wrapper = document.createElement("div");
+
+        const title = document.createElement("div");
+        title.className = "fw-semibold";
+        title.textContent = getField(fields, "name") || hit.id;
         wrapper.appendChild(title);
 
+        const kv = [getField(fields, "key"), getField(fields, "value")].filter(Boolean).join("=");
         if (kv) {
-            wrapper.appendChild(document.createElement('br'));
-            wrapper.appendChild(document.createTextNode(kv));
+            const meta = document.createElement("div");
+            meta.textContent = kv;
+            wrapper.appendChild(meta);
+        }
+
+        if (address) {
+            const addr = document.createElement("div");
+            addr.className = "text-muted";
+            addr.textContent = address;
+            wrapper.appendChild(addr);
         }
 
         return wrapper;
     }
 
-    function getHitCoords(hit) {
-        const geom = Array.isArray(hit.fields.geometry) ? hit.fields.geometry[0] : hit.fields.geometry;
-        if (!geom) return null;
-        if (geom.lat && geom.lon) return [geom.lat, geom.lon];
-        if (geom.type === 'Point' && geom.coordinates) return [geom.coordinates[1], geom.coordinates[0]];
-        if (Array.isArray(geom) && geom.length === 2) return [geom[1], geom[0]];
-        return null;
+    function createBadge(text, className = "text-bg-light") {
+        const badge = document.createElement("span");
+        badge.className = `badge ${className}`;
+        badge.textContent = text;
+        return badge;
     }
 
-    document.getElementById('search-form').addEventListener('submit', (e) => {
-        e.preventDefault();
-        performSearch();
+    function createHitCard(hit, marker) {
+        const fields = hit.fields || {};
+        const card = document.createElement("article");
+        card.className = "hit-card";
+
+        const header = document.createElement("div");
+        header.className = "d-flex justify-content-between align-items-start gap-2 mb-2";
+
+        const titleWrap = document.createElement("div");
+        const title = document.createElement("div");
+        title.className = "fw-semibold";
+        title.textContent = getField(fields, "name") || hit.id;
+        titleWrap.appendChild(title);
+
+        const sub = document.createElement("div");
+        sub.className = "small text-muted";
+        sub.textContent = hit.id;
+        titleWrap.appendChild(sub);
+        header.appendChild(titleWrap);
+
+        const score = createBadge(`score ${Number(hit.score || 0).toFixed(2)}`, "text-bg-primary");
+        header.appendChild(score);
+        card.appendChild(header);
+
+        const pills = document.createElement("div");
+        pills.className = "pill-row mb-2";
+
+        const key = getField(fields, "key");
+        const value = getField(fields, "value");
+        if (key || value) {
+            pills.appendChild(createBadge([key, value].filter(Boolean).join("="), "text-bg-secondary"));
+        }
+
+        const importance = getField(fields, "importance");
+        if (typeof importance === "number") {
+            pills.appendChild(createBadge(`importance ${importance.toFixed(3)}`, "text-bg-light"));
+        }
+
+        const distance = getField(fields, "distance_meters");
+        if (typeof distance === "number") {
+            pills.appendChild(createBadge(`${Math.round(distance)} m`, "text-bg-info"));
+        }
+
+        if (!marker) {
+            pills.appendChild(createBadge("No point geometry", "text-bg-warning"));
+        }
+
+        if (pills.childNodes.length > 0) {
+            card.appendChild(pills);
+        }
+
+        const address = buildAddress(fields);
+        if (address) {
+            const addressEl = document.createElement("div");
+            addressEl.className = "small text-muted mb-2";
+            addressEl.textContent = address;
+            card.appendChild(addressEl);
+        }
+
+        const extras = [
+            getField(fields, "phone") ? `phone ${getField(fields, "phone")}` : "",
+            getField(fields, "wheelchair") ? `wheelchair ${getField(fields, "wheelchair")}` : "",
+            getField(fields, "opening_hours") ? `hours ${getField(fields, "opening_hours")}` : ""
+        ].filter(Boolean);
+        if (extras.length) {
+            const extrasEl = document.createElement("div");
+            extrasEl.className = "small";
+            extrasEl.textContent = extras.join(" | ");
+            card.appendChild(extrasEl);
+        }
+
+        if (marker) {
+            card.addEventListener("click", () => {
+                map.setView(marker.getLatLng(), Math.max(map.getZoom(), 16));
+                marker.openPopup();
+            });
+        }
+
+        return card;
+    }
+
+    function updateMapMessage(message) {
+        $("map-message").textContent = message;
+    }
+
+    function renderResults(data, params) {
+        state.lastResponse = data;
+        $("raw-response").textContent = JSON.stringify(data, null, 2);
+
+        const hits = Array.isArray(data.hits) ? data.hits : [];
+        const total = typeof data.total === "number" ? data.total : hits.length;
+        const offset = Number.parseInt(params.get("from") || "0", 10);
+        const limit = Number.parseInt(params.get("limit") || "0", 10);
+        const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+
+        markers.clearLayers();
+        $("hits-container").innerHTML = "";
+        $("warnings").innerHTML = "";
+
+        if (warnings.length) {
+            warnings.forEach((warning) => {
+                const alert = document.createElement("div");
+                alert.className = "alert alert-warning small py-2";
+                alert.textContent = warning;
+                $("warnings").appendChild(alert);
+            });
+        }
+
+        $("results-meta").textContent = `Returned ${hits.length} of ${total} hits (offset ${offset}, limit ${limit}).`;
+
+        const bounds = L.latLngBounds();
+        let mappedCount = 0;
+
+        hits.forEach((hit) => {
+            const coords = getHitCoords(hit);
+            let marker = null;
+            const address = buildAddress(hit.fields || {});
+
+            if (coords) {
+                marker = L.marker(coords).addTo(markers);
+                marker.bindPopup(createPopupContent(hit, address));
+                bounds.extend(coords);
+                mappedCount += 1;
+            }
+
+            $("hits-container").appendChild(createHitCard(hit, marker));
+        });
+
+        $("geometry-meta").textContent = `${mappedCount}/${hits.length} mapped`;
+
+        if (hits.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "alert alert-light border mb-0";
+            empty.textContent = "No results matched the current query.";
+            $("hits-container").appendChild(empty);
+            updateMapMessage("No mapped hits for the current query.");
+            return;
+        }
+
+        if (mappedCount > 0 && bounds.isValid()) {
+            map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+            updateMapMessage(`Showing ${mappedCount} mapped hit${mappedCount === 1 ? "" : "s"} on the map.`);
+        } else {
+            updateMapMessage("The API returned hits, but none included point geometry the map can place.");
+        }
+    }
+
+    async function performSearch() {
+        const params = buildSearchParams();
+        renderRequestPreview(params);
+
+        if (!hasMeaningfulSearch(params)) {
+            clearResults("Add a query or filter before searching.");
+            setWarningMessage("Add a query, filter, address, or spatial constraint before searching.", "info");
+            return;
+        }
+
+        showLoading(true);
+        try {
+            const res = await fetch(`${API_BASE}/search?${params.toString()}`);
+            const contentType = res.headers.get("content-type") || "";
+            const payload = contentType.includes("application/json") ? await res.json() : await res.text();
+
+            if (!res.ok) {
+                const message = typeof payload === "string" ? payload : (payload.error || "Request failed");
+                throw new Error(message);
+            }
+
+            renderResults(payload, params);
+        } catch (error) {
+            console.error(error);
+            clearResults("The search request failed.");
+            setWarningMessage(error.message, "danger");
+            $("raw-response").textContent = error.message;
+            updateMapMessage("Search failed before the map could be updated.");
+        } finally {
+            showLoading(false);
+        }
+    }
+
+    function setFieldValue(id, value) {
+        $(id).value = value || "";
+    }
+
+    function applyPreset(name) {
+        const preset = PRESETS[name];
+        if (!preset) {
+            return;
+        }
+
+        [
+            "query", "key", "value", "street", "housenumber", "postcode", "city",
+            "lat", "lon", "radius", "min-lat", "max-lat", "min-lon", "max-lon",
+            "wheelchair", "phone", "opening-hours"
+        ].forEach((id) => setFieldValue(id, ""));
+
+        $("fuzzy").checked = false;
+        $("prefix").checked = false;
+        $("exact-match").checked = false;
+        $("from").value = 0;
+
+        Object.entries(preset).forEach(([key, value]) => {
+            if (key === "mode") {
+                $("mode").value = value;
+                populateSourceOptions();
+                return;
+            }
+            if (key === "query") {
+                setFieldValue("query", value);
+                return;
+            }
+            const fieldId = key.replace(/_/g, "-");
+            if ($(fieldId)) {
+                setFieldValue(fieldId, value);
+            }
+        });
+
+        renderRequestPreview(buildSearchParams());
+        void performSearch();
+    }
+
+    $("search-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        void performSearch();
     });
 
-    document.querySelectorAll('input[name="engine"]').forEach(radio => {
-        radio.addEventListener('change', () => {
-            if (document.getElementById('main-q').value.trim()) {
-                performSearch();
-            }
+    $("mode").addEventListener("change", () => {
+        populateSourceOptions();
+        renderRequestPreview(buildSearchParams());
+    });
+
+    $("source").addEventListener("change", () => {
+        renderRequestPreview(buildSearchParams());
+    });
+
+    document.querySelectorAll(".preset-btn").forEach((button) => {
+        button.addEventListener("click", () => {
+            applyPreset(button.dataset.preset);
         });
     });
 
-</script>
+    $("reset-form").addEventListener("click", () => {
+        resetForm();
+    });
 
+    document.querySelectorAll("#search-form input, #search-form select").forEach((input) => {
+        input.addEventListener("change", () => {
+            renderRequestPreview(buildSearchParams());
+        });
+        if (input.tagName === "INPUT" && input.type !== "checkbox") {
+            input.addEventListener("input", () => {
+                renderRequestPreview(buildSearchParams());
+            });
+        }
+    });
+
+    async function init() {
+        await Promise.all([checkHealth(), loadCapabilities()]);
+        populateCapabilitiesSummary();
+        applyDefaults();
+        clearResults("Run a search to populate results.");
+    }
+
+    init();
+</script>
 </body>
 </html>

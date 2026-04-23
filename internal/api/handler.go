@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -39,6 +40,27 @@ type SearchHit struct {
 	Key      string  `json:"key,omitempty"`
 	Value    string  `json:"value,omitempty"`
 	Geometry any     `json:"geometry,omitempty"`
+}
+
+type SearchDefaults struct {
+	DefaultLimit int      `json:"default_limit"`
+	MaxLimit     int      `json:"max_limit"`
+	Languages    []string `json:"languages,omitempty"`
+}
+
+type SearchModeCapability struct {
+	ID                 string   `json:"id"`
+	Label              string   `json:"label"`
+	Available          bool     `json:"available"`
+	Default            bool     `json:"default,omitempty"`
+	SupportsExactMatch bool     `json:"supports_exact_match,omitempty"`
+	Sources            []string `json:"sources,omitempty"`
+}
+
+type SearchCapabilitiesResponse struct {
+	Modes    []SearchModeCapability `json:"modes"`
+	Defaults SearchDefaults         `json:"defaults"`
+	Features []string               `json:"features"`
 }
 
 func writeJSONError(w http.ResponseWriter, statusCode int, code, message string) {
@@ -114,6 +136,13 @@ func RegisterHandlersWithPBF(mux *http.ServeMux, opts HandlerOptions) {
 		}
 	})
 
+	mux.HandleFunc("/capabilities", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(buildSearchCapabilities(opts)); err != nil {
+			slog.Error("failed to encode capabilities response", "error", err)
+		}
+	})
+
 	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
 		mode := r.URL.Query().Get("mode")
 		name := r.URL.Query().Get("index")
@@ -184,6 +213,83 @@ func RegisterHandlersWithPBF(mux *http.ServeMux, opts HandlerOptions) {
 			"No search source found for requested mode/index.",
 		)
 	})
+}
+
+func buildSearchCapabilities(opts HandlerOptions) SearchCapabilitiesResponse {
+	defaultMode := ""
+	switch {
+	case len(opts.Indices) > 0:
+		defaultMode = "bleve"
+	case len(opts.PBFPaths) > 0:
+		defaultMode = "pbf"
+	case len(opts.PMTilesPaths) > 0:
+		defaultMode = "pmtiles"
+	}
+
+	modes := []SearchModeCapability{
+		{
+			ID:        "bleve",
+			Label:     "Bleve index",
+			Available: len(opts.Indices) > 0,
+			Default:   defaultMode == "bleve",
+			Sources:   sortedKeys(opts.Indices),
+		},
+		{
+			ID:        "pbf",
+			Label:     "Direct PBF",
+			Available: len(opts.PBFPaths) > 0,
+			Default:   defaultMode == "pbf",
+			Sources:   sortedStringMapKeys(opts.PBFPaths),
+		},
+		{
+			ID:                 "pmtiles",
+			Label:              "Direct PMTiles",
+			Available:          len(opts.PMTilesPaths) > 0,
+			Default:            defaultMode == "pmtiles",
+			SupportsExactMatch: true,
+			Sources:            sortedStringMapKeys(opts.PMTilesPaths),
+		},
+	}
+
+	var langs []string
+	if opts.Conf != nil {
+		langs = append([]string(nil), opts.Conf.Languages...)
+	}
+	sort.Strings(langs)
+
+	return SearchCapabilitiesResponse{
+		Modes: modes,
+		Defaults: SearchDefaults{
+			DefaultLimit: 100,
+			MaxLimit:     1000,
+			Languages:    langs,
+		},
+		Features: []string{
+			"query",
+			"pagination",
+			"spatial",
+			"bbox",
+			"address",
+			"metadata",
+			"fuzzy",
+			"prefix",
+			"exact_match",
+			"text_format",
+		},
+	}
+}
+
+func sortedKeys[T any](m map[string]T) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedStringMapKeys(m map[string]string) []string {
+	return sortedKeys(m)
 }
 
 func handlePBFSearch(w http.ResponseWriter, r *http.Request, pbfPath string, conf *config.Config) {

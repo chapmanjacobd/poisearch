@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -441,6 +443,108 @@ func TestHandler_Registration(t *testing.T) {
 
 	if rec2.Code != http.StatusOK {
 		t.Errorf("expected search endpoint to return 200, got %d", rec2.Code)
+	}
+}
+
+func TestHandler_Capabilities(t *testing.T) {
+	index, err := bleve.NewMemOnly(mapping.NewIndexMapping())
+	if err != nil {
+		t.Fatalf("failed to create test index: %v", err)
+	}
+	defer index.Close()
+
+	conf := &config.Config{
+		Languages:    []string{"de", "en"},
+		GeometryMode: "geopoint",
+	}
+
+	mux := http.NewServeMux()
+	api.RegisterHandlersWithPBF(mux, api.HandlerOptions{
+		Indices: map[string]bleve.Index{
+			"alpha": index,
+		},
+		PBFPaths: map[string]string{
+			"liechtenstein": "liechtenstein-latest.osm.pbf",
+		},
+		PMTilesPaths: map[string]string{
+			"vaduz": "vaduz.pmtiles",
+		},
+		Conf: conf,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/capabilities", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected capabilities endpoint to return 200, got %d", rec.Code)
+	}
+
+	var resp struct {
+		Modes []struct {
+			ID                 string   `json:"id"`
+			Default            bool     `json:"default"`
+			Available          bool     `json:"available"`
+			SupportsExactMatch bool     `json:"supports_exact_match"`
+			Sources            []string `json:"sources"`
+		} `json:"modes"`
+		Defaults struct {
+			DefaultLimit int      `json:"default_limit"`
+			MaxLimit     int      `json:"max_limit"`
+			Languages    []string `json:"languages"`
+		} `json:"defaults"`
+		Features []string `json:"features"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.Defaults.DefaultLimit != 100 {
+		t.Errorf("expected default_limit 100, got %d", resp.Defaults.DefaultLimit)
+	}
+	if resp.Defaults.MaxLimit != 1000 {
+		t.Errorf("expected max_limit 1000, got %d", resp.Defaults.MaxLimit)
+	}
+	if !reflect.DeepEqual(resp.Defaults.Languages, []string{"de", "en"}) {
+		t.Errorf("expected sorted languages [de en], got %v", resp.Defaults.Languages)
+	}
+
+	expectedModes := map[string]struct {
+		defaultMode       bool
+		available         bool
+		supportsExact     bool
+		expectedFirstOnly []string
+	}{
+		"bleve":   {defaultMode: true, available: true, expectedFirstOnly: []string{"alpha"}},
+		"pbf":     {available: true, expectedFirstOnly: []string{"liechtenstein"}},
+		"pmtiles": {available: true, supportsExact: true, expectedFirstOnly: []string{"vaduz"}},
+	}
+	for _, mode := range resp.Modes {
+		exp, ok := expectedModes[mode.ID]
+		if !ok {
+			t.Errorf("unexpected mode in response: %s", mode.ID)
+			continue
+		}
+		if mode.Default != exp.defaultMode {
+			t.Errorf("mode %s default = %v, want %v", mode.ID, mode.Default, exp.defaultMode)
+		}
+		if mode.Available != exp.available {
+			t.Errorf("mode %s available = %v, want %v", mode.ID, mode.Available, exp.available)
+		}
+		if mode.SupportsExactMatch != exp.supportsExact {
+			t.Errorf("mode %s supports_exact_match = %v, want %v", mode.ID, mode.SupportsExactMatch, exp.supportsExact)
+		}
+		if !reflect.DeepEqual(mode.Sources, exp.expectedFirstOnly) {
+			t.Errorf("mode %s sources = %v, want %v", mode.ID, mode.Sources, exp.expectedFirstOnly)
+		}
+		delete(expectedModes, mode.ID)
+	}
+	if len(expectedModes) != 0 {
+		t.Errorf("missing modes in response: %v", expectedModes)
+	}
+
+	if !slices.Contains(resp.Features, "exact_match") {
+		t.Errorf("expected exact_match feature, got %v", resp.Features)
 	}
 }
 
