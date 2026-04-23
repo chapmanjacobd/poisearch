@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -8,7 +9,7 @@ import (
 )
 
 func TestParseSearchParams_ExactMatch(t *testing.T) {
-	req := httptest.NewRequest("GET", "/search?q=park&exact_match=true", nil)
+	req := httptest.NewRequest(http.MethodGet, "/search?q=park&exact_match=true", nil)
 	conf := &config.Config{
 		Languages:    []string{"en"},
 		GeometryMode: "geopoint",
@@ -22,7 +23,7 @@ func TestParseSearchParams_ExactMatch(t *testing.T) {
 }
 
 func TestParseSearchParams_InfersHouseNumberFromStreet(t *testing.T) {
-	req := httptest.NewRequest("GET", "/search?street=Main+St+123", nil)
+	req := httptest.NewRequest(http.MethodGet, "/search?street=Main+St+123", nil)
 	conf := &config.Config{
 		Languages:    []string{"en"},
 		GeometryMode: "geopoint",
@@ -39,7 +40,7 @@ func TestParseSearchParams_InfersHouseNumberFromStreet(t *testing.T) {
 }
 
 func TestParseSearchParams_InfersPrefixedHouseNumberFromStreet(t *testing.T) {
-	req := httptest.NewRequest("GET", "/search?street=123+Main+St", nil)
+	req := httptest.NewRequest(http.MethodGet, "/search?street=123+Main+St", nil)
 	conf := &config.Config{
 		Languages:    []string{"en"},
 		GeometryMode: "geopoint",
@@ -56,7 +57,7 @@ func TestParseSearchParams_InfersPrefixedHouseNumberFromStreet(t *testing.T) {
 }
 
 func TestParseSearchParams_StripsDuplicateHouseNumberFromStreet(t *testing.T) {
-	req := httptest.NewRequest("GET", "/search?street=Main+St+123&housenumber=123", nil)
+	req := httptest.NewRequest(http.MethodGet, "/search?street=Main+St+123&housenumber=123", nil)
 	conf := &config.Config{
 		Languages:    []string{"en"},
 		GeometryMode: "geopoint",
@@ -73,7 +74,7 @@ func TestParseSearchParams_StripsDuplicateHouseNumberFromStreet(t *testing.T) {
 }
 
 func TestParseSearchParams_StripsDuplicatePrefixedHouseNumberFromStreet(t *testing.T) {
-	req := httptest.NewRequest("GET", "/search?street=123+Main+St&housenumber=123", nil)
+	req := httptest.NewRequest(http.MethodGet, "/search?street=123+Main+St&housenumber=123", nil)
 	conf := &config.Config{
 		Languages:    []string{"en"},
 		GeometryMode: "geopoint",

@@ -139,4 +139,32 @@ func TestUserFlow_PMTilesStructuredSearch(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("NaturalLanguagePizzaNearVaduz", func(t *testing.T) {
+		params := search.SearchParams{
+			Query:   "pizza near Vaduz",
+			Limit:   10,
+			GeoMode: "geopoint-centroid",
+			Langs:   conf.Languages,
+		}
+
+		results, err := osm.PMTilesSearch(pmtilesPath, params, conf)
+		if err != nil {
+			t.Fatalf("PMTiles near search failed: %v", err)
+		}
+
+		if len(results.Hits) == 0 {
+			t.Fatalf("Expected some results for natural-language query 'pizza near Vaduz'")
+		}
+
+		t.Logf("Natural-language PMTiles near search returned %d results.", len(results.Hits))
+		for _, hit := range results.Hits {
+			name := strings.ToLower(fmt.Sprintf("%v", hit.Fields["name"]))
+			if !strings.Contains(name, "pizza") &&
+				!strings.Contains(name, "azzurro") {
+
+				t.Errorf("Result %s does not seem to match 'pizza'", name)
+			}
+		}
+	})
 }

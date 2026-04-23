@@ -97,7 +97,11 @@ func PMTilesSearch(pmtilesPath string, params search.SearchParams, conf *config.
 	return pmtilesSearchRaw(pmtilesPath, params, conf)
 }
 
-func pmtilesSearchRaw(pmtilesPath string, params search.SearchParams, conf *config.Config) (*bleve.SearchResult, error) {
+func pmtilesSearchRaw(
+	pmtilesPath string,
+	params search.SearchParams,
+	conf *config.Config,
+) (*bleve.SearchResult, error) {
 	ctx := context.Background()
 
 	// Load ontology for classification

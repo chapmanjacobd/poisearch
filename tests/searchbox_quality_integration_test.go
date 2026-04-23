@@ -119,6 +119,18 @@ func TestSearchboxQuality_Liechtenstein(t *testing.T) {
 
 				assertTopResultsRelevant(t, results, 5, 4, restaurantRelevantHit)
 			})
+
+			t.Run("place-vaduz", func(t *testing.T) {
+				results := mode.search(t, search.SearchParams{
+					Query:    "Vaduz",
+					Limit:    5,
+					GeoMode:  "geopoint-centroid",
+					Langs:    conf.Languages,
+					Analyzer: conf.NameAnalyzer,
+				})
+
+				assertTopResultsRelevant(t, results, 3, 1, placeRelevantHit)
+			})
 		})
 	}
 }
@@ -207,4 +219,9 @@ func restaurantRelevantHit(_ *bleve.SearchResult, hit *bleveSearch.DocumentMatch
 	return strings.Contains(name, "restaurant") ||
 		strings.Contains(name, "pizzeria") ||
 		strings.Contains(name, "brasserie")
+}
+
+func placeRelevantHit(_ *bleve.SearchResult, hit *bleveSearch.DocumentMatch) bool {
+	name := strings.ToLower(strings.TrimSpace(fmt.Sprint(hit.Fields["name"])))
+	return name == "vaduz"
 }

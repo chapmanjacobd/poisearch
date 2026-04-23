@@ -47,7 +47,7 @@ func generateInterpretations(q string) []QueryInterpretation {
 	interpretations := make([]QueryInterpretation, 0, 5)
 
 	// Interpretation 1: Full free-text intent match (highest quality, lowest penalty)
-	fullQuery := buildTextIntentQuery(q)
+	fullQuery := buildTextIntentQuery(SearchParams{Query: q})
 	interpretations = append(interpretations, QueryInterpretation{
 		Description: "full phrase",
 		Queries:     []query.Query{fullQuery},
@@ -168,6 +168,9 @@ func executeInterpretations(index bleve.Index, params SearchParams) (*bleve.Sear
 		originalLimit = 1000
 	}
 	searchRequest.Size = min(originalLimit*3, 2000)
+	if IsPlaceIntentQuery(params) {
+		searchRequest.Size = 2000
+	}
 	searchRequest.From = params.From
 
 	fields := []string{
@@ -187,12 +190,28 @@ func executeInterpretations(index bleve.Index, params SearchParams) (*bleve.Sear
 	searchRequest.IncludeLocations = false
 	searchRequest.SortBy([]string{"_score"})
 
+	var exactRes *bleve.SearchResult
+	if IsPlaceIntentQuery(params) {
+		var exactErr error
+		exactRes, exactErr = searchExactNameCandidates(index, params, fields)
+		if exactErr != nil {
+			return nil, exactErr
+		}
+		if len(exactRes.Hits) >= originalLimit {
+			return ReRankAndTruncate(exactRes, params, originalLimit), nil
+		}
+	}
+
 	res, err := index.Search(searchRequest)
 	if err != nil {
 		return nil, err
 	}
 
-	return ReRankAndTruncate(res, originalLimit, params.PopBoost), nil
+	if exactRes != nil && len(exactRes.Hits) > 0 {
+		mergeSearchHits(res, exactRes)
+	}
+
+	return ReRankAndTruncate(res, params, originalLimit), nil
 }
 
 // shouldUseMultiInterpretation returns true if the query should be parsed
@@ -204,6 +223,7 @@ func shouldUseMultiInterpretation(params SearchParams) bool {
 		return false
 	}
 
-	// Always allow for queries with at least one word
-	return params.Query != ""
+	// Single-word queries don't benefit from multi-interpretation and should
+	// stay on the direct ranking path.
+	return params.QueryFields() > 1
 }

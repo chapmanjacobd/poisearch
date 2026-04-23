@@ -81,6 +81,7 @@ func TestDirectNearSearch_PreservesSecondPhaseFilters(t *testing.T) {
 	}
 	if second.Phone != baseParams.Phone || second.Wheelchair != baseParams.Wheelchair ||
 		second.OpeningHours != baseParams.OpeningHours {
+
 		t.Fatal("expected metadata filters to be preserved")
 	}
 	if second.From != baseParams.From || second.Limit != baseParams.Limit {

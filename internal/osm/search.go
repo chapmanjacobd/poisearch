@@ -522,6 +522,13 @@ func computeDirectScore(
 		}
 	}
 
+	if search.IsPlaceIntentQuery(params) && hasExactDirectNameMatch(tags, params, queryLower) {
+		score += 80
+		if hasPlaceClassification(classifications) {
+			score += 220
+		}
+	}
+
 	if strings.TrimSpace(tags["name"]) == "" {
 		score -= 300
 	}
@@ -543,6 +550,35 @@ func computeDirectScore(
 	}
 
 	return score*1000 + importance
+}
+
+func hasExactDirectNameMatch(tags map[string]string, params search.SearchParams, queryLower string) bool {
+	if params.Query == "" || queryLower == "" {
+		return false
+	}
+
+	fields := make([]string, 0, 6+len(params.Langs))
+	fields = append(fields, "name", "alt_name", "old_name", "short_name", "brand", "operator")
+	for _, lang := range params.Langs {
+		fields = append(fields, "name:"+lang)
+	}
+
+	for _, field := range fields {
+		if directTokenMatch(tags[field], queryLower) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasPlaceClassification(classifications []*Classification) bool {
+	for _, c := range classifications {
+		if search.IsPlaceLikeClassification(c.Key, c.Value) {
+			return true
+		}
+	}
+	return false
 }
 
 func bestNameMatchScore(tags map[string]string, params search.SearchParams, queryLower string) float64 {
@@ -662,7 +698,7 @@ func boundedEditDistance(a, b string, maxDistance int) int {
 
 	prev := make([]int, len(b)+1)
 	curr := make([]int, len(b)+1)
-	for j := range len(prev) {
+	for j := range prev {
 		prev[j] = j
 	}
 

@@ -1,6 +1,7 @@
 package search_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/blevesearch/bleve/v2"
@@ -698,6 +699,66 @@ func TestSearch_BoostedPriority(t *testing.T) {
 
 	if results.Hits[0].ID != "node/99" {
 		t.Errorf("expected boosted node/99 to be first, got %s", results.Hits[0].ID)
+	}
+}
+
+func TestSearch_PlaceIntentPromotesExactPlace(t *testing.T) {
+	conf := &config.Config{
+		Languages:     []string{"en"},
+		StoreGeometry: true,
+		GeometryMode:  "geopoint",
+		NameAnalyzer:  "standard",
+	}
+
+	indexMapping := search.BuildIndexMapping(conf)
+	index, err := bleve.NewMemOnly(indexMapping)
+	if err != nil {
+		t.Fatalf("failed to create test index: %v", err)
+	}
+	defer index.Close()
+
+	docs := []struct {
+		id         string
+		name       string
+		key        string
+		value      string
+		importance float64
+		lat, lon   float64
+	}{
+		{"node/1", "Vaduz", "place", "town", 13.0, 47.13928, 9.5228},
+		{"node/2", "Vaduz Post", "amenity", "post_office", 19.0, 47.13875, 9.52175},
+		{"node/3", "Bus 14: Vaduz -> Feldkirch", "amenity", "bus_station", 18.0, 47.1401, 9.5201},
+	}
+
+	for _, doc := range docs {
+		if err = index.Index(doc.id, map[string]any{
+			"name":            doc.name,
+			"name_edge_ngram": doc.name,
+			"key":             doc.key,
+			"value":           doc.value,
+			"importance":      doc.importance,
+			"geometry":        []float64{doc.lon, doc.lat},
+		}); err != nil {
+			t.Fatalf("failed to index %s: %v", doc.id, err)
+		}
+	}
+
+	results, err := search.Search(index, search.SearchParams{
+		Query:    "Vaduz",
+		Limit:    5,
+		Langs:    []string{"en"},
+		GeoMode:  "geopoint",
+		Analyzer: "standard",
+	})
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+	if len(results.Hits) == 0 {
+		t.Fatal("expected hits for Vaduz query")
+	}
+
+	if got := fmt.Sprint(results.Hits[0].Fields["name"]); got != "Vaduz" {
+		t.Fatalf("top hit name = %q, want Vaduz", got)
 	}
 }
 

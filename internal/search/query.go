@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/blevesearch/bleve/v2"
+	blevesearch "github.com/blevesearch/bleve/v2/search"
 	"github.com/blevesearch/bleve/v2/search/query"
 )
 
@@ -148,14 +149,16 @@ func resolveCategoryMatches(q string) []CategoryMatch {
 	return matches
 }
 
-func buildTextIntentQuery(q string) query.Query {
-	normalized := normalizeQuery(q)
+func buildTextIntentQuery(params SearchParams) query.Query {
+	normalized := normalizeQuery(params.Query)
 	clauses := []query.Query{
 		addNameQuery(normalized, "name"),
 		addNameQuery(normalized, "_search_names"),
 	}
 
-	if len(strings.Fields(normalized)) == 1 {
+	categoryMatches := resolveCategoryMatches(params.Query)
+
+	if len(strings.Fields(normalized)) == 1 && !IsPlaceIntentQuery(params) {
 		clauses = append(clauses,
 			addKeywordQuery(normalized, "value", 7.0),
 			addKeywordQuery(normalized, "values", 6.0),
@@ -164,7 +167,7 @@ func buildTextIntentQuery(q string) query.Query {
 		)
 	}
 
-	for _, match := range resolveCategoryMatches(q) {
+	for _, match := range categoryMatches {
 		clauses = append(clauses,
 			addKeywordQuery(match.Value, "value", 8.0),
 			addKeywordQuery(match.Value, "values", 7.0),
@@ -200,7 +203,7 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	var q query.Query
 
 	if params.Query != "" {
-		q = buildTextIntentQuery(params.Query)
+		q = buildTextIntentQuery(params)
 	} else {
 		q = bleve.NewMatchAllQuery()
 	}
@@ -387,8 +390,12 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	if originalLimit > 1000 {
 		originalLimit = 1000
 	}
-	// Fetch more results for re-ranking
+	// Fetch more results for re-ranking, especially for place-intent queries where
+	// the exact place can rank below many incidental token matches before reranking.
 	searchRequest.Size = min(originalLimit*3, 2000)
+	if IsPlaceIntentQuery(params) {
+		searchRequest.Size = 2000
+	}
 
 	searchRequest.From = params.From
 
@@ -414,20 +421,37 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 	}
 	searchRequest.Fields = fields
 
+	var exactRes *bleve.SearchResult
+	if IsPlaceIntentQuery(params) {
+		var exactErr error
+		exactRes, exactErr = searchExactNameCandidates(index, params, fields)
+		if exactErr != nil {
+			return nil, exactErr
+		}
+		if len(exactRes.Hits) >= originalLimit {
+			return ReRankAndTruncate(exactRes, params, originalLimit), nil
+		}
+	}
+
 	res, err := index.Search(searchRequest)
 	if err != nil {
 		return nil, err
 	}
 
-	return ReRankAndTruncate(res, originalLimit, params.PopBoost), nil
+	if exactRes != nil && len(exactRes.Hits) > 0 {
+		mergeSearchHits(res, exactRes)
+	}
+
+	return ReRankAndTruncate(res, params, originalLimit), nil
 }
 
 // ReRankAndTruncate applies organic scoring combining the Bleve score with the POI's importance.
-func ReRankAndTruncate(res *bleve.SearchResult, limit int, popBoost float64) *bleve.SearchResult {
+func ReRankAndTruncate(res *bleve.SearchResult, params SearchParams, limit int) *bleve.SearchResult {
 	if res == nil || len(res.Hits) == 0 {
 		return res
 	}
 
+	popBoost := params.PopBoost
 	if popBoost == 0 {
 		popBoost = 0.2 // default fallback
 	}
@@ -437,8 +461,16 @@ func ReRankAndTruncate(res *bleve.SearchResult, limit int, popBoost float64) *bl
 		if impVal, ok := hit.Fields["importance"].(float64); ok {
 			importance = impVal
 		}
-		// FinalScore = BleveScore * (1.0 + ImportanceBoost)
-		finalScore := hit.Score * (1.0 + (importance * popBoost))
+		finalScore := hit.Score
+		if IsPlaceIntentQuery(params) {
+			// For raw place-name queries, exact lexical intent should dominate and
+			// population/importance should only act as a small tie-breaker.
+			finalScore += min(importance, 20) * 0.01
+		} else {
+			// FinalScore = BleveScore * (1.0 + ImportanceBoost)
+			finalScore = hit.Score * (1.0 + (importance * popBoost))
+		}
+		finalScore += exactNameIntentBonus(hit, params)
 		// We overwrite Score for sorting
 		hit.Score = finalScore
 	}
@@ -454,4 +486,92 @@ func ReRankAndTruncate(res *bleve.SearchResult, limit int, popBoost float64) *bl
 	}
 
 	return res
+}
+
+func exactNameIntentBonus(hit *blevesearch.DocumentMatch, params SearchParams) float64 {
+	if !IsPlaceIntentQuery(params) {
+		return 0
+	}
+
+	normalizedQuery := normalizeQuery(strings.TrimSpace(params.Query))
+	if normalizedQuery == "" {
+		return 0
+	}
+
+	fields := make([]string, 0, 1+len(params.Langs))
+	fields = append(fields, "name")
+	for _, lang := range params.Langs {
+		fields = append(fields, "name:"+lang)
+	}
+
+	for _, field := range fields {
+		value, ok := hit.Fields[field].(string)
+		if !ok {
+			continue
+		}
+		if normalizeQuery(strings.TrimSpace(value)) == normalizedQuery {
+			bonus := 50.0
+			key, _ := hit.Fields["key"].(string)
+			value, _ := hit.Fields["value"].(string)
+			if IsPlaceLikeClassification(key, value) {
+				bonus += 50
+			}
+			return bonus
+		}
+	}
+
+	return 0
+}
+
+func searchExactNameCandidates(index bleve.Index, params SearchParams, fields []string) (*bleve.SearchResult, error) {
+	normalized := normalizeQuery(params.Query)
+	exactQuery := bleve.NewMatchQuery(normalized)
+	exactQuery.SetField("name")
+	exactQuery.Analyzer = "standard"
+
+	searchRequest := bleve.NewSearchRequest(exactQuery)
+	searchRequest.Size = 2000
+	searchRequest.Fields = fields
+	searchRequest.SortBy([]string{"_score"})
+	res, err := index.Search(searchRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := &bleve.SearchResult{Hits: make(blevesearch.DocumentMatchCollection, 0, len(res.Hits))}
+	for _, hit := range res.Hits {
+		name, ok := hit.Fields["name"].(string)
+		if !ok {
+			continue
+		}
+		if normalizeQuery(strings.TrimSpace(name)) != normalized {
+			continue
+		}
+		filtered.Hits = append(filtered.Hits, hit)
+	}
+	filtered.Total = uint64(len(filtered.Hits))
+	return filtered, nil
+}
+
+func mergeSearchHits(base, extra *bleve.SearchResult) {
+	if base == nil || extra == nil || len(extra.Hits) == 0 {
+		return
+	}
+
+	merged := make(map[string]*blevesearch.DocumentMatch, len(base.Hits)+len(extra.Hits))
+	for _, hit := range base.Hits {
+		merged[hit.ID] = hit
+	}
+	for _, hit := range extra.Hits {
+		existing, ok := merged[hit.ID]
+		if !ok || hit.Score > existing.Score {
+			merged[hit.ID] = hit
+		}
+	}
+
+	base.Hits = base.Hits[:0]
+	for _, hit := range merged {
+		base.Hits = append(base.Hits, hit)
+	}
+	base.Total = uint64(len(base.Hits))
 }
