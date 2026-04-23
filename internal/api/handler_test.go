@@ -250,6 +250,18 @@ func TestHandler_AddressSearch(t *testing.T) {
 			description: "Should find 1 POI with housenumber 123",
 		},
 		{
+			name:        "search by street with inferred housenumber",
+			url:         "/search?street=Main+St+123",
+			expectMin:   1,
+			description: "Should infer housenumber from street and find 1 POI",
+		},
+		{
+			name:        "search by street with prefixed housenumber",
+			url:         "/search?street=123+Main+St",
+			expectMin:   1,
+			description: "Should infer prefixed housenumber from street and find 1 POI",
+		},
+		{
 			name:        "search by non-existent address",
 			url:         "/search?&street=NonExistent",
 			expectMin:   0,

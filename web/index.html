@@ -258,11 +258,7 @@
                     </div>
                     <div class="col-md-6">
                         <label for="street" class="form-label">Street</label>
-                        <input type="text" id="street" class="form-control" placeholder="Bahnhofstrasse">
-                    </div>
-                    <div class="col-md-6">
-                        <label for="housenumber" class="form-label">House number</label>
-                        <input type="text" id="housenumber" class="form-control" placeholder="1">
+                        <input type="text" id="street" class="form-control" placeholder="123 Main St or Bahnhofstrasse 1">
                     </div>
                     <div class="col-md-6">
                         <label for="postcode" class="form-label">Postcode</label>
@@ -403,9 +399,9 @@
         },
         "vaduz-address": {
             query: "",
+            street: "Herrengasse 1",
             postcode: "9490",
-            city: "Vaduz",
-            housenumber: "1"
+            city: "Vaduz"
         }
     };
 
@@ -606,7 +602,6 @@
             key: readText("key"),
             value: readText("value"),
             street: readText("street"),
-            housenumber: readText("housenumber"),
             postcode: readText("postcode"),
             city: readText("city"),
             lat: readText("lat"),
@@ -981,7 +976,7 @@
         }
 
         [
-            "query", "key", "value", "street", "housenumber", "postcode", "city",
+            "query", "key", "value", "street", "postcode", "city",
             "lat", "lon", "radius", "min-lat", "max-lat", "min-lon", "max-lon",
             "wheelchair", "phone", "opening-hours"
         ].forEach((id) => setFieldValue(id, ""));

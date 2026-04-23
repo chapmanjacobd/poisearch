@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,6 +63,11 @@ type SearchCapabilitiesResponse struct {
 	Defaults SearchDefaults         `json:"defaults"`
 	Features []string               `json:"features"`
 }
+
+var (
+	leadingHouseNumberPattern  = regexp.MustCompile(`^(?P<housenumber>\d[\p{L}\p{N}/-]*)[,\s]+(?P<street>.+)$`)
+	trailingHouseNumberPattern = regexp.MustCompile(`^(?P<street>.+?)[,\s]+(?P<housenumber>\d[\p{L}\p{N}/-]*)$`)
+)
 
 func writeJSONError(w http.ResponseWriter, statusCode int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -403,6 +409,40 @@ func parseCommaList(s string) []string {
 	return strings.Split(s, ",")
 }
 
+func normalizeStreetAddress(street, houseNumber string) (string, string) {
+	street = strings.TrimSpace(street)
+	houseNumber = strings.TrimSpace(houseNumber)
+
+	matches := leadingHouseNumberPattern.FindStringSubmatch(street)
+	if len(matches) == 3 {
+		inferredStreet := strings.TrimSpace(matches[2])
+		inferredHouseNumber := strings.TrimSpace(matches[1])
+		if houseNumber == "" {
+			return inferredStreet, inferredHouseNumber
+		}
+		if strings.EqualFold(houseNumber, inferredHouseNumber) {
+			return inferredStreet, houseNumber
+		}
+		return street, houseNumber
+	}
+
+	matches = trailingHouseNumberPattern.FindStringSubmatch(street)
+	if len(matches) != 3 {
+		return street, houseNumber
+	}
+
+	inferredStreet := strings.TrimSpace(matches[1])
+	inferredHouseNumber := strings.TrimSpace(matches[2])
+	if houseNumber == "" {
+		return inferredStreet, inferredHouseNumber
+	}
+	if strings.EqualFold(houseNumber, inferredHouseNumber) {
+		return inferredStreet, houseNumber
+	}
+
+	return street, houseNumber
+}
+
 func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams {
 	q := r.URL.Query()
 
@@ -426,6 +466,8 @@ func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams
 		langs = conf.Languages
 	}
 
+	street, houseNumber := normalizeStreetAddress(q.Get("street"), q.Get("housenumber"))
+
 	return search.SearchParams{
 		Query:        q.Get("q"),
 		Lat:          parseFloatPtr(q.Get("lat")),
@@ -445,8 +487,8 @@ func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams
 		Value:        q.Get("value"),
 		Keys:         parseCommaList(q.Get("keys")),
 		Values:       parseCommaList(q.Get("values")),
-		Street:       q.Get("street"),
-		HouseNumber:  q.Get("housenumber"),
+		Street:       street,
+		HouseNumber:  houseNumber,
 		Postcode:     q.Get("postcode"),
 		City:         q.Get("city"),
 		Country:      q.Get("country"),
