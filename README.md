@@ -6,7 +6,7 @@ A lightweight (low RAM, medium disk) [POI](https://en.wikipedia.org/wiki/Poi_(fo
 
 `config.toml` defines both index creation time and runtime options. There are three main search strategies, each with different tradeoffs:
 
-| Feature/Tag | Bleve Index | PBF (`--mode=pbf`) | PMTiles (`--mode=pmtiles`) |
+| Feature/Tag | Bleve Index | PBF | PMTiles |
 | :--- | :--- | :--- | :--- |
 | Searchable Fields | Explicitly mapped fields (Name, Address, Metadata, Key). Fast & Scalable. | Full Tag Set. Matches against all OSM tags via arbitrary data fallback. | Limited by PMTiles schema (default: OpenMapTiles). |
 | Query Features | Multi-interpretation, `near` queries, fuzzy/prefix matching. | `near` queries, fuzzy/prefix matching, full-tag fallback. | `near` queries, fuzzy/prefix matching, optional `exact_match` geometry filtering. |
