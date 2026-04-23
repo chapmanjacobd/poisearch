@@ -2,24 +2,18 @@
 
 A lightweight (low RAM, medium disk) [POI](https://en.wikipedia.org/wiki/Poi_(food)) search engine for OpenStreetMap data
 
-## Prerequisites
+## Bleve vs PBF vs PMTiles-based search
 
-- Go 1.22+
-- libgeos (GEOS)
-- `osmium` (for pre-processing PBFs)
+`config.toml` defines both index creation time and runtime options. There are three main search strategies, each with different tradeoffs:
 
-### Installing GEOS
-
-```sh
-# macOS
-brew install geos
-
-# Fedora
-sudo dnf install geos-devel
-
-# Ubuntu / Debian
-sudo apt install libgeos-dev
-```
+| Feature/Tag | Bleve Index | PBF (`--mode=pbf`) | PMTiles (`--mode=pmtiles`) |
+| :--- | :--- | :--- | :--- |
+| Searchable Fields | Explicitly mapped fields (Name, Address, Metadata, Key). Fast & Scalable. | Full Tag Set. Matches against all OSM tags via arbitrary data fallback. | Limited by PMTiles schema (default: OpenMapTiles). |
+| Query Features | Multi-interpretation, `near` queries, fuzzy/prefix matching. | `near` queries, fuzzy/prefix matching, full-tag fallback. | `near` queries, fuzzy/prefix matching, optional `exact_match` geometry filtering. |
+| Performance | High. Optimized for large datasets and complex queries. | Low. Linear scan of the PBF file. Best for small files. | Medium. Spatial indexing allows fast lookups without a full index. |
+| Address Support | Strong. Indexed `addr:*` tags including floor, unit, and level. | Strong. Direct access to all address tags in the PBF. | Weak. Most address tags are stripped by default OMT schema. |
+| Classification | Static. Pre-calculated at index time for maximum speed. | Dynamic. Re-calculates classification on every scan. | Heuristic. Re-maps generic OMT keys back to OSM tags. |
+| Custom Tags | Requires updating `mapping.go` and re-indexing. | High. Instant support for any tag via `TagMap()`. | Very Low. Limited to what `planetiler` preserves. |
 
 ## Backend Setup
 
@@ -150,19 +144,6 @@ The following query parameters are supported on `/search`:
 | Classification | `amenity`, `shop`, `tourism`, `leisure`, `place`, `highway`, etc. | `key`, `value`, `keys`, `values` |
 | Address | `addr:street`, `addr:housenumber`, `addr:city`, `addr:postcode`, `addr:country`, `addr:floor`, `addr:unit`, `level` | Full address set |
 | Metadata | `phone`, `opening_hours`, `wheelchair`, `wikidata`, `wikipedia` | `phone`, `opening_hours`, `wheelchair`, `importance` |
-
-## Bleve vs PBF vs PMTiles-based search
-
-`config.toml` defines both index creation time and runtime options. There are three main search strategies, each with different tradeoffs:
-
-| Feature/Tag | Bleve Index | PBF (`--mode=pbf`) | PMTiles (`--mode=pmtiles`) |
-| :--- | :--- | :--- | :--- |
-| Searchable Fields | Explicitly mapped fields (Name, Address, Metadata, Key). Fast & Scalable. | Full Tag Set. Matches against all OSM tags via arbitrary data fallback. | Limited by PMTiles schema (default: OpenMapTiles). |
-| Query Features | Multi-interpretation, `near` queries, fuzzy/prefix matching. | `near` queries, fuzzy/prefix matching, full-tag fallback. | `near` queries, fuzzy/prefix matching, optional `exact_match` geometry filtering. |
-| Performance | High. Optimized for large datasets and complex queries. | Low. Linear scan of the PBF file. Best for small files. | Medium. Spatial indexing allows fast lookups without a full index. |
-| Address Support | Strong. Indexed `addr:*` tags including floor, unit, and level. | Strong. Direct access to all address tags in the PBF. | Weak. Most address tags are stripped by default OMT schema. |
-| Classification | Static. Pre-calculated at index time for maximum speed. | Dynamic. Re-calculates classification on every scan. | Heuristic. Re-maps generic OMT keys back to OSM tags. |
-| Custom Tags | Requires updating `mapping.go` and re-indexing. | High. Instant support for any tag via `TagMap()`. | Very Low. Limited to what `planetiler` preserves. |
 
 ## Benchmark Results (liechtenstein-latest.osm.pbf, 3.19 MB)
 ```plain
@@ -392,6 +373,32 @@ Bounding Boxes       BBox Search               21.51s          24108
 PBF Scan             Key Filter                57.47s          11        
 PBF Scan             Combined (Fuzzy+Key)      58.22s          11        
 PBF Scan             Value Filter              58.69s          2
+```
+
+
+## Install
+
+```sh
+go install github.com/chapmanjacobd/poisearch/cmd/poisearch@latest
+```
+
+### Prerequisites
+
+- Go 1.22+
+- libgeos (GEOS)
+- `osmium` (for pre-processing PBFs)
+
+#### Installing GEOS
+
+```sh
+# macOS
+brew install geos
+
+# Fedora
+sudo dnf install geos-devel
+
+# Ubuntu / Debian
+sudo apt install libgeos-dev
 ```
 
 ## Features
