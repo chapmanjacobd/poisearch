@@ -485,131 +485,33 @@ func computeDirectScore(
 	importance float64,
 ) float64 {
 	if params.Query == "" {
-		return importance
+		return search.SharedRankingScore(params, search.RankingSignals{
+			Importance: importance,
+		})
 	}
 
-	score := bestNameMatchScore(tags, params, queryLower)
-	classificationScore := 0.0
-
+	nameValues := search.CollectTagNameValues(tags, params.Langs)
+	categoryScore := 0.0
+	entityTier := search.EntityTierSecondary
 	for _, c := range classifications {
-		switch {
-		case directTokenMatch(c.Value, queryLower):
-			switch c.Key {
-			case "cuisine":
-				classificationScore = max(classificationScore, 320)
-			case "amenity", "shop", "tourism", "leisure":
-				classificationScore = max(classificationScore, 260)
-			default:
-				classificationScore = max(classificationScore, 180)
-			}
-		case directTokenMatch(c.Key, queryLower):
-			classificationScore = max(classificationScore, 120)
-		}
-	}
-	score += classificationScore
-
-	if directTagValueMatch(tags["cuisine"], queryLower) {
-		score += 340
-		if hasFoodServiceClassification(classifications) {
-			score += 40
-		}
+		categoryScore = max(categoryScore, search.CategoryMatchScore(params.Query, c.Key, c.Value))
+		entityTier = max(entityTier, search.EntityTierForClassification(c.Key, c.Value))
 	}
 
-	for _, match := range searchCategoryMatches(params.Query) {
-		if hasClassification(classifications, match.Key, match.Value) {
-			score += 280
-			break
-		}
+	baseScore := 0.0
+	for _, value := range tags {
+		baseScore = max(baseScore, search.TextMatchScore(value, queryLower))
 	}
 
-	if search.IsPlaceIntentQuery(params) && hasExactDirectNameMatch(tags, params, queryLower) {
-		score += 80
-		if hasPlaceClassification(classifications) {
-			score += 220
-		}
-	}
-
-	if strings.TrimSpace(tags["name"]) == "" {
-		score -= 300
-	}
-
-	if score == 0 {
-		for _, v := range tags {
-			if directTagValueMatch(v, queryLower) {
-				score = 80
-				break
-			}
-			matchScore := directTextMatchScore(v, queryLower, params)
-			switch {
-			case matchScore >= 320:
-				score = max(score, 60)
-			case matchScore > 0:
-				score = max(score, 40)
-			}
-		}
-	}
-
-	return score*1000 + importance
-}
-
-func hasExactDirectNameMatch(tags map[string]string, params search.SearchParams, queryLower string) bool {
-	if params.Query == "" || queryLower == "" {
-		return false
-	}
-
-	fields := make([]string, 0, 6+len(params.Langs))
-	fields = append(fields, "name", "alt_name", "old_name", "short_name", "brand", "operator")
-	for _, lang := range params.Langs {
-		fields = append(fields, "name:"+lang)
-	}
-
-	for _, field := range fields {
-		if directTokenMatch(tags[field], queryLower) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func hasPlaceClassification(classifications []*Classification) bool {
-	for _, c := range classifications {
-		if search.IsPlaceLikeClassification(c.Key, c.Value) {
-			return true
-		}
-	}
-	return false
-}
-
-func bestNameMatchScore(tags map[string]string, params search.SearchParams, queryLower string) float64 {
-	fields := make([]string, 0, 6+len(params.Langs))
-	fields = append(fields, "name", "alt_name", "old_name", "short_name", "brand", "operator")
-	for _, lang := range params.Langs {
-		fields = append(fields, "name:"+lang)
-	}
-
-	best := 0.0
-	for _, field := range fields {
-		best = max(best, directTextMatchScore(tags[field], queryLower, params))
-	}
-	return best
-}
-
-func directTagValueMatch(value, query string) bool {
-	if value == "" {
-		return false
-	}
-	if directTokenMatch(value, query) {
-		return true
-	}
-	for _, part := range strings.FieldsFunc(strings.ToLower(value), func(r rune) bool {
-		return r == ';' || r == ',' || r == '/'
-	}) {
-		if strings.TrimSpace(part) == query {
-			return true
-		}
-	}
-	return false
+	return search.SharedRankingScore(params, search.RankingSignals{
+		BaseScore:          baseScore,
+		NameMatchScore:     search.BestTextMatchScore(nameValues, params.Query),
+		CategoryMatchScore: categoryScore,
+		EntityTier:         entityTier,
+		Importance:         importance,
+		ExactNameMatch:     search.ExactNormalizedMatch(nameValues, params.Query),
+		HasName:            len(nameValues) > 0,
+	})
 }
 
 func directTextMatchScore(value, query string, params search.SearchParams) float64 {
@@ -740,43 +642,6 @@ func intAbs(v int) int {
 
 func directTokenMatch(value, query string) bool {
 	return strings.TrimSpace(strings.ToLower(value)) == query
-}
-
-func hasFoodServiceClassification(classifications []*Classification) bool {
-	for _, c := range classifications {
-		if c.Key != "amenity" {
-			continue
-		}
-		switch c.Value {
-		case "restaurant", "fast_food", "cafe", "bar", "pub":
-			return true
-		}
-	}
-	return false
-}
-
-func searchCategoryMatches(q string) []search.CategoryMatch {
-	if search.CategoryMapper == nil {
-		return nil
-	}
-	normalized := strings.ToLower(strings.TrimSpace(q))
-	if normalized == "" {
-		return nil
-	}
-	matches := search.CategoryMapper(normalized)
-	if len(matches) == 0 && strings.HasSuffix(normalized, "s") {
-		matches = search.CategoryMapper(normalized[:len(normalized)-1])
-	}
-	return matches
-}
-
-func hasClassification(classifications []*Classification, key, value string) bool {
-	for _, c := range classifications {
-		if c.Key == key && c.Value == value {
-			return true
-		}
-	}
-	return false
 }
 
 func sortAndTruncateDirectHits(res *bleve.SearchResult, from, limit int) *bleve.SearchResult {

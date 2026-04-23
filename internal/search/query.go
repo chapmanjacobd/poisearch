@@ -456,28 +456,18 @@ func ReRankAndTruncate(res *bleve.SearchResult, params SearchParams, limit int) 
 		return res
 	}
 
-	popBoost := params.PopBoost
-	if popBoost == 0 {
-		popBoost = 0.2 // default fallback
-	}
-
 	for _, hit := range res.Hits {
-		importance := 0.0
-		if impVal, ok := hit.Fields["importance"].(float64); ok {
-			importance = impVal
-		}
-		finalScore := hit.Score
-		if IsPlaceIntentQuery(params) {
-			// For raw place-name queries, exact lexical intent should dominate and
-			// population/importance should only act as a small tie-breaker.
-			finalScore += min(importance, 20) * 0.01
-		} else {
-			// FinalScore = BleveScore * (1.0 + ImportanceBoost)
-			finalScore = hit.Score * (1.0 + (importance * popBoost))
-		}
-		finalScore += exactNameIntentBonus(hit, params)
-		// We overwrite Score for sorting
-		hit.Score = finalScore
+		nameValues := CollectNameValues(hit.Fields, params.Langs)
+		key, value := primaryClassification(hit.Fields)
+		hit.Score = SharedRankingScore(params, RankingSignals{
+			BaseScore:          hit.Score,
+			NameMatchScore:     BestTextMatchScore(nameValues, params.Query),
+			CategoryMatchScore: categoryMatchScoreForHit(hit.Fields, params.Query),
+			EntityTier:         hitEntityTier(hit.Fields, key, value),
+			Importance:         hitImportance(hit.Fields),
+			ExactNameMatch:     ExactNormalizedMatch(nameValues, params.Query),
+			HasName:            len(nameValues) > 0,
+		})
 	}
 
 	// Sort descending by new score
@@ -491,41 +481,6 @@ func ReRankAndTruncate(res *bleve.SearchResult, params SearchParams, limit int) 
 	}
 
 	return res
-}
-
-func exactNameIntentBonus(hit *blevesearch.DocumentMatch, params SearchParams) float64 {
-	if !IsPlaceIntentQuery(params) {
-		return 0
-	}
-
-	normalizedQuery := normalizeQuery(strings.TrimSpace(params.Query))
-	if normalizedQuery == "" {
-		return 0
-	}
-
-	fields := make([]string, 0, 1+len(params.Langs))
-	fields = append(fields, "name")
-	for _, lang := range params.Langs {
-		fields = append(fields, "name:"+lang)
-	}
-
-	for _, field := range fields {
-		value, ok := hit.Fields[field].(string)
-		if !ok {
-			continue
-		}
-		if normalizeQuery(strings.TrimSpace(value)) == normalizedQuery {
-			bonus := 50.0
-			key, _ := hit.Fields["key"].(string)
-			value, _ := hit.Fields["value"].(string)
-			if IsPlaceLikeClassification(key, value) {
-				bonus += 50
-			}
-			return bonus
-		}
-	}
-
-	return 0
 }
 
 func searchExactNameCandidates(index bleve.Index, params SearchParams, fields []string) (*bleve.SearchResult, error) {
@@ -579,4 +534,67 @@ func mergeSearchHits(base, extra *bleve.SearchResult) {
 		base.Hits = append(base.Hits, hit)
 	}
 	base.Total = uint64(len(base.Hits))
+}
+
+func hitImportance(fields map[string]any) float64 {
+	importance, _ := fields["importance"].(float64)
+	return importance
+}
+
+func primaryClassification(fields map[string]any) (key, value string) {
+	key, _ = fields["key"].(string)
+	value, _ = fields["value"].(string)
+	return key, value
+}
+
+func categoryMatchScoreForHit(fields map[string]any, query string) float64 {
+	key, value := primaryClassification(fields)
+	score := CategoryMatchScore(query, key, value)
+
+	if values, ok := fields["values"].([]string); ok {
+		for _, fieldValue := range values {
+			score = max(score, CategoryMatchScore(query, key, fieldValue))
+		}
+	}
+	if values, ok := fields["values"].([]any); ok {
+		for _, fieldValue := range values {
+			if s, ok := fieldValue.(string); ok {
+				score = max(score, CategoryMatchScore(query, key, s))
+			}
+		}
+	}
+
+	return score
+}
+
+func hitEntityTier(fields map[string]any, key, value string) EntityTier {
+	tier := EntityTierForClassification(key, value)
+
+	if keys, ok := fields["keys"].([]string); ok {
+		for _, fieldKey := range keys {
+			tier = max(tier, EntityTierForClassification(fieldKey, value))
+		}
+	}
+	if keys, ok := fields["keys"].([]any); ok {
+		for _, fieldKey := range keys {
+			if s, ok := fieldKey.(string); ok {
+				tier = max(tier, EntityTierForClassification(s, value))
+			}
+		}
+	}
+
+	if values, ok := fields["values"].([]string); ok {
+		for _, fieldValue := range values {
+			tier = max(tier, EntityTierForClassification(key, fieldValue))
+		}
+	}
+	if values, ok := fields["values"].([]any); ok {
+		for _, fieldValue := range values {
+			if s, ok := fieldValue.(string); ok {
+				tier = max(tier, EntityTierForClassification(key, s))
+			}
+		}
+	}
+
+	return tier
 }
