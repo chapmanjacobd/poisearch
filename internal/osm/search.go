@@ -364,6 +364,23 @@ func matchesCoordsSpatialFilter(
 	return true
 }
 
+func representativeCoordinate(coords [][]float64) (lat, lon float64) {
+	var latSum, lonSum float64
+	count := 0
+	for _, coord := range coords {
+		if len(coord) != 2 {
+			continue
+		}
+		lonSum += coord[0]
+		latSum += coord[1]
+		count++
+	}
+	if count == 0 {
+		return 0, 0
+	}
+	return latSum / float64(count), lonSum / float64(count)
+}
+
 func coordsToOrbGeometry(coords [][]float64) orb.Geometry {
 	switch {
 	case len(coords) == 0:
@@ -464,6 +481,11 @@ func processPBFEntity(
 		}
 	}
 	hit.Fields["display_address"] = computeDisplayAddress(tags)
+
+	if params.Lat != nil && params.Lon != nil && len(coords) > 0 {
+		lat, lon := representativeCoordinate(coords)
+		hit.Fields["distance_meters"] = search.DistanceMeters(*params.Lat, *params.Lon, lat, lon)
+	}
 
 	// Build geometry if requested
 	if conf.GeometryMode != "no-geo" {
@@ -700,6 +722,18 @@ func matchFilters(
 	}
 	if !MatchMetadata(tags, params) {
 		return false
+	}
+	if !matchTags(tags, params.Tags) {
+		return false
+	}
+	return true
+}
+
+func matchTags(tags, filters map[string]string) bool {
+	for key, value := range filters {
+		if tags[key] != value {
+			return false
+		}
 	}
 	return true
 }
