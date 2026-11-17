@@ -83,7 +83,7 @@ func createTestIndex(t *testing.T) bleve.Index {
 			"key":        td.key,
 			"value":      td.value,
 			"importance": td.importance,
-			"geometry":   map[string]float64{"lat": td.lat, "lon": td.lon},
+			"geometry":   []float64{td.lon, td.lat},
 		}
 		if td.street != "" {
 			doc["addr:housenumber"] = td.housenum
@@ -214,13 +214,46 @@ func TestHandler_StructuredErrorResponse(t *testing.T) {
 			t.Error("error response missing 'status' field")
 		}
 	} else {
-		// Success response format (Bleve uses total_hits)
-		if _, ok := result["total_hits"]; !ok {
-			t.Error("success response missing 'total_hits' field")
+		// Normalized success response format.
+		for _, key := range []string{"total", "total_hits", "from", "limit", "hits", "status"} {
+			if _, ok := result[key]; !ok {
+				t.Errorf("success response missing %q field", key)
+			}
 		}
-		if _, ok := result["hits"]; !ok {
-			t.Error("success response missing 'hits' field")
-		}
+	}
+}
+
+func TestHandler_DoesNotFallThroughBetweenBackends(t *testing.T) {
+	index := createTestIndex(t)
+	defer index.Close()
+
+	conf := &config.Config{
+		Languages:    []string{"en"},
+		GeometryMode: "geopoint",
+	}
+
+	mux := http.NewServeMux()
+	api.RegisterHandlersWithPBF(mux, api.HandlerOptions{
+		Indices:  map[string]bleve.Index{"liechtenstein": index},
+		PBFPaths: map[string]string{"liechtenstein-latest": "/nonexistent.pbf"},
+		Conf:     conf,
+	})
+
+	tests := []string{
+		"/search?mode=pbf&index=liechtenstein&q=museum",
+		"/search?mode=banana&q=museum",
+		"/search?mode=pmtiles&q=museum",
+	}
+
+	for _, target := range tests {
+		t.Run(target, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, target, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400 for %s, got %d: %s", target, rec.Code, rec.Body.String())
+			}
+		})
 	}
 }
 
@@ -340,6 +373,9 @@ func TestHandler_TextOutputFormat(t *testing.T) {
 	}
 	if !strings.Contains(body, "total:") {
 		t.Error("text response missing 'total:' field")
+	}
+	if !strings.Contains(body, "lat:") || !strings.Contains(body, "lon:") {
+		t.Error("text response missing geometry fields")
 	}
 }
 

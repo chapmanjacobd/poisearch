@@ -2,13 +2,16 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blevesearch/bleve/v2"
 	blevesearch "github.com/blevesearch/bleve/v2/search"
@@ -24,23 +27,20 @@ type ErrorResponse struct {
 	Status int    `json:"status"`
 }
 
-// SearchResponse wraps search results with pagination info.
+// SearchResponse is the normalized response returned by every backend.
+// total_hits is kept as an alias of total for backwards compatibility.
 type SearchResponse struct {
-	Total    int64       `json:"total"`
-	From     int         `json:"from"`
-	Limit    int         `json:"limit"`
-	Hits     []SearchHit `json:"hits"`
-	Warnings []string    `json:"warnings,omitempty"`
-}
-
-// SearchHit represents a single search result hit.
-type SearchHit struct {
-	ID       string  `json:"id"`
-	Score    float64 `json:"score"`
-	Name     string  `json:"name,omitempty"`
-	Key      string  `json:"key,omitempty"`
-	Value    string  `json:"value,omitempty"`
-	Geometry any     `json:"geometry,omitempty"`
+	Total     int64                        `json:"total"`
+	TotalHits uint64                       `json:"total_hits"`
+	From      int                          `json:"from"`
+	Limit     int                          `json:"limit"`
+	Hits      []*blevesearch.DocumentMatch `json:"hits"`
+	Status    *bleve.SearchStatus          `json:"status"`
+	Cost      uint64                       `json:"cost"`
+	MaxScore  float64                      `json:"max_score"`
+	Took      int64                        `json:"took"`
+	Facets    any                          `json:"facets"`
+	Warnings  []string                     `json:"warnings,omitempty"`
 }
 
 type SearchDefaults struct {
@@ -145,7 +145,7 @@ func RegisterHandlersWithPBF(mux *http.ServeMux, opts HandlerOptions) {
 	mux.HandleFunc("/capabilities", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(buildSearchCapabilities(opts)); err != nil {
-			slog.Error("failed to encode capabilities response", "error", err)
+			slog.ErrorContext(r.Context(), "failed to encode capabilities response", "error", err)
 		}
 	})
 
@@ -153,63 +153,72 @@ func RegisterHandlersWithPBF(mux *http.ServeMux, opts HandlerOptions) {
 		mode := r.URL.Query().Get("mode")
 		name := r.URL.Query().Get("index")
 
-		// 1. Direct PBF Search
-		if mode == "pbf" ||
-			(mode == "" && len(opts.Indices) == 0 && len(opts.PMTilesPaths) == 0 && len(opts.PBFPaths) > 0) {
-
-			path := ""
-			if name != "" {
-				path = opts.PBFPaths[name]
-			} else {
-				// Pick first available
-				for _, p := range opts.PBFPaths {
-					path = p
-					break
-				}
+		switch mode {
+		case "pbf":
+			path, ok := lookupSource(opts.PBFPaths, name)
+			if !ok {
+				writeJSONError(w, http.StatusBadRequest, "no_source", "No PBF source found for requested index.")
+				return
 			}
+			handlePBFSearch(w, r, path, opts.Conf)
+			return
+		case "pmtiles":
+			path, ok := lookupSource(opts.PMTilesPaths, name)
+			if !ok {
+				writeJSONError(w, http.StatusBadRequest, "no_source", "No PMTiles source found for requested index.")
+				return
+			}
+			handlePMTilesSearch(w, r, path, opts.Conf)
+			return
+		case "bleve", "":
+			// fall through to the default selection logic below
+		default:
+			writeJSONError(w, http.StatusBadRequest, "invalid_mode", "Unknown search mode: "+mode)
+			return
+		}
 
-			if path != "" {
+		// Explicit Bleve mode, or find the backend that owns the requested index.
+		if mode == "bleve" {
+			idx, ok := lookupIndex(opts.Indices, name)
+			if !ok {
+				writeJSONError(w, http.StatusBadRequest, "no_source", "No Bleve index found for requested index.")
+				return
+			}
+			handleIndexSearch(w, r, idx, opts.Conf, opts.Cache)
+			return
+		}
+
+		if name != "" {
+			if idx, ok := lookupIndex(opts.Indices, name); ok {
+				handleIndexSearch(w, r, idx, opts.Conf, opts.Cache)
+				return
+			}
+			if path, ok := lookupSource(opts.PBFPaths, name); ok {
 				handlePBFSearch(w, r, path, opts.Conf)
 				return
 			}
-		}
-
-		// 2. Direct PMTiles Search
-		if mode == "pmtiles" ||
-			(mode == "" && len(opts.Indices) == 0 && len(opts.PBFPaths) == 0 && len(opts.PMTilesPaths) > 0) {
-
-			path := ""
-			if name != "" {
-				path = opts.PMTilesPaths[name]
-			} else {
-				// Pick first available
-				for _, p := range opts.PMTilesPaths {
-					path = p
-					break
-				}
-			}
-
-			if path != "" {
+			if path, ok := lookupSource(opts.PMTilesPaths, name); ok {
 				handlePMTilesSearch(w, r, path, opts.Conf)
 				return
 			}
-		}
-
-		// 3. Bleve Index Search
-		var idx bleve.Index
-		if name != "" {
-			idx = opts.Indices[name]
-		} else {
-			// Pick first available
-			for _, i := range opts.Indices {
-				idx = i
-				break
-			}
-		}
-
-		if idx != nil {
-			handleIndexSearch(w, r, idx, opts.Conf, opts.Cache)
+			writeJSONError(w, http.StatusBadRequest, "no_source", "No search source found for requested index.")
 			return
+		}
+
+		// Auto-select only when the caller did not force a specific backend.
+		if mode == "" {
+			if idx, ok := lookupIndex(opts.Indices, ""); ok {
+				handleIndexSearch(w, r, idx, opts.Conf, opts.Cache)
+				return
+			}
+			if path, ok := lookupSource(opts.PBFPaths, ""); ok {
+				handlePBFSearch(w, r, path, opts.Conf)
+				return
+			}
+			if path, ok := lookupSource(opts.PMTilesPaths, ""); ok {
+				handlePMTilesSearch(w, r, path, opts.Conf)
+				return
+			}
 		}
 
 		writeJSONError(
@@ -219,6 +228,34 @@ func RegisterHandlersWithPBF(mux *http.ServeMux, opts HandlerOptions) {
 			"No search source found for requested mode/index.",
 		)
 	})
+}
+
+func lookupIndex(indices map[string]bleve.Index, name string) (bleve.Index, bool) {
+	if len(indices) == 0 {
+		return nil, false
+	}
+	if name != "" {
+		idx, ok := indices[name]
+		return idx, ok
+	}
+	for _, key := range sortedKeys(indices) {
+		return indices[key], true
+	}
+	return nil, false
+}
+
+func lookupSource(paths map[string]string, name string) (string, bool) {
+	if len(paths) == 0 {
+		return "", false
+	}
+	if name != "" {
+		path, ok := paths[name]
+		return path, ok
+	}
+	for _, key := range sortedStringMapKeys(paths) {
+		return paths[key], true
+	}
+	return "", false
 }
 
 func buildSearchCapabilities(opts HandlerOptions) SearchCapabilitiesResponse {
@@ -299,42 +336,104 @@ func sortedStringMapKeys(m map[string]string) []string {
 }
 
 func handlePBFSearch(w http.ResponseWriter, r *http.Request, pbfPath string, conf *config.Config) {
-	params := parseSearchParams(r, conf)
+	params, err := parseSearchParamsWithError(r, conf)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_parameter", err.Error())
+		return
+	}
 
+	start := time.Now()
 	res, err := osm.PBFSearch(pbfPath, params, conf)
 	if err != nil {
-		slog.Error("PBF search failed", "error", err, "query", params.Query)
+		slog.ErrorContext(r.Context(), "PBF search failed", "error", err, "query", params.Query)
 		writeJSONError(w, http.StatusInternalServerError, "search_error", "PBF search failed: "+err.Error())
 		return
 	}
 
-	writeJSONResponse(w, r, res, params)
+	writeJSONResponse(w, r, res, params, time.Since(start))
 }
 
 func handlePMTilesSearch(w http.ResponseWriter, r *http.Request, pmtilesPath string, conf *config.Config) {
-	params := parseSearchParams(r, conf)
+	params, err := parseSearchParamsWithError(r, conf)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_parameter", err.Error())
+		return
+	}
 
+	start := time.Now()
 	res, err := osm.PMTilesSearch(pmtilesPath, params, conf)
 	if err != nil {
-		slog.Error("PMTiles search failed", "error", err, "query", params.Query)
+		slog.ErrorContext(r.Context(), "PMTiles search failed", "error", err, "query", params.Query)
 		writeJSONError(w, http.StatusInternalServerError, "search_error", "PMTiles search failed: "+err.Error())
 		return
 	}
 
-	writeJSONResponse(w, r, res, params)
+	writeJSONResponse(w, r, res, params, time.Since(start))
 }
 
-func writeJSONResponse(w http.ResponseWriter, r *http.Request, res *bleve.SearchResult, params search.SearchParams) {
+func writeJSONResponse(
+	w http.ResponseWriter,
+	r *http.Request,
+	res *bleve.SearchResult,
+	params search.SearchParams,
+	elapsed time.Duration,
+) {
 	// Support text/plain output format (UNIX-pipe-friendly)
 	format := r.URL.Query().Get("format")
 	if format == "text" || strings.Contains(r.Header.Get("Accept"), "text/plain") {
 		writeTextResponse(w, res, params.Langs)
-	} else {
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(res); err != nil {
-			slog.Error("failed to encode JSON response", "error", err)
-		}
+		return
 	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(normalizeResponse(res, params, elapsed)); err != nil {
+		slog.ErrorContext(r.Context(), "failed to encode JSON response", "error", err)
+	}
+}
+
+func normalizeResponse(
+	res *bleve.SearchResult,
+	params search.SearchParams,
+	elapsed time.Duration,
+) SearchResponse {
+	normalized := SearchResponse{
+		From:   max(params.From, 0),
+		Limit:  effectiveLimit(params.Limit),
+		Hits:   []*blevesearch.DocumentMatch{},
+		Facets: res.Facets,
+	}
+	if res == nil {
+		normalized.Status = &bleve.SearchStatus{Total: 1, Successful: 1}
+		normalized.Took = elapsed.Nanoseconds()
+		return normalized
+	}
+
+	normalized.Total = int64(res.Total)
+	normalized.TotalHits = res.Total
+	if res.Hits != nil {
+		normalized.Hits = res.Hits
+	}
+	normalized.Status = res.Status
+	if normalized.Status == nil {
+		normalized.Status = &bleve.SearchStatus{Total: 1, Successful: 1}
+	}
+	normalized.Cost = res.Cost
+	normalized.MaxScore = res.MaxScore
+	for _, hit := range res.Hits {
+		normalized.MaxScore = max(normalized.MaxScore, hit.Score)
+	}
+	normalized.Took = res.Took.Nanoseconds()
+	if normalized.Took == 0 {
+		normalized.Took = elapsed.Nanoseconds()
+	}
+	return normalized
+}
+
+func effectiveLimit(limit int) int {
+	if limit <= 0 {
+		return 100
+	}
+	return min(limit, 1000)
 }
 
 func handleIndexSearch(
@@ -344,25 +443,29 @@ func handleIndexSearch(
 	conf *config.Config,
 	cache *search.QueryCache,
 ) {
-	params := parseSearchParams(r, conf)
+	params, err := parseSearchParamsWithError(r, conf)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_parameter", err.Error())
+		return
+	}
 
 	// Try cache first (only for non-geo queries)
 	if cache != nil && !search.IsGeoQuery(params) {
 		cacheKey := search.BuildCacheKey(params)
 		if cachedResult, found := cache.Get(cacheKey); found {
-			slog.Debug("cache hit", "query", params.Query)
-			// Return cached result directly as JSON
+			slog.DebugContext(r.Context(), "cache hit", "query", params.Query)
 			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(cachedResult); err != nil {
-				slog.Error("failed to encode cached response", "error", err)
+			if encodeErr := json.NewEncoder(w).Encode(cachedResponse(cachedResult, params)); encodeErr != nil {
+				slog.ErrorContext(r.Context(), "failed to encode cached response", "error", encodeErr)
 			}
 			return
 		}
 	}
 
+	start := time.Now()
 	res, err := search.Search(index, params)
 	if err != nil {
-		slog.Error("search failed", "error", err, "query", params.Query)
+		slog.ErrorContext(r.Context(), "search failed", "error", err, "query", params.Query)
 		writeJSONError(w, http.StatusInternalServerError, "search_error", "Search failed: "+err.Error())
 		return
 	}
@@ -372,30 +475,45 @@ func handleIndexSearch(
 		cacheKey := search.BuildCacheKey(params)
 		serialized := search.SerializeResult(res)
 		cache.Set(cacheKey, serialized)
-		slog.Debug("cache store", "query", params.Query)
+		slog.DebugContext(r.Context(), "cache store", "query", params.Query)
 	}
 
-	// Support text/plain output format (UNIX-pipe-friendly)
-	format := r.URL.Query().Get("format")
-	if format == "text" || strings.Contains(r.Header.Get("Accept"), "text/plain") {
-		writeTextResponse(w, res, params.Langs)
-	} else {
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(res); err != nil {
-			slog.Error("failed to encode JSON response", "error", err)
-		}
-	}
+	writeJSONResponse(w, r, res, params, time.Since(start))
 }
 
-func parseFloatPtr(s string) *float64 {
-	if s == "" {
-		return nil
+func cachedResponse(cached *search.SerializedResult, params search.SearchParams) SearchResponse {
+	resp := SearchResponse{
+		From:   max(params.From, 0),
+		Limit:  effectiveLimit(params.Limit),
+		Hits:   []*blevesearch.DocumentMatch{},
+		Status: &bleve.SearchStatus{Total: 1, Successful: 1},
 	}
-	l, err := strconv.ParseFloat(s, 64)
-	if err == nil {
-		return &l
+	if cached == nil {
+		return resp
 	}
-	return nil
+	resp.Total = cached.Total
+	resp.TotalHits = uint64(max(cached.Total, 0))
+	for _, hit := range cached.Hits {
+		fields := map[string]any{}
+		if hit.Name != "" {
+			fields["name"] = hit.Name
+		}
+		if hit.Key != "" {
+			fields["key"] = hit.Key
+		}
+		if hit.Value != "" {
+			fields["value"] = hit.Value
+		}
+		if hit.Lat != 0 || hit.Lon != 0 {
+			fields["geometry"] = []float64{hit.Lon, hit.Lat}
+		}
+		resp.Hits = append(resp.Hits, &blevesearch.DocumentMatch{
+			ID:     hit.ID,
+			Score:  hit.Score,
+			Fields: fields,
+		})
+	}
+	return resp
 }
 
 func parseBool(s string) bool {
@@ -406,7 +524,17 @@ func parseCommaList(s string) []string {
 	if s == "" {
 		return nil
 	}
-	return strings.Split(s, ",")
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func normalizeStreetAddress(street, houseNumber string) (normalizedStreet, normalizedHouseNumber string) {
@@ -443,40 +571,62 @@ func normalizeStreetAddress(street, houseNumber string) (normalizedStreet, norma
 	return street, houseNumber
 }
 
+func isKnownSearchParam(key string) bool {
+	switch key {
+	case "q", "mode", "index", "format",
+		"lat", "lon", "radius",
+		"min_lat", "max_lat", "min_lon", "max_lon",
+		"limit", "from", "langs", "fuzzy", "prefix", "exact_match",
+		"key", "value", "keys", "values", "type",
+		"street", "housenumber", "postcode", "city", "country",
+		"floor", "unit", "level",
+		"phone", "wheelchair", "opening_hours":
+		return true
+	default:
+		return false
+	}
+}
+
 func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams {
+	params, _ := parseSearchParamsWithError(r, conf)
+	return params
+}
+
+func parseSearchParamsWithError(r *http.Request, conf *config.Config) (search.SearchParams, error) {
 	q := r.URL.Query()
-
-	limit := 100
-	if l, err := strconv.Atoi(q.Get("limit")); err == nil {
-		limit = l
-	}
-	if limit > 1000 {
-		limit = 1000
+	limit, from, err := parsePagination(q)
+	if err != nil {
+		return search.SearchParams{}, err
 	}
 
-	from := 0
-	if f, err := strconv.Atoi(q.Get("from")); err == nil && f >= 0 {
-		from = f
+	spatial, err := parseSpatialParams(q)
+	if err != nil {
+		return search.SearchParams{}, err
 	}
 
 	var langs []string
 	if l := q.Get("langs"); l != "" {
-		langs = strings.Split(l, ",")
+		langs = parseCommaList(l)
 	} else {
 		langs = conf.Languages
 	}
 
 	street, houseNumber := normalizeStreetAddress(q.Get("street"), q.Get("housenumber"))
 
+	value := q.Get("value")
+	if value == "" {
+		value = q.Get("type")
+	}
+
 	return search.SearchParams{
 		Query:        q.Get("q"),
-		Lat:          parseFloatPtr(q.Get("lat")),
-		Lon:          parseFloatPtr(q.Get("lon")),
-		Radius:       q.Get("radius"),
-		MinLat:       parseFloatPtr(q.Get("min_lat")),
-		MaxLat:       parseFloatPtr(q.Get("max_lat")),
-		MinLon:       parseFloatPtr(q.Get("min_lon")),
-		MaxLon:       parseFloatPtr(q.Get("max_lon")),
+		Lat:          spatial.lat,
+		Lon:          spatial.lon,
+		Radius:       spatial.radius,
+		MinLat:       spatial.minLat,
+		MaxLat:       spatial.maxLat,
+		MinLon:       spatial.minLon,
+		MaxLon:       spatial.maxLon,
 		Limit:        limit,
 		From:         from,
 		Langs:        langs,
@@ -484,7 +634,7 @@ func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams
 		Fuzzy:        parseBool(q.Get("fuzzy")),
 		Prefix:       parseBool(q.Get("prefix")),
 		Key:          q.Get("key"),
-		Value:        q.Get("value"),
+		Value:        value,
 		Keys:         parseCommaList(q.Get("keys")),
 		Values:       parseCommaList(q.Get("values")),
 		Street:       street,
@@ -501,7 +651,158 @@ func parseSearchParams(r *http.Request, conf *config.Config) search.SearchParams
 		ExactMatch:   parseBool(q.Get("exact_match")),
 		Analyzer:     conf.NameAnalyzer,
 		PopBoost:     conf.Importance.PopBoost,
+		Tags:         parseTagFilters(q),
+	}, nil
+}
+
+func parsePagination(q url.Values) (limit, from int, err error) {
+	limit = 100
+	if raw := q.Get("limit"); raw != "" {
+		value, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || value < 1 {
+			return 0, 0, errors.New("limit must be a positive integer")
+		}
+		limit = min(value, 1000)
 	}
+
+	if raw := q.Get("from"); raw != "" {
+		value, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || value < 0 {
+			return 0, 0, errors.New("from must be a non-negative integer")
+		}
+		from = value
+	}
+	return limit, from, nil
+}
+
+type spatialParams struct {
+	lat, lon                       *float64
+	minLat, maxLat, minLon, maxLon *float64
+	radius                         string
+}
+
+func parseSpatialParams(q url.Values) (spatialParams, error) {
+	lat, err := parseOptionalFloat(q.Get("lat"), "lat")
+	if err != nil {
+		return spatialParams{}, err
+	}
+	lon, err := parseOptionalFloat(q.Get("lon"), "lon")
+	if err != nil {
+		return spatialParams{}, err
+	}
+	minLat, err := parseOptionalFloat(q.Get("min_lat"), "min_lat")
+	if err != nil {
+		return spatialParams{}, err
+	}
+	maxLat, err := parseOptionalFloat(q.Get("max_lat"), "max_lat")
+	if err != nil {
+		return spatialParams{}, err
+	}
+	minLon, err := parseOptionalFloat(q.Get("min_lon"), "min_lon")
+	if err != nil {
+		return spatialParams{}, err
+	}
+	maxLon, err := parseOptionalFloat(q.Get("max_lon"), "max_lon")
+	if err != nil {
+		return spatialParams{}, err
+	}
+
+	radius := q.Get("radius")
+	if radius != "" {
+		if _, radiusErr := search.ParseRadiusMeters(radius); radiusErr != nil {
+			return spatialParams{}, radiusErr
+		}
+	}
+
+	// A radius search needs a center and a radius. A bbox search needs all four
+	// corners. Partial or invalid spatial parameters must not silently broaden
+	// the query to an unfiltered search. Near queries resolve their own center,
+	// so they may supply only a radius.
+	isNearQuery := search.IsNearQuery(q.Get("q"))
+	if !isNearQuery && (lat != nil || lon != nil || radius != "") {
+		if lat == nil || lon == nil {
+			return spatialParams{}, errors.New("lat and lon are both required for a radius search")
+		}
+		if radius == "" {
+			return spatialParams{}, errors.New("radius is required when lat/lon are provided")
+		}
+	}
+	if lat != nil && (*lat < -90 || *lat > 90) {
+		return spatialParams{}, errors.New("lat must be between -90 and 90")
+	}
+	if lon != nil && (*lon < -180 || *lon > 180) {
+		return spatialParams{}, errors.New("lon must be between -180 and 180")
+	}
+
+	bboxSet := []*float64{minLat, maxLat, minLon, maxLon}
+	bboxProvided := 0
+	for _, value := range bboxSet {
+		if value != nil {
+			bboxProvided++
+		}
+	}
+	if bboxProvided > 0 && bboxProvided < 4 {
+		return spatialParams{}, errors.New(
+			"min_lat, max_lat, min_lon, and max_lon are all required for a bbox search",
+		)
+	}
+	if bboxProvided == 4 {
+		if err := validateBBox(*minLat, *maxLat, *minLon, *maxLon); err != nil {
+			return spatialParams{}, err
+		}
+	}
+
+	return spatialParams{
+		lat: lat, lon: lon, radius: radius,
+		minLat: minLat, maxLat: maxLat, minLon: minLon, maxLon: maxLon,
+	}, nil
+}
+
+func validateBBox(minLat, maxLat, minLon, maxLon float64) error {
+	if minLat < -90 || maxLat > 90 {
+		return errors.New("bbox latitudes must be between -90 and 90")
+	}
+	if minLon < -180 || maxLon > 180 {
+		return errors.New("bbox longitudes must be between -180 and 180")
+	}
+	if minLat > maxLat {
+		return errors.New("min_lat must be less than or equal to max_lat")
+	}
+	if minLon > maxLon {
+		return errors.New("min_lon must be less than or equal to max_lon")
+	}
+	return nil
+}
+
+func parseOptionalFloat(raw, name string) (*float64, error) {
+	if raw == "" {
+		//nolint:nilnil // absence of an optional parameter is represented by nil
+		return nil, nil
+	}
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return nil, fmt.Errorf("%s must be a number", name)
+	}
+	return &value, nil
+}
+
+func parseTagFilters(q url.Values) map[string]string {
+	tags := make(map[string]string)
+	for key, values := range q {
+		if isKnownSearchParam(key) || len(values) == 0 {
+			continue
+		}
+		if strings.HasPrefix(key, "_") || strings.HasPrefix(key, "utm_") {
+			continue
+		}
+		if values[0] != "" {
+			tags[key] = values[0]
+		}
+	}
+	if len(tags) == 0 {
+		return nil
+	}
+	return tags
 }
 
 // writeTextResponse writes search results in a simple key-value format
@@ -569,14 +870,12 @@ func writeLocalizedNames(w http.ResponseWriter, hit *blevesearch.DocumentMatch, 
 }
 
 func writeGeometry(w http.ResponseWriter, hit *blevesearch.DocumentMatch) {
-	if geom, ok := hit.Fields["geometry"].(map[string]any); ok {
-		if lat, ok := geom["lat"].(float64); ok {
-			fmt.Fprintf(w, "lat: %.5f\n", lat)
-		}
-		if lon, ok := geom["lon"].(float64); ok {
-			fmt.Fprintf(w, "lon: %.5f\n", lon)
-		}
+	lat, lon, ok := search.HitLatLon(hit)
+	if !ok {
+		return
 	}
+	fmt.Fprintf(w, "lat: %.5f\n", lat)
+	fmt.Fprintf(w, "lon: %.5f\n", lon)
 }
 
 func writeAddress(w http.ResponseWriter, hit *blevesearch.DocumentMatch) {
@@ -604,7 +903,12 @@ func writeMetadataFields(w http.ResponseWriter, hit *blevesearch.DocumentMatch) 
 }
 
 func writeDistance(w http.ResponseWriter, hit *blevesearch.DocumentMatch) {
-	if dist, ok := hit.Fields["distance_meters"].(int); ok {
+	switch dist := hit.Fields["distance_meters"].(type) {
+	case int:
 		fmt.Fprintf(w, "distance_meters: %d\n", dist)
+	case int64:
+		fmt.Fprintf(w, "distance_meters: %d\n", dist)
+	case float64:
+		fmt.Fprintf(w, "distance_meters: %.0f\n", dist)
 	}
 }
