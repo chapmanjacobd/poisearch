@@ -2,6 +2,8 @@
 
 A lightweight (low RAM, medium disk) [POI](https://en.wikipedia.org/wiki/Poi_(food)) search engine for OpenStreetMap data
 
+[![CI](https://github.com/chapmanjacobd/poisearch/actions/workflows/ci.yml/badge.svg)](https://github.com/chapmanjacobd/poisearch/actions/workflows/ci.yml)
+
 ## Bleve vs PBF vs PMTiles-based search
 
 `config.toml` defines both index creation time and runtime options. There are three main search strategies, each with different tradeoffs:
