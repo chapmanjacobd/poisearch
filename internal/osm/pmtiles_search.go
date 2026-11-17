@@ -128,20 +128,18 @@ func pmtilesSearchRaw(
 		params.Limit = 1000
 	}
 
-	collectLimit := params.Limit * 3
-
+	// Scan all tiles: totals and ranking must not depend on the requested page size.
 	geosCtx := geos.NewContext()
 	queryLower := strings.ToLower(params.Query)
 
 	pOpts := &processTileOptions{
-		archive:      archive,
-		res:          res,
-		params:       params,
-		collectLimit: collectLimit,
-		conf:         conf,
-		ont:          ont,
-		geosCtx:      geosCtx,
-		queryLower:   queryLower,
+		archive:    archive,
+		res:        res,
+		params:     params,
+		conf:       conf,
+		ont:        ont,
+		geosCtx:    geosCtx,
+		queryLower: queryLower,
 	}
 
 	filter := computeSpatialFilter(params)
@@ -169,9 +167,6 @@ func pmtilesSearchRaw(
 			if err != nil {
 				// Continue with other tiles
 				continue
-			}
-			if pOpts.collectLimit > 0 && len(res.Hits) >= pOpts.collectLimit {
-				return sortAndTruncateDirectHits(res, params.From, params.Limit), nil
 			}
 		}
 	}
@@ -223,10 +218,6 @@ func processDirectory(ctx context.Context, archive *pmtilesCache, offset, length
 				return err
 			}
 		}
-
-		if p.collectLimit > 0 && len(p.res.Hits) >= p.collectLimit {
-			return nil
-		}
 	}
 	return nil
 }
@@ -258,9 +249,7 @@ func processTileWithData(
 		}
 		layer.ProjectToWGS84(tile)
 		for _, feature := range layer.Features {
-			if done := processMVTFeature(feature, layer.Name, p); done {
-				return nil
-			}
+			processMVTFeature(feature, layer.Name, p)
 		}
 	}
 	return nil
@@ -293,15 +282,14 @@ func lonLatToTile(lon, lat float64, zoom int) (x, y int) {
 }
 
 type processTileOptions struct {
-	archive      *pmtilesCache
-	z, x, y      uint32
-	res          *bleve.SearchResult
-	params       search.SearchParams
-	collectLimit int
-	conf         *config.Config
-	ont          *PlaceTypeOntology
-	geosCtx      *geos.Context
-	queryLower   string
+	archive    *pmtilesCache
+	z, x, y    uint32
+	res        *bleve.SearchResult
+	params     search.SearchParams
+	conf       *config.Config
+	ont        *PlaceTypeOntology
+	geosCtx    *geos.Context
+	queryLower string
 }
 
 func processTile(ctx context.Context, p *processTileOptions) error {
@@ -334,9 +322,7 @@ func processTile(ctx context.Context, p *processTileOptions) error {
 		layer.ProjectToWGS84(tile)
 
 		for _, feature := range layer.Features {
-			if done := processMVTFeature(feature, layer.Name, p); done {
-				return nil
-			}
+			processMVTFeature(feature, layer.Name, p)
 		}
 	}
 
@@ -431,24 +417,24 @@ func extractFeatureID(fid any) int64 {
 	return 0
 }
 
-func processMVTFeature(feature *geojson.Feature, layerName string, p *processTileOptions) bool {
+func processMVTFeature(feature *geojson.Feature, layerName string, p *processTileOptions) {
 	tags := extractOMTTags(feature, layerName, p.conf.Languages)
 	coords := featureToCoords(feature.Geometry)
 	if len(coords) == 0 {
-		return false
+		return
 	}
 
 	filter := computeSpatialFilter(p.params)
 	radiusMeters := parseRadiusToInt(p.params.Radius)
 	if !matchesGeometryCoarseFilter(feature.Geometry, coords, &filter, p.params, radiusMeters) {
-		return false
+		return
 	}
 
 	// Opt-in: precise intersection check for non-point geometries
 	if p.conf.PMTilesPostProcess || p.params.ExactMatch {
 		if _, ok := feature.Geometry.(orb.Point); !ok {
 			if !matchesPreciseFilter(feature.Geometry, &filter, p.params, radiusMeters) {
-				return false
+				return
 			}
 		}
 	}
@@ -458,11 +444,7 @@ func processMVTFeature(feature *geojson.Feature, layerName string, p *processTil
 	if hit := processPBFEntity("pmtiles", id, tags, coords,
 		p.queryLower, p.params, p.conf, p.ont, p.geosCtx); hit != nil {
 		collectHit(p.res, hit)
-		if p.collectLimit > 0 && len(p.res.Hits) >= p.collectLimit {
-			return true // Limit reached
-		}
 	}
-	return false
 }
 
 // readTileDirect reads a tile directly from the PMTiles archive.
