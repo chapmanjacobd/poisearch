@@ -14,7 +14,7 @@ import (
 
 func TestSearchboxQuality_Liechtenstein(t *testing.T) {
 	pbfPath := downloadPBF(t)
-	pmtilesPath := "../liechtenstein.pmtiles"
+	pmtilesPath := "../testdata/liechtenstein.pmtiles"
 	if _, err := os.Stat(pmtilesPath); err != nil {
 		t.Fatalf("PMTiles file not found at %s. Run scripts/pbf_to_pmtiles.sh to generate it.", pmtilesPath)
 	}

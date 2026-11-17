@@ -598,7 +598,7 @@ func TestHandler_Capabilities(t *testing.T) {
 
 // Test PMTiles search with address parameters.
 func TestHandler_PMTilesAddressSearch(t *testing.T) {
-	pmtilesPath := "../../liechtenstein.pmtiles"
+	pmtilesPath := "../../testdata/liechtenstein.pmtiles"
 	if _, err := os.Stat(pmtilesPath); err != nil {
 		t.Fatalf("liechtenstein.pmtiles not found at %s. Run scripts/pbf_to_pmtiles.sh to generate it.", pmtilesPath)
 	}
