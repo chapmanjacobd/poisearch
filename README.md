@@ -43,6 +43,8 @@ Recommended for most use cases. It uses a pre-built Bleve index for fast, scalab
    go run ./cmd/poisearch --config config.toml build processed.osm.pbf
    ```
 
+   Index builds default to `build_workers = 2`. The PBF decoder allocates buffers per worker, so raising this uses more RAM; lower it on memory-constrained machines.
+
 4. Serve:
    ```sh
    go run ./cmd/poisearch --config config.toml serve
@@ -128,11 +130,21 @@ The following query parameters are supported on `/search`:
 | `limit` | int | `100` | Maximum number of results to return (default: 100, max: 1000) |
 | `from` | int | `0` | Offset for pagination |
 | `langs` | string | `en,de` | Comma-separated list of preferred languages |
-| `fuzzy` | bool | `true` | Toggle fuzzy matching (true/1) |
-| `prefix` | bool | `true` | Toggle prefix matching (true/1) |
+| `fuzzy` | bool | `true` | Enable fuzzy matching (default: off) |
+| `prefix` | bool | `true` | Enable prefix matching (default: off) |
 | `exact_match` | bool | `true` | PMTiles only: enable slower, more precise non-point geometry filtering per request |
 | `key`, `value` | string | `amenity`, `restaurant` | Filter by primary classification |
 | `keys`, `values` | string | `amenity,shop` | Comma-separated multi-value filters |
+| `street`, `housenumber` | string | `Städtle`, `37` | Address filters |
+| `postcode`, `city`, `country` | string | `9490`, `Vaduz`, `LI` | Address filters |
+| `wheelchair`, `phone`, `opening_hours` | string | `yes` | Metadata filters |
+| *any other key* | string | `amenity=restaurant` | Exact tag filter |
+
+Any parameter that is not in the table above is treated as an exact tag filter, so `?amenity=restaurant` and `?wheelchair=yes&amenity=restaurant` work. `type=restaurant` is an alias for `value=restaurant`.
+
+The Bleve backend can only filter tags that were indexed (names, classification, address, and metadata). PBF and PMTiles can match arbitrary full tag sets.
+
+Invalid spatial inputs (for example a non-numeric `lat`, a partial bbox, or a negative radius) return `400` instead of silently running an unfiltered search. Response JSON contains both `total` and the backwards-compatible `total_hits` alias, plus `from`, `limit`, `status`, `max_score`, and `took`.
 
 `q` also supports `X near Y`, `X in Y`, `X around Y`, and `X close to Y` patterns in all three search modes.
 

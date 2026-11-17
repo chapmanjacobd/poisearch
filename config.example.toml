@@ -21,9 +21,11 @@ simplification_tolerance = 0.0001
 # Name analyzer controls how text is tokenized for search:
 #   - "standard"   : Tokenizes on word boundaries (default). Use with fuzzy/prefix flags.
 #   - "edge_ngram" : Prefix tokens (e.g., "restaurant" -> "r", "re", "res", ...).
-#                    Great for autocomplete - matches partial input without fuzzy flag.
+#                    Great for autocomplete, but prefix matching is always active
+#                    for the primary name field regardless of the runtime prefix flag.
 #   - "ngram"      : Substring tokens (e.g., "matrix" -> "ma", "at", "tr", "mat", ...).
 #                    Enables substring matching but increases index size significantly.
+# Use "standard" if you want the runtime fuzzy/prefix flags to fully control matching.
 name_analyzer = "standard"
 
 # Toggle optional features
@@ -40,6 +42,7 @@ store_address = false             # Index addr:* tags for address search
 index_wikidata_redirects = false  # Index Wikipedia redirect titles as alternate names (increases size)
 
 # Build optimization
+build_workers = 2                 # PBF decoder workers (default: 2). Higher uses more RAM.
 geo_batch_size = 500              # Batch size for geometry operations (50-1000)
 index_batch_size = 5000           # Batch size for bleve indexing (default: 5000, higher is usually faster but uses more memory)
 
