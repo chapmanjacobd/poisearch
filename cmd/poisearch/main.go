@@ -162,13 +162,13 @@ func (s *ServeCmd) Run(conf *config.Config) error {
 
 	pbfPaths := make(map[string]string)
 	for _, p := range conf.PBFPaths {
-		name := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
+		name := sourceName(p)
 		pbfPaths[name] = p
 	}
 
 	pmtilesPaths := make(map[string]string)
 	for _, p := range conf.PMTilesPaths {
-		name := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
+		name := sourceName(p)
 		pmtilesPaths[name] = p
 	}
 
@@ -265,12 +265,12 @@ func (s *ServeCmd) handleSignals(conf *config.Config, srv *Server, httpSrv *http
 				// Update PBF and PMTiles paths too
 				pbfPaths := make(map[string]string)
 				for _, p := range conf.PBFPaths {
-					name := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
+					name := sourceName(p)
 					pbfPaths[name] = p
 				}
 				pmtilesPaths := make(map[string]string)
 				for _, p := range conf.PMTilesPaths {
-					name := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
+					name := sourceName(p)
 					pmtilesPaths[name] = p
 				}
 				srv.pbfPaths = pbfPaths
@@ -296,6 +296,17 @@ func (s *ServeCmd) handleSignals(conf *config.Config, srv *Server, httpSrv *http
 			}
 		}
 	}()
+}
+
+func sourceName(path string) string {
+	name := filepath.Base(path)
+	for {
+		ext := filepath.Ext(name)
+		if ext == "" {
+			return name
+		}
+		name = strings.TrimSuffix(name, ext)
+	}
 }
 
 func main() {
