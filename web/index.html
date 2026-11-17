@@ -12,7 +12,8 @@
         }
 
         body {
-            min-height: 100vh;
+            height: 100vh;
+            overflow: hidden;
             display: flex;
             flex-direction: column;
             background: #f4f7fb;
@@ -32,6 +33,7 @@
         #sidebar {
             width: 440px;
             max-width: 100%;
+            min-height: 0;
             overflow-y: auto;
             padding: 1rem;
             border-right: 1px solid #dbe2ea;
@@ -145,6 +147,12 @@
         }
 
         @media (max-width: 991.98px) {
+            body {
+                height: auto;
+                min-height: 100vh;
+                overflow: auto;
+            }
+
             #main-container {
                 flex-direction: column;
             }
@@ -399,7 +407,7 @@
         },
         "vaduz-address": {
             query: "",
-            street: "Herrengasse 1",
+            street: "Herrengasse 2",
             postcode: "9490",
             city: "Vaduz"
         }
@@ -408,7 +416,9 @@
     const state = {
         capabilities: null,
         lastResponse: null,
-        lastRequestURL: ""
+        lastRequestURL: "",
+        requestSequence: 0,
+        activeController: null
     };
 
     const map = L.map("map").setView(DEFAULT_CENTER, DEFAULT_ZOOM);
@@ -440,7 +450,9 @@
             }
             const text = await res.text();
             updateStatusBadge("API online", "text-bg-success");
-            $("map-message").textContent = text || "API online";
+            if (text && text !== "OK") {
+                $("map-message").textContent = text;
+            }
         } catch (error) {
             updateStatusBadge("API offline", "text-bg-danger");
             $("map-message").textContent = "Could not reach /health.";
@@ -526,8 +538,6 @@
 
         if (preferredSource && sources.includes(preferredSource)) {
             sourceSelect.value = preferredSource;
-        } else if (sources.length) {
-            sourceSelect.value = sources[0];
         } else {
             sourceSelect.value = "";
         }
@@ -554,7 +564,7 @@
         populateModeOptions();
         populateSourceOptions();
         syncModeSpecificControls();
-        renderRequestPreview(new URLSearchParams({ mode: $("mode").value }));
+        renderRequestPreview(buildSearchParams());
     }
 
     function resetForm() {
@@ -875,9 +885,11 @@
         $("raw-response").textContent = JSON.stringify(data, null, 2);
 
         const hits = Array.isArray(data.hits) ? data.hits : [];
-        const total = typeof data.total === "number" ? data.total : hits.length;
-        const offset = Number.parseInt(params.get("from") || "0", 10);
-        const limit = Number.parseInt(params.get("limit") || "0", 10);
+        const total = typeof data.total_hits === "number"
+            ? data.total_hits
+            : (typeof data.total === "number" ? data.total : hits.length);
+        const offset = typeof data.from === "number" ? data.from : Number.parseInt(params.get("from") || "0", 10);
+        const limit = typeof data.limit === "number" ? data.limit : Number.parseInt(params.get("limit") || "0", 10);
         const warnings = Array.isArray(data.warnings) ? data.warnings : [];
 
         markers.clearLayers();
@@ -893,7 +905,10 @@
             });
         }
 
-        $("results-meta").textContent = `Returned ${hits.length} of ${total} hits (offset ${offset}, limit ${limit}).`;
+        const firstHit = hits.length ? offset + 1 : 0;
+        const lastHit = offset + hits.length;
+        $("results-meta").textContent =
+            `Returned ${hits.length} of ${total} hits (showing ${firstHit}-${lastHit}, limit ${limit}).`;
 
         const bounds = L.latLngBounds();
         let mappedCount = 0;
@@ -914,6 +929,7 @@
         });
 
         $("geometry-meta").textContent = `${mappedCount}/${hits.length} mapped`;
+        requestAnimationFrame(() => map.invalidateSize());
 
         if (hits.length === 0) {
             const empty = document.createElement("div");
@@ -942,11 +958,22 @@
             return;
         }
 
+        if (state.activeController) {
+            state.activeController.abort();
+        }
+        const controller = new AbortController();
+        state.activeController = controller;
+        const requestId = ++state.requestSequence;
+
         showLoading(true);
         try {
-            const res = await fetch(`${API_BASE}/search?${params.toString()}`);
+            const res = await fetch(`${API_BASE}/search?${params.toString()}`, { signal: controller.signal });
             const contentType = res.headers.get("content-type") || "";
             const payload = contentType.includes("application/json") ? await res.json() : await res.text();
+
+            if (requestId !== state.requestSequence) {
+                return;
+            }
 
             if (!res.ok) {
                 const message = typeof payload === "string" ? payload : (payload.error || "Request failed");
@@ -955,13 +982,19 @@
 
             renderResults(payload, params);
         } catch (error) {
+            if (error.name === "AbortError" || requestId !== state.requestSequence) {
+                return;
+            }
             console.error(error);
             clearResults("The search request failed.");
             setWarningMessage(error.message, "danger");
             $("raw-response").textContent = error.message;
             updateMapMessage("Search failed before the map could be updated.");
         } finally {
-            showLoading(false);
+            if (requestId === state.requestSequence) {
+                state.activeController = null;
+                showLoading(false);
+            }
         }
     }
 
