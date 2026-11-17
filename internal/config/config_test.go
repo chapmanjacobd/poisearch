@@ -17,6 +17,7 @@ languages = ["en", "de"]
 geometry_mode = "geopoint"
 simplification_tolerance = 0.0001
 name_analyzer = "standard"
+build_workers = 4
 
 [server]
 host = "127.0.0.1"
@@ -48,6 +49,9 @@ boosts = ["city", "town", "pharmacy"]
 	}
 	if conf.GeometryMode != "geopoint" {
 		t.Errorf("geometry_mode = %s, want geopoint", conf.GeometryMode)
+	}
+	if conf.BuildWorkers != 4 {
+		t.Errorf("build_workers = %d, want 4", conf.BuildWorkers)
 	}
 	if conf.Server.Host != "127.0.0.1" {
 		t.Errorf("server.host = %s, want 127.0.0.1", conf.Server.Host)

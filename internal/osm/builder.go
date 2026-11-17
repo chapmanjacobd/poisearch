@@ -64,8 +64,25 @@ func (m *filteredNodeCache) Close() {
 	m.required = nil
 }
 
+// pbfWorkers returns the PBF scanner concurrency. osmpbf allocates buffers per
+// worker, so an uncapped [runtime.GOMAXPROCS] can use a lot of RAM on
+// many-core machines.
+func pbfWorkers(conf *config.Config) int {
+	workers := config.DefaultBuildWorkers
+	if conf != nil && conf.BuildWorkers > 0 {
+		workers = conf.BuildWorkers
+	}
+	if maxWorkers := runtime.GOMAXPROCS(0); workers > maxWorkers {
+		workers = maxWorkers
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	return workers
+}
+
 // collectRequiredNodes scans the PBF once to find all node IDs used by ways and relations.
-func collectRequiredNodes(inputPath string) (map[int64]struct{}, error) {
+func collectRequiredNodes(inputPath string, workers int) (map[int64]struct{}, error) {
 	slog.Info("Pass 1: collecting required node IDs from ways and relations...", "input", inputPath)
 	start := time.Now()
 
@@ -76,7 +93,7 @@ func collectRequiredNodes(inputPath string) (map[int64]struct{}, error) {
 	defer f.Close()
 
 	// Skip nodes for speed; we only need to look at ways and relations to see what nodes they reference.
-	scanner := osmpbf.New(context.Background(), f, runtime.GOMAXPROCS(-1))
+	scanner := osmpbf.New(context.Background(), f, workers)
 	scanner.SkipNodes = true
 	defer scanner.Close()
 
@@ -273,7 +290,8 @@ func geomToGeoJSON(g *geos.Geom) map[string]any {
 //nolint:revive,funlen
 func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error {
 	// Pass 1: Collect required node IDs
-	requiredNodes, err := collectRequiredNodes(inputPath)
+	workers := pbfWorkers(conf)
+	requiredNodes, err := collectRequiredNodes(inputPath, workers)
 	if err != nil {
 		slog.Warn("Pass 1 failed, will cache all nodes (high memory usage)", "error", err)
 	}
@@ -314,7 +332,7 @@ func BuildIndex(inputPath string, conf *config.Config, index bleve.Index) error 
 	}
 	defer file.Close()
 
-	scanner := osmpbf.New(context.Background(), file, runtime.GOMAXPROCS(-1))
+	scanner := osmpbf.New(context.Background(), file, workers)
 	if conf.NodesOnly {
 		scanner.SkipWays = true
 		scanner.SkipRelations = true

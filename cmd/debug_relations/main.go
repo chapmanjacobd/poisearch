@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"runtime"
 	"strings"
 
 	"github.com/chapmanjacobd/poisearch/internal/config"
@@ -27,7 +26,7 @@ func main() {
 	}
 	defer f.Close()
 
-	scanner := osmpbf.New(context.Background(), f, runtime.GOMAXPROCS(-1))
+	scanner := osmpbf.New(context.Background(), f, config.DefaultBuildWorkers)
 	defer scanner.Close()
 
 	conf := config.Config{

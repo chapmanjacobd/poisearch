@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -56,7 +55,7 @@ func pbfSearchRaw(pbfPath string, params search.SearchParams, conf *config.Confi
 	}
 	defer file.Close()
 
-	scanner := osmpbf.New(context.Background(), file, runtime.GOMAXPROCS(-1))
+	scanner := osmpbf.New(context.Background(), file, pbfWorkers(conf))
 	defer scanner.Close()
 
 	if params.Limit <= 0 {

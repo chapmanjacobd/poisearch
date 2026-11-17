@@ -11,6 +11,10 @@ const (
 	// DefaultGeoBatchSize is the default batch size for geometry operations.
 	DefaultGeoBatchSize = 200
 
+	// DefaultBuildWorkers keeps PBF decoding memory bounded. osmpbf allocates
+	// per-worker buffers, so using every CPU can consume a lot of RAM.
+	DefaultBuildWorkers = 2
+
 	// DefaultCacheSize is the default LRU cache capacity in entries.
 	DefaultCacheSize = 1000
 	// DefaultCacheTTL is the default cache entry time-to-live.
@@ -43,6 +47,7 @@ type Config struct {
 	PMTilesPostProcess     bool              `toml:"pmtiles_post_process"`     // Opt-in: perform precise intersection check for PMTiles (slow)
 
 	// Build optimization configuration
+	BuildWorkers   int `toml:"build_workers"`    // PBF scanner concurrency (default: 2)
 	GeoBatchSize   int `toml:"geo_batch_size"`   // Batch size for geometry operations (default: 200, range: 50-1000)
 	IndexBatchSize int `toml:"index_batch_size"` // Batch size for bleve indexing (default: 5000)
 
