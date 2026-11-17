@@ -27,6 +27,9 @@ func IsPlaceIntentQuery(params SearchParams) bool {
 	if params.Phone != "" || params.Wheelchair != "" || params.OpeningHours != "" {
 		return false
 	}
+	if len(params.Tags) > 0 {
+		return false
+	}
 	return true
 }
 

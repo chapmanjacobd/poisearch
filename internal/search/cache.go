@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -132,7 +133,7 @@ func BuildCacheKey(params SearchParams) string {
 	// Always include these base parameters
 	fmt.Fprintf(
 		h,
-		"q=%s&limit=%d&from=%d&fuzzy=%t&prefix=%t&key=%s&value=%s&keys=%v&values=%v&street=%s&housenumber=%s&postcode=%s&city=%s&country=%s",
+		"q=%s&limit=%d&from=%d&fuzzy=%t&prefix=%t&key=%s&value=%s&keys=%v&values=%v&street=%s&housenumber=%s&postcode=%s&city=%s&country=%s&floor=%s&unit=%s&level=%s&phone=%s&wheelchair=%s&opening_hours=%s&exact_match=%t&analyzer=%s",
 		params.Query,
 		params.Limit,
 		params.From,
@@ -147,6 +148,14 @@ func BuildCacheKey(params SearchParams) string {
 		params.Postcode,
 		params.City,
 		params.Country,
+		params.Floor,
+		params.Unit,
+		params.Level,
+		params.Phone,
+		params.Wheelchair,
+		params.OpeningHours,
+		params.ExactMatch,
+		params.Analyzer,
 	)
 
 	// Only include geo params for non-geo queries
@@ -156,6 +165,15 @@ func BuildCacheKey(params SearchParams) string {
 
 	if !isGeo {
 		fmt.Fprintf(h, "&langs=%v", params.Langs)
+	}
+
+	tagKeys := make([]string, 0, len(params.Tags))
+	for key := range params.Tags {
+		tagKeys = append(tagKeys, key)
+	}
+	sort.Strings(tagKeys)
+	for _, key := range tagKeys {
+		fmt.Fprintf(h, "&tag:%s=%s", key, params.Tags[key])
 	}
 
 	hash := hex.EncodeToString(h.Sum(nil))

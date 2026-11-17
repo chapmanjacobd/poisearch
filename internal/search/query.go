@@ -1,7 +1,11 @@
 package search
 
 import (
+	"errors"
+	"fmt"
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/blevesearch/bleve/v2"
@@ -57,6 +61,9 @@ type SearchParams struct {
 	Phone        string
 	Wheelchair   string
 	OpeningHours string
+
+	// Arbitrary tag filters, e.g. amenity=restaurant.
+	Tags map[string]string
 }
 
 // QueryFields returns the number of query fields (words) in the search query.
@@ -99,29 +106,40 @@ func MatchTierBoost(tier MatchTier) float64 {
 	}
 }
 
-func addNameQuery(q, field string) query.Query {
+func addNameQuery(q, field string, fuzzy, prefix bool) query.Query {
 	// Standard exact word match (high boost)
 	mq := bleve.NewMatchQuery(q)
 	mq.SetField(field)
 	mq.Analyzer = "standard"
 	mq.SetBoost(5.0)
 
-	// Autocomplete edge_ngram match (normal boost)
-	eq := bleve.NewMatchQuery(q)
-	eq.SetField(field + "_edge_ngram")
-	// Must use a standard analyzer for the query, otherwise the search term itself
-	// is split into edge n-grams and matches any word starting with the first letter!
-	eq.Analyzer = "standard"
-	eq.SetBoost(1.0)
+	clauses := []query.Query{mq}
 
-	// Fuzzy match for typo tolerance (low boost)
-	fq := bleve.NewMatchQuery(q)
-	fq.SetField(field)
-	fq.Analyzer = "standard"
-	fq.SetFuzziness(1)
-	fq.SetBoost(0.5)
+	if prefix {
+		// Autocomplete edge_ngram match (normal boost)
+		eq := bleve.NewMatchQuery(q)
+		eq.SetField(field + "_edge_ngram")
+		// Must use a standard analyzer for the query, otherwise the search term itself
+		// is split into edge n-grams and matches any word starting with the first letter!
+		eq.Analyzer = "standard"
+		eq.SetBoost(1.0)
+		clauses = append(clauses, eq)
+	}
 
-	return bleve.NewDisjunctionQuery(mq, eq, fq)
+	if fuzzy {
+		// Fuzzy match for typo tolerance (low boost)
+		fq := bleve.NewMatchQuery(q)
+		fq.SetField(field)
+		fq.Analyzer = "standard"
+		fq.SetFuzziness(1)
+		fq.SetBoost(0.5)
+		clauses = append(clauses, fq)
+	}
+
+	if len(clauses) == 1 {
+		return mq
+	}
+	return bleve.NewDisjunctionQuery(clauses...)
 }
 
 func addKeywordQuery(q, field string, boost float64) query.Query {
@@ -152,8 +170,8 @@ func resolveCategoryMatches(q string) []CategoryMatch {
 func buildTextIntentQuery(params SearchParams) query.Query {
 	normalized := normalizeQuery(params.Query)
 	clauses := []query.Query{
-		addNameQuery(normalized, "name"),
-		addNameQuery(normalized, "_search_names"),
+		addNameQuery(normalized, "name", params.Fuzzy, params.Prefix),
+		addNameQuery(normalized, "_search_names", params.Fuzzy, params.Prefix),
 	}
 
 	categoryMatches := resolveCategoryMatches(params.Query)
@@ -180,8 +198,6 @@ func buildTextIntentQuery(params SearchParams) query.Query {
 // Search performs a search on the Bleve index with the given parameters.
 // If the query matches a "X near Y" pattern, it uses NearSearch automatically.
 // For multi-word queries, it may try multiple interpretations for better recall.
-//
-//nolint:revive,cyclop,funlen // Search requires handling many query type and spatial filtering cases
 func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error) {
 	// Check for "X near Y" pattern and handle it via NearSearch
 	if params.Query != "" && doIsNearQuery(params.Query) {
@@ -208,222 +224,22 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		q = bleve.NewMatchAllQuery()
 	}
 
-	// Filter by key and value (single value)
-	keyFilter := params.Key
-	valueFilter := params.Value
-
-	// Filter by key and value (multi-value, OR within each)
-	if len(params.Keys) > 0 {
-		keyList := make([]string, 0, len(params.Keys)+1)
-		keyList = append(keyList, params.Keys...)
-		if keyFilter != "" {
-			keyList = append(keyList, keyFilter)
-		}
-		keyQueries := make([]query.Query, 0, len(keyList)*2)
-		for _, c := range keyList {
-			cq1 := bleve.NewMatchQuery(c)
-			cq1.SetField("key")
-			cq2 := bleve.NewMatchQuery(c)
-			cq2.SetField("keys")
-			keyQueries = append(keyQueries, cq1, cq2)
-		}
-		q = bleve.NewConjunctionQuery(q, bleve.NewDisjunctionQuery(keyQueries...))
-		keyFilter = "" // Already handled
+	if filterQuery := buildFilterQuery(params); filterQuery != nil {
+		q = bleve.NewConjunctionQuery(q, filterQuery)
 	}
 
-	if len(params.Values) > 0 {
-		valueList := make([]string, 0, len(params.Values)+1)
-		valueList = append(valueList, params.Values...)
-		if valueFilter != "" {
-			valueList = append(valueList, valueFilter)
-		}
-		valueQueries := make([]query.Query, 0, len(valueList)*2)
-		for _, s := range valueList {
-			sq1 := bleve.NewMatchQuery(s)
-			sq1.SetField("value")
-			sq2 := bleve.NewMatchQuery(s)
-			sq2.SetField("values")
-			valueQueries = append(valueQueries, sq1, sq2)
-		}
-		q = bleve.NewConjunctionQuery(q, bleve.NewDisjunctionQuery(valueQueries...))
-		valueFilter = "" // Already handled
-	}
-
-	if keyFilter != "" || valueFilter != "" {
-		conjunctions := []query.Query{q}
-		if keyFilter != "" {
-			// Search both primary and multi-key fields
-			cq1 := bleve.NewMatchQuery(keyFilter)
-			cq1.SetField("key")
-			cq2 := bleve.NewMatchQuery(keyFilter)
-			cq2.SetField("keys")
-			conjunctions = append(conjunctions, bleve.NewDisjunctionQuery(cq1, cq2))
-		}
-		if valueFilter != "" {
-			sq1 := bleve.NewMatchQuery(valueFilter)
-			sq1.SetField("value")
-			sq2 := bleve.NewMatchQuery(valueFilter)
-			sq2.SetField("values")
-			conjunctions = append(conjunctions, bleve.NewDisjunctionQuery(sq1, sq2))
-		}
-		q = bleve.NewConjunctionQuery(conjunctions...)
-	}
-
-	if params.Lat != nil && params.Lon != nil && params.Radius != "" {
-		var spatialQuery query.Query
-		if params.GeoMode == "geopoint" || params.GeoMode == "geopoint-centroid" {
-			sq := bleve.NewGeoDistanceQuery(*params.Lon, *params.Lat, params.Radius)
-			sq.SetField("geometry")
-			spatialQuery = sq
-		} else if params.GeoMode != "" {
-			// For geoshape, use a circle query with "intersects"
-			sq, err := bleve.NewGeoShapeCircleQuery([]float64{*params.Lon, *params.Lat}, params.Radius, "intersects")
-			if err == nil {
-				sq.SetField("geometry")
-				spatialQuery = sq
-			}
-		}
-
-		if spatialQuery != nil {
-			q = bleve.NewConjunctionQuery(q, spatialQuery)
-		}
-	} else if params.MinLat != nil && params.MaxLat != nil && params.MinLon != nil && params.MaxLon != nil {
-		var spatialQuery query.Query
-		if params.GeoMode == "geopoint" || params.GeoMode == "geopoint-centroid" {
-			// Top-left = [MinLon, MaxLat], Bottom-right = [MaxLon, MinLat]
-			sq := bleve.NewGeoBoundingBoxQuery(*params.MinLon, *params.MaxLat, *params.MaxLon, *params.MinLat)
-			sq.SetField("geometry")
-			spatialQuery = sq
-		} else if params.GeoMode != "" {
-			// For geoshape, use an envelope query (bbox)
-			envelope := [][][][]float64{
-				{
-					{{*params.MinLon, *params.MaxLat}, {*params.MaxLon, *params.MinLat}},
-				},
-			}
-			sq, err := bleve.NewGeoShapeQuery(envelope, "envelope", "intersects")
-			if err == nil {
-				sq.SetField("geometry")
-				spatialQuery = sq
-			}
-		}
-
-		if spatialQuery != nil {
-			q = bleve.NewConjunctionQuery(q, spatialQuery)
-		}
-	}
-
-	// Address filters
-	if params.Street != "" || params.HouseNumber != "" || params.Postcode != "" || params.City != "" ||
-		params.Country != "" || params.Floor != "" || params.Unit != "" || params.Level != "" {
-
-		conjunctions := []query.Query{q}
-		if params.Street != "" {
-			sq := bleve.NewMatchQuery(params.Street)
-			sq.SetField("addr:street")
-			conjunctions = append(conjunctions, sq)
-		}
-		if params.HouseNumber != "" {
-			sq := bleve.NewMatchQuery(params.HouseNumber)
-			sq.SetField("addr:housenumber")
-			sq.Analyzer = "keyword"
-			conjunctions = append(conjunctions, sq)
-		}
-		if params.Postcode != "" {
-			sq := bleve.NewMatchQuery(params.Postcode)
-			sq.SetField("addr:postcode")
-			sq.Analyzer = "keyword"
-			conjunctions = append(conjunctions, sq)
-		}
-		if params.City != "" {
-			sq := bleve.NewMatchQuery(params.City)
-			sq.SetField("addr:city")
-			conjunctions = append(conjunctions, sq)
-		}
-		if params.Country != "" {
-			sq := bleve.NewMatchQuery(params.Country)
-			sq.SetField("addr:country")
-			conjunctions = append(conjunctions, sq)
-		}
-		if params.Floor != "" {
-			sq := bleve.NewMatchQuery(params.Floor)
-			sq.SetField("addr:floor")
-			sq.Analyzer = "keyword"
-			conjunctions = append(conjunctions, sq)
-		}
-		if params.Unit != "" {
-			sq := bleve.NewMatchQuery(params.Unit)
-			sq.SetField("addr:unit")
-			sq.Analyzer = "keyword"
-			conjunctions = append(conjunctions, sq)
-		}
-		if params.Level != "" {
-			sq := bleve.NewMatchQuery(params.Level)
-			sq.SetField("level")
-			sq.Analyzer = "keyword"
-			conjunctions = append(conjunctions, sq)
-		}
-		q = bleve.NewConjunctionQuery(conjunctions...)
-	}
-
-	// Metadata filters
-	if params.Phone != "" || params.Wheelchair != "" || params.OpeningHours != "" {
-		conjunctions := []query.Query{q}
-		if params.Phone != "" {
-			sq := bleve.NewMatchQuery(params.Phone)
-			sq.SetField("phone")
-			conjunctions = append(conjunctions, sq)
-		}
-		if params.Wheelchair != "" {
-			sq := bleve.NewMatchQuery(params.Wheelchair)
-			sq.SetField("wheelchair")
-			conjunctions = append(conjunctions, sq)
-		}
-		if params.OpeningHours != "" {
-			sq := bleve.NewMatchQuery(params.OpeningHours)
-			sq.SetField("opening_hours")
-			conjunctions = append(conjunctions, sq)
-		}
-		q = bleve.NewConjunctionQuery(conjunctions...)
-	}
-
+	limit, from, fetchSize := effectiveLimitAndWindow(params)
 	searchRequest := bleve.NewSearchRequest(q)
-	originalLimit := params.Limit
-	if originalLimit <= 0 {
-		originalLimit = 100
-	}
-	if originalLimit > 1000 {
-		originalLimit = 1000
-	}
-	// Fetch more results for re-ranking, especially for place-intent queries where
-	// the exact place can rank below many incidental token matches before reranking.
-	searchRequest.Size = min(originalLimit*3, 2000)
-	if IsPlaceIntentQuery(params) {
-		searchRequest.Size = 2000
-	}
-
-	searchRequest.From = params.From
+	// Fetch enough candidates for re-ranking. Offset is applied after re-ranking so
+	// pages remain consistent with the final ordering.
+	searchRequest.Size = fetchSize
+	searchRequest.From = 0
 
 	// Sort purely by score. Re-ranking will handle importance.
 	searchRequest.SortBy([]string{"_score"})
 
 	// Fields to return
-	fields := []string{
-		"name", "alt_name", "old_name", "short_name", "brand", "operator",
-		"key", "value", "keys", "values", "importance",
-		"geometry", "distance_meters",
-		"display_address",
-		"phone", "wheelchair", "opening_hours",
-	}
-	// Add individual address fields for compatibility
-	fields = append(fields,
-		"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
-		"addr:country", "addr:state", "addr:district", "addr:suburb",
-		"addr:neighbourhood", "addr:floor", "addr:unit", "level",
-	)
-	for _, lang := range params.Langs {
-		fields = append(fields, "name:"+lang, "alt_name:"+lang, "old_name:"+lang, "short_name:"+lang)
-	}
+	fields := resultFields(params)
 	searchRequest.Fields = fields
 
 	var exactRes *bleve.SearchResult
@@ -432,9 +248,6 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		exactRes, exactErr = searchExactNameCandidates(index, params, fields)
 		if exactErr != nil {
 			return nil, exactErr
-		}
-		if len(exactRes.Hits) >= originalLimit {
-			return ReRankAndTruncate(exactRes, params, originalLimit), nil
 		}
 	}
 
@@ -447,11 +260,294 @@ func Search(index bleve.Index, params SearchParams) (*bleve.SearchResult, error)
 		mergeSearchHits(res, exactRes)
 	}
 
-	return ReRankAndTruncate(res, params, originalLimit), nil
+	return ReRankAndTruncate(res, params, limit, from), nil
+}
+
+// buildFilterQuery combines all non-text filters into a single Bleve query.
+// It is shared by the normal path and multi-interpretation path so filters are
+// never silently dropped.
+func buildFilterQuery(params SearchParams) query.Query {
+	conjunctions := make([]query.Query, 0, 8)
+	conjunctions = append(conjunctions, buildKeyValueFilters(params)...)
+	if tagQuery := buildTagFilterQuery(params.Tags); tagQuery != nil {
+		conjunctions = append(conjunctions, tagQuery)
+	}
+	if spatialQuery := buildSpatialQuery(params); spatialQuery != nil {
+		conjunctions = append(conjunctions, spatialQuery)
+	}
+	conjunctions = append(conjunctions, buildAddressFilters(params)...)
+	conjunctions = append(conjunctions, buildMetadataFilters(params)...)
+
+	if len(conjunctions) == 0 {
+		return nil
+	}
+	return bleve.NewConjunctionQuery(conjunctions...)
+}
+
+func buildKeyValueFilters(params SearchParams) []query.Query {
+	conjunctions := make([]query.Query, 0, 2)
+
+	keyList := append([]string(nil), params.Keys...)
+	if params.Key != "" {
+		keyList = append(keyList, params.Key)
+	}
+	if len(keyList) > 0 {
+		keyQueries := make([]query.Query, 0, len(keyList)*2)
+		for _, c := range keyList {
+			cq1 := bleve.NewMatchQuery(c)
+			cq1.SetField("key")
+			cq2 := bleve.NewMatchQuery(c)
+			cq2.SetField("keys")
+			keyQueries = append(keyQueries, cq1, cq2)
+		}
+		conjunctions = append(conjunctions, bleve.NewDisjunctionQuery(keyQueries...))
+	}
+
+	valueList := append([]string(nil), params.Values...)
+	if params.Value != "" {
+		valueList = append(valueList, params.Value)
+	}
+	if len(valueList) > 0 {
+		valueQueries := make([]query.Query, 0, len(valueList)*2)
+		for _, s := range valueList {
+			sq1 := bleve.NewMatchQuery(s)
+			sq1.SetField("value")
+			sq2 := bleve.NewMatchQuery(s)
+			sq2.SetField("values")
+			valueQueries = append(valueQueries, sq1, sq2)
+		}
+		conjunctions = append(conjunctions, bleve.NewDisjunctionQuery(valueQueries...))
+	}
+
+	return conjunctions
+}
+
+func buildSpatialQuery(params SearchParams) query.Query {
+	if params.Lat != nil && params.Lon != nil && params.Radius != "" {
+		if params.GeoMode == "geopoint" || params.GeoMode == "geopoint-centroid" {
+			sq := bleve.NewGeoDistanceQuery(*params.Lon, *params.Lat, params.Radius)
+			sq.SetField("geometry")
+			return sq
+		}
+		if params.GeoMode != "" {
+			// For geoshape, use a circle query with "intersects"
+			sq, err := bleve.NewGeoShapeCircleQuery([]float64{*params.Lon, *params.Lat}, params.Radius, "intersects")
+			if err == nil {
+				sq.SetField("geometry")
+				return sq
+			}
+		}
+		return nil
+	}
+
+	if params.MinLat == nil || params.MaxLat == nil || params.MinLon == nil || params.MaxLon == nil {
+		return nil
+	}
+
+	if params.GeoMode == "geopoint" || params.GeoMode == "geopoint-centroid" {
+		// Top-left = [MinLon, MaxLat], Bottom-right = [MaxLon, MinLat]
+		sq := bleve.NewGeoBoundingBoxQuery(*params.MinLon, *params.MaxLat, *params.MaxLon, *params.MinLat)
+		sq.SetField("geometry")
+		return sq
+	}
+	if params.GeoMode != "" {
+		// For geoshape, use an envelope query (bbox)
+		envelope := [][][][]float64{
+			{
+				{{*params.MinLon, *params.MaxLat}, {*params.MaxLon, *params.MinLat}},
+			},
+		}
+		sq, err := bleve.NewGeoShapeQuery(envelope, "envelope", "intersects")
+		if err == nil {
+			sq.SetField("geometry")
+			return sq
+		}
+	}
+	return nil
+}
+
+func hasAddressFilters(params SearchParams) bool {
+	return params.Street != "" ||
+		params.HouseNumber != "" ||
+		params.Postcode != "" ||
+		params.City != "" ||
+		params.Country != "" ||
+		params.Floor != "" ||
+		params.Unit != "" ||
+		params.Level != ""
+}
+
+func buildAddressFilters(params SearchParams) []query.Query {
+	if !hasAddressFilters(params) {
+		return nil
+	}
+
+	conjunctions := make([]query.Query, 0, 8)
+	addTextField := func(field, value, analyzer string) {
+		if value == "" {
+			return
+		}
+		sq := bleve.NewMatchQuery(value)
+		sq.SetField(field)
+		if analyzer != "" {
+			sq.Analyzer = analyzer
+		}
+		conjunctions = append(conjunctions, sq)
+	}
+	addTextField("addr:street", params.Street, "")
+	addTextField("addr:housenumber", params.HouseNumber, "keyword")
+	addTextField("addr:postcode", params.Postcode, "keyword")
+	addTextField("addr:city", params.City, "")
+	addTextField("addr:country", params.Country, "")
+	addTextField("addr:floor", params.Floor, "keyword")
+	addTextField("addr:unit", params.Unit, "keyword")
+	addTextField("level", params.Level, "keyword")
+	return conjunctions
+}
+
+func buildMetadataFilters(params SearchParams) []query.Query {
+	conjunctions := make([]query.Query, 0, 3)
+	addTextField := func(field, value string) {
+		if value == "" {
+			return
+		}
+		sq := bleve.NewMatchQuery(value)
+		sq.SetField(field)
+		conjunctions = append(conjunctions, sq)
+	}
+	addTextField("phone", params.Phone)
+	addTextField("wheelchair", params.Wheelchair)
+	addTextField("opening_hours", params.OpeningHours)
+	return conjunctions
+}
+
+// buildTagFilterQuery maps arbitrary tag filters onto the indexed primary
+// classification fields. Most tagged POIs expose exactly one primary key/value
+// pair (for example amenity=restaurant).
+func buildTagFilterQuery(tags map[string]string) query.Query {
+	if len(tags) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(tags))
+	for key := range tags {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	clauses := make([]query.Query, 0, len(keys))
+	for _, key := range keys {
+		value := tags[key]
+		if key == "" || value == "" {
+			continue
+		}
+
+		keyQuery := bleve.NewMatchQuery(key)
+		keyQuery.SetField("key")
+		keyQuery.Analyzer = "keyword"
+
+		valueQuery := bleve.NewMatchQuery(value)
+		valueQuery.SetField("value")
+		valueQuery.Analyzer = "keyword"
+
+		valuesQuery := bleve.NewMatchQuery(value)
+		valuesQuery.SetField("values")
+		valuesQuery.Analyzer = "keyword"
+
+		clauses = append(clauses, bleve.NewConjunctionQuery(
+			keyQuery,
+			bleve.NewDisjunctionQuery(valueQuery, valuesQuery),
+		))
+	}
+
+	if len(clauses) == 0 {
+		return nil
+	}
+	return bleve.NewConjunctionQuery(clauses...)
+}
+
+// ParseRadiusMeters validates a radius string such as "1000m" or "5km".
+func ParseRadiusMeters(radius string) (int, error) {
+	value := strings.ToLower(strings.TrimSpace(radius))
+	if value == "" {
+		return 0, errors.New("radius is empty")
+	}
+
+	multiplier := 1.0
+	switch {
+	case strings.HasSuffix(value, "km"):
+		multiplier = 1000
+		value = strings.TrimSuffix(value, "km")
+	case strings.HasSuffix(value, "m"):
+		value = strings.TrimSuffix(value, "m")
+	}
+
+	meters, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid radius %q", radius)
+	}
+	if meters <= 0 {
+		return 0, errors.New("radius must be greater than zero")
+	}
+	return int(meters * multiplier), nil
+}
+
+// DistanceMeters returns the Haversine distance between two coordinates.
+func DistanceMeters(lat1, lon1, lat2, lon2 float64) int {
+	const earthRadiusMeters = 6_371_000.0
+	phi1 := lat1 * math.Pi / 180
+	phi2 := lat2 * math.Pi / 180
+	deltaPhi := (lat2 - lat1) * math.Pi / 180
+	deltaLambda := (lon2 - lon1) * math.Pi / 180
+
+	a := math.Sin(deltaPhi/2)*math.Sin(deltaPhi/2) +
+		math.Cos(phi1)*math.Cos(phi2)*math.Sin(deltaLambda/2)*math.Sin(deltaLambda/2)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+
+	return int(earthRadiusMeters * c)
+}
+
+func effectiveLimitAndWindow(params SearchParams) (limit, from, fetchSize int) {
+	limit = params.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	from = max(params.From, 0)
+
+	// Re-ranking changes the final order, so every page must be selected from
+	// the same candidate window. Otherwise fetching a larger window for a later
+	// page can introduce a new top result and make pages overlap.
+	const rerankWindow = 10000
+	fetchSize = rerankWindow
+	return limit, from, fetchSize
+}
+
+func resultFields(params SearchParams) []string {
+	fields := make([]string, 0, 29+4*len(params.Langs))
+	fields = append(fields,
+		"name", "alt_name", "old_name", "short_name", "brand", "operator",
+		"key", "value", "keys", "values", "importance",
+		"geometry", "distance_meters",
+		"display_address",
+		"phone", "wheelchair", "opening_hours",
+	)
+	// Add individual address fields for compatibility
+	fields = append(fields,
+		"addr:housenumber", "addr:street", "addr:city", "addr:postcode",
+		"addr:country", "addr:state", "addr:district", "addr:suburb",
+		"addr:neighbourhood", "addr:floor", "addr:unit", "level",
+	)
+	for _, lang := range params.Langs {
+		fields = append(fields, "name:"+lang, "alt_name:"+lang, "old_name:"+lang, "short_name:"+lang)
+	}
+	return fields
 }
 
 // ReRankAndTruncate applies organic scoring combining the Bleve score with the POI's importance.
-func ReRankAndTruncate(res *bleve.SearchResult, params SearchParams, limit int) *bleve.SearchResult {
+func ReRankAndTruncate(res *bleve.SearchResult, params SearchParams, limit, from int) *bleve.SearchResult {
 	if res == nil || len(res.Hits) == 0 {
 		return res
 	}
@@ -468,19 +564,49 @@ func ReRankAndTruncate(res *bleve.SearchResult, params SearchParams, limit int) 
 			ExactNameMatch:     ExactNormalizedMatch(nameValues, params.Query),
 			HasName:            len(nameValues) > 0,
 		})
+		addDistanceField(hit, params)
 	}
 
-	// Sort descending by new score
-	sort.Slice(res.Hits, func(i, j int) bool {
+	// Sort descending by new score. ID is a stable tie-breaker so pagination does
+	// not shuffle equal-scoring rows between requests.
+	sort.SliceStable(res.Hits, func(i, j int) bool {
+		if res.Hits[i].Score == res.Hits[j].Score {
+			return res.Hits[i].ID < res.Hits[j].ID
+		}
 		return res.Hits[i].Score > res.Hits[j].Score
 	})
+
+	if from >= len(res.Hits) {
+		res.Hits = res.Hits[:0]
+		return res
+	}
+	res.Hits = res.Hits[from:]
 
 	// Truncate to limit
 	if len(res.Hits) > limit {
 		res.Hits = res.Hits[:limit]
 	}
 
+	res.MaxScore = 0
+	for _, hit := range res.Hits {
+		res.MaxScore = max(res.MaxScore, hit.Score)
+	}
+
 	return res
+}
+
+func addDistanceField(hit *blevesearch.DocumentMatch, params SearchParams) {
+	if params.Lat == nil || params.Lon == nil {
+		return
+	}
+	lat, lon, ok := HitLatLon(hit)
+	if !ok {
+		return
+	}
+	if hit.Fields == nil {
+		hit.Fields = make(map[string]any)
+	}
+	hit.Fields["distance_meters"] = DistanceMeters(*params.Lat, *params.Lon, lat, lon)
 }
 
 func searchExactNameCandidates(index bleve.Index, params SearchParams, fields []string) (*bleve.SearchResult, error) {
@@ -533,7 +659,9 @@ func mergeSearchHits(base, extra *bleve.SearchResult) {
 	for _, hit := range merged {
 		base.Hits = append(base.Hits, hit)
 	}
-	base.Total = uint64(len(base.Hits))
+	if base.Total < uint64(len(base.Hits)) {
+		base.Total = uint64(len(base.Hits))
+	}
 }
 
 func hitImportance(fields map[string]any) float64 {
@@ -551,49 +679,55 @@ func categoryMatchScoreForHit(fields map[string]any, query string) float64 {
 	key, value := primaryClassification(fields)
 	score := CategoryMatchScore(query, key, value)
 
-	if values, ok := fields["values"].([]string); ok {
-		for _, fieldValue := range values {
-			score = max(score, CategoryMatchScore(query, key, fieldValue))
-		}
-	}
-	if values, ok := fields["values"].([]any); ok {
-		for _, fieldValue := range values {
-			if s, ok := fieldValue.(string); ok {
-				score = max(score, CategoryMatchScore(query, key, s))
-			}
-		}
+	for _, pair := range classificationPairs(fields) {
+		score = max(score, CategoryMatchScore(query, pair.Key, pair.Value))
 	}
 
 	return score
 }
 
+type classificationPair struct {
+	Key   string
+	Value string
+}
+
+// classificationPairs returns aligned key/value pairs from the multi-value
+// fields. The keys and values arrays are parallel; treating every value as a
+// value of the primary key incorrectly turns address components into category
+// matches.
+func classificationPairs(fields map[string]any) []classificationPair {
+	keys := stringSliceField(fields["keys"])
+	values := stringSliceField(fields["values"])
+	count := min(len(keys), len(values))
+	pairs := make([]classificationPair, 0, count)
+	for i := range count {
+		pairs = append(pairs, classificationPair{Key: keys[i], Value: values[i]})
+	}
+	return pairs
+}
+
+func stringSliceField(raw any) []string {
+	switch values := raw.(type) {
+	case []string:
+		return values
+	case []any:
+		result := make([]string, 0, len(values))
+		for _, value := range values {
+			if s, ok := value.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
 func hitEntityTier(fields map[string]any, key, value string) EntityTier {
 	tier := EntityTierForClassification(key, value)
 
-	if keys, ok := fields["keys"].([]string); ok {
-		for _, fieldKey := range keys {
-			tier = max(tier, EntityTierForClassification(fieldKey, value))
-		}
-	}
-	if keys, ok := fields["keys"].([]any); ok {
-		for _, fieldKey := range keys {
-			if s, ok := fieldKey.(string); ok {
-				tier = max(tier, EntityTierForClassification(s, value))
-			}
-		}
-	}
-
-	if values, ok := fields["values"].([]string); ok {
-		for _, fieldValue := range values {
-			tier = max(tier, EntityTierForClassification(key, fieldValue))
-		}
-	}
-	if values, ok := fields["values"].([]any); ok {
-		for _, fieldValue := range values {
-			if s, ok := fieldValue.(string); ok {
-				tier = max(tier, EntityTierForClassification(key, s))
-			}
-		}
+	for _, pair := range classificationPairs(fields) {
+		tier = max(tier, EntityTierForClassification(pair.Key, pair.Value))
 	}
 
 	return tier

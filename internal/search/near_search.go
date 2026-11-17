@@ -105,21 +105,20 @@ func NearSearch(index bleve.Index, baseParams SearchParams, category, referenceP
 		}, nil
 	}
 
-	// Phase 2: Search for category near the reference location
-	searchParams := SearchParams{
-		Query:    category,
-		Lat:      &lat,
-		Lon:      &lon,
-		Radius:   "5000m", // Default 5km radius for near search
-		Limit:    baseParams.Limit,
-		GeoMode:  baseParams.GeoMode,
-		Langs:    baseParams.Langs,
-		Analyzer: baseParams.Analyzer,
-		Key:      baseParams.Key,   // Preserve key filter if set
-		Value:    baseParams.Value, // Preserve value filter if set
-		Keys:     baseParams.Keys,
-		Values:   baseParams.Values,
+	// Phase 2: Search for category near the reference location. Preserve all
+	// filters, pagination, and matching flags from the original request.
+	searchParams := baseParams
+	searchParams.Query = category
+	searchParams.Lat = &lat
+	searchParams.Lon = &lon
+	searchParams.MinLat = nil
+	searchParams.MaxLat = nil
+	searchParams.MinLon = nil
+	searchParams.MaxLon = nil
+	if searchParams.Radius == "" {
+		searchParams.Radius = "5000m" // Default 5km radius for near search
 	}
+	searchParams.From = baseParams.From
 
 	results, err := Search(index, searchParams)
 	if err != nil {

@@ -229,6 +229,138 @@ func TestSearch_Pagination(t *testing.T) {
 	}
 }
 
+func TestSearch_PaginationHasNoOverlap(t *testing.T) {
+	index := createTestIndexForQuery(t)
+	defer index.Close()
+
+	seen := map[string]bool{}
+	for from := 0; from < 6; from += 2 {
+		results, err := search.Search(index, search.SearchParams{
+			Limit:    2,
+			From:     from,
+			Langs:    []string{"en"},
+			GeoMode:  "geopoint",
+			Analyzer: "standard",
+		})
+		if err != nil {
+			t.Fatalf("search failed: %v", err)
+		}
+		for _, hit := range results.Hits {
+			if seen[hit.ID] {
+				t.Fatalf("hit %s appeared on more than one page", hit.ID)
+			}
+			seen[hit.ID] = true
+		}
+	}
+	if len(seen) != 5 {
+		t.Fatalf("expected 5 unique hits across pages, got %d", len(seen))
+	}
+}
+
+func TestSearch_MultiWordQueryKeepsFilters(t *testing.T) {
+	index := createTestIndexForQuery(t)
+	defer index.Close()
+
+	unfiltered, err := search.Search(index, search.SearchParams{
+		Query:    "Restaurant Berlin",
+		Limit:    10,
+		Langs:    []string{"en"},
+		GeoMode:  "geopoint",
+		Analyzer: "standard",
+	})
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+	if unfiltered.Total == 0 {
+		t.Fatal("expected unfiltered multi-word query to return results")
+	}
+
+	filtered, err := search.Search(index, search.SearchParams{
+		Query:    "Restaurant Berlin",
+		City:     "Munich",
+		Limit:    10,
+		Langs:    []string{"en"},
+		GeoMode:  "geopoint",
+		Analyzer: "standard",
+	})
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+	if filtered.Total != 0 {
+		t.Fatalf("expected city filter to exclude Berlin results, got %d", filtered.Total)
+	}
+
+	tagged, err := search.Search(index, search.SearchParams{
+		Query:    "Restaurant Berlin",
+		Tags:     map[string]string{"amenity": "cafe"},
+		Limit:    10,
+		Langs:    []string{"en"},
+		GeoMode:  "geopoint",
+		Analyzer: "standard",
+	})
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+	if tagged.Total != 0 {
+		t.Fatalf("expected amenity=cafe tag filter to exclude restaurants, got %d", tagged.Total)
+	}
+}
+
+func TestSearch_TagFilters(t *testing.T) {
+	index := createTestIndexForQuery(t)
+	defer index.Close()
+
+	results, err := search.Search(index, search.SearchParams{
+		Limit:    10,
+		Langs:    []string{"en"},
+		GeoMode:  "geopoint",
+		Analyzer: "standard",
+		Tags:     map[string]string{"amenity": "restaurant"},
+	})
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+	if results.Total != 1 || len(results.Hits) != 1 {
+		t.Fatalf("expected exactly one restaurant, got %d", results.Total)
+	}
+	if results.Hits[0].ID != "node/3" {
+		t.Fatalf("expected node/3, got %s", results.Hits[0].ID)
+	}
+}
+
+func TestSearch_FuzzyAndPrefixToggles(t *testing.T) {
+	index := createTestIndexForQuery(t)
+	defer index.Close()
+
+	typoDisabled, err := search.Search(index, search.SearchParams{
+		Query:    "Brlin",
+		Limit:    10,
+		Langs:    []string{"en"},
+		GeoMode:  "geopoint",
+		Analyzer: "standard",
+	})
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+	if typoDisabled.Total != 0 {
+		t.Fatalf("expected fuzzy matching to be disabled by default, got %d", typoDisabled.Total)
+	}
+
+	prefixDisabled, err := search.Search(index, search.SearchParams{
+		Query:    "Ber",
+		Limit:    10,
+		Langs:    []string{"en"},
+		GeoMode:  "geopoint",
+		Analyzer: "standard",
+	})
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+	if prefixDisabled.Total != 0 {
+		t.Fatalf("expected prefix matching to be disabled by default, got %d", prefixDisabled.Total)
+	}
+}
+
 func TestSearch_AddressFilters(t *testing.T) {
 	index := createTestIndexForQuery(t)
 	defer index.Close()
@@ -640,6 +772,41 @@ func TestSearch_NearQuery(t *testing.T) {
 	}
 	if results.Hits[0].ID != "node/3" {
 		t.Errorf("expected Restaurant Alpha to be first near result, got %s", results.Hits[0].ID)
+	}
+}
+
+func TestSearch_NearQueryPreservesRadius(t *testing.T) {
+	index := createTestIndexForQuery(t)
+	defer index.Close()
+
+	near, err := search.Search(index, search.SearchParams{
+		Query:    "restaurant near Berlin",
+		Radius:   "100m",
+		Limit:    10,
+		Langs:    []string{"en"},
+		GeoMode:  "geopoint",
+		Analyzer: "standard",
+	})
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+	if near.Total != 0 {
+		t.Fatalf("expected 100m near search to exclude Restaurant Alpha, got %d", near.Total)
+	}
+
+	wide, err := search.Search(index, search.SearchParams{
+		Query:    "restaurant near Berlin",
+		Radius:   "10km",
+		Limit:    10,
+		Langs:    []string{"en"},
+		GeoMode:  "geopoint",
+		Analyzer: "standard",
+	})
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+	if wide.Total == 0 {
+		t.Fatal("expected 10km near search to include Restaurant Alpha")
 	}
 }
 
